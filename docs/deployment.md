@@ -1,10 +1,10 @@
-# Deployment guide — `0.1.0-rc.2`
+# Deployment guide — `0.1.0-rc.3`
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 15-minute Apps Script trigger is the running service; GitHub is source control only. `0.1.0-rc.2` is a prerelease candidate, not stable or production-ready.
+This guide deploys a personal Google Apps Script sync engine. The 15-minute Apps Script trigger is the running service; GitHub is source control only. `0.1.0-rc.3` is a prerelease candidate, not stable or production-ready.
 
-Use a private staging project and disposable tasks first. The code can create counterpart lists/tasks during normal syncing. Keep all three safety switches `false`: task deletion and list deletion lack real destructive-account smoke tests, and task moves remain unavailable because no recoverable move journal exists.
+Use a private staging project and disposable tasks first. The code can create counterpart lists/tasks during normal syncing. Keep all three safety switches `false` until destructive smoke testing is complete. Cross-list movement uses delete-and-recreate semantics and is effective only when both task deletion and task moves are enabled.
 
 There is no public Apps Script copy/template yet. The manual Apps Script route below is the supported first path. The optional `clasp` route is for people who already use Node.js and source control.
 
@@ -68,7 +68,7 @@ Never put these values, OAuth tokens, raw state, or IDs in the repository, issue
 4. Run `createTrigger()` only after the staging results are acceptable. It creates the 15-minute `syncAll` trigger.
 5. After it runs, use `healthCheck()` and `setupStatus()` to check health and trigger state.
 
-Do not enable the deletion switches to "test" them against valuable data. `SYNC_ALLOW_TASK_MOVES` also remains `false`; setting it to `true` does not make moves available in this RC.
+Do not enable destructive switches to test them against valuable data. Cross-list movement intentionally creates a fresh provider task ID in the destination list, retires the old mapping, and tombstones the old counterpart ID for 30 days. Set both `SYNC_ALLOW_TASK_MOVES=true` and `SYNC_ALLOW_DELETIONS=true` only after a disposable-task trial.
 
 ## Optional advanced `clasp` route
 

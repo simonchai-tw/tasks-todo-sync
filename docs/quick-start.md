@@ -46,6 +46,6 @@ For a low-risk trial, use a separate test account. If that is not possible, limi
 4. Use disposable tasks within the deliberately limited scope and run `syncAll()` twice. Check the second run does not create unexpected duplicates.
 5. Only after that, run `createTrigger()` and later `healthCheck()` to confirm the 15-minute schedule is healthy.
 
-Keep `SYNC_ALLOW_DELETIONS=false`, `SYNC_ALLOW_LIST_DELETIONS=false`, and `SYNC_ALLOW_TASK_MOVES=false`. The deletion code has not received destructive real-account smoke testing, and moves are intentionally unavailable.
+Keep `SYNC_ALLOW_DELETIONS=false`, `SYNC_ALLOW_LIST_DELETIONS=false`, and `SYNC_ALLOW_TASK_MOVES=false` until disposable-data testing is complete. A cross-list move is synchronized as deletion of the old counterpart plus creation in the new mapped list; it requires both task deletion and task moves to be enabled.
 
 For rollback, explicit list pairing, or the optional Node/`clasp` path, use the [deployment guide](deployment.md).

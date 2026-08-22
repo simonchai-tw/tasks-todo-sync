@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.3 — 2026-08-22
+
+Public prerelease tag: `v0.1.0-rc.3`. This is a release candidate, not a stable or production-ready release.
+
+- Added bidirectional cross-list convergence using delete-and-recreate semantics instead of preserving provider task IDs.
+- Google-origin moves retire the old Microsoft mapping, recreate the counterpart in the newly mapped list, and tombstone the old Microsoft task ID.
+- Microsoft-origin moves converge through the existing new-task path plus two-round deletion confirmation for the old counterpart.
+- Added regression coverage for both move directions, retry after an already-missing source counterpart, and complete deletion-state cleanup.
+- Public destructive-feature defaults remain `false`; personal operators can opt in after disposable-data testing.
+
 ## 0.1.0-rc.2 — 2026-08-22
 
 Public prerelease tag: `v0.1.0-rc.2`. This is a release candidate, not a stable or production-ready release.

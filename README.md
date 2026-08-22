@@ -48,7 +48,7 @@ No hosted middleman. No shared client secret. Your accounts, your script, your d
 | Eligible personal lists | Google ↔ Microsoft | Auto-discovery and counterpart creation |
 | Task deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
 | List deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
-| Cross-list task moves | — | Deliberately unavailable in this RC |
+| Cross-list task moves | Google ↔ Microsoft | Implemented as delete-and-recreate, **off by default**; requires task deletion |
 
 ## How it works
 
@@ -81,7 +81,7 @@ createTrigger();          // install the 15-minute trigger
 
 | Check | Verified result |
 |---|---|
-| Local regression suite | **126 / 126 passed** |
+| Local regression suite | **130 / 130 passed** |
 | GitHub CI | Node.js **22 and 24 passed** |
 | Real scheduled run | 15-minute Apps Script trigger completed successfully |
 | Deployed health check | Healthy, **0 reported issues** |
@@ -89,7 +89,7 @@ createTrigger();          // install the 15-minute trigger
 | Dependabot | Dependency scan complete, **0 alerts** |
 | Secret scanning | **No secrets found** |
 
-These results were verified for `v0.1.0-rc.2` on 2026-08-22. They are strong release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
+These results were verified for `v0.1.0-rc.3` on 2026-08-22. They are strong release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
 
 ## Safety by default
 
@@ -103,7 +103,7 @@ SYNC_ALLOW_TASK_MOVES=false
 ```
 
 > [!IMPORTANT]
-> Keep all three destructive-feature switches set to `false` for important data. Task and list deletion logic exists, including tombstone safeguards, but real-account destructive smoke testing is still pending. Cross-list moves remain blocked because this RC has no recoverable move journal.
+> Keep all three destructive-feature switches set to `false` for important data until you complete a disposable-task smoke test. Task and list deletion use two-round confirmation and 30-day tombstones. Cross-list movement is modeled as deleting the old counterpart and recreating it in the newly mapped list, and is effective only when both `SYNC_ALLOW_TASK_MOVES=true` and `SYNC_ALLOW_DELETIONS=true`.
 
 Additional guardrails:
 
@@ -120,7 +120,7 @@ Additional guardrails:
 | You use Google Tasks and Microsoft To Do every day | You need a hosted multi-user SaaS |
 | You want the same task changes reflected on both sides | You need a one-click login-only setup |
 | You are comfortable owning a private Apps Script project | You need zero-configuration deployment |
-| You want transparent, auditable synchronization | You need task moves or deletion enabled immediately |
+| You want transparent, auditable synchronization | You need destructive features enabled without first testing disposable data |
 
 ## Documentation
 
@@ -141,4 +141,4 @@ npm run check
 npm test
 ```
 
-GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.2), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.
+GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.3), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.

@@ -1,7 +1,7 @@
 # Release-candidate audit
 
 Audit date: 2026-08-22
-Candidate: `0.1.0-rc.2` / intended prerelease tag `v0.1.0-rc.2`
+Candidate: `0.1.0-rc.3` / intended prerelease tag `v0.1.0-rc.3`
 
 ## RC decision
 
@@ -13,7 +13,7 @@ The three safety switches remain required defaults:
 - `SYNC_ALLOW_LIST_DELETIONS=false`
 - `SYNC_ALLOW_TASK_MOVES=false`
 
-Task and list deletion logic is implemented but has not been exercised in a real destructive-account smoke test. Cross-list moves are deliberately unavailable because no recoverable move journal exists. `dryRunReport()` is a read-only configuration/list report, not a task-level mutation plan.
+Task and list deletion logic is implemented but has not yet completed a week of real-account observation. Cross-list movement is implemented as delete-and-recreate rather than provider-ID-preserving movement; it requires task deletion, retires the old mapping, and keeps the old provider ID tombstoned for 30 days. `dryRunReport()` is a read-only configuration/list report, not a task-level mutation plan.
 
 ## Evidence reviewed
 

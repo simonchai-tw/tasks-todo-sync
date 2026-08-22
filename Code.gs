@@ -3720,7 +3720,8 @@ function taskDeletionObservability_(state, safety) {
   return {
     deletionsEnabled: !!(safety && safety.allowDeletions),
     taskMovesEnabled: !!(safety && safety.allowTaskMoves),
-    taskMovesAvailable: false,
+    taskMovesAvailable: true,
+    taskMovesEffective: !!(safety && safety.allowTaskMoves && safety.allowDeletions),
     pendingTaskDeletionCandidates: Object.keys(state.pendingTaskDeletions).length,
     deletionJournals: Object.keys(state.deletionJournal).length,
     orphanDeletionJournals: orphanDeletionJournals,
@@ -3729,6 +3730,76 @@ function taskDeletionObservability_(state, safety) {
     googleTombstones: Object.keys(state.tombstones.g).length,
     microsoftTombstones: Object.keys(state.tombstones.m).length
   };
+}
+
+function googleMoveInventoryComplete_(state, snap, rec, currentGListId, targetMsListId) {
+  return hasCompleteTaskDeletionInventory_(snap) && !!rec &&
+    !!(snap.activeGListIds && snap.activeGListIds[currentGListId]) &&
+    !!(snap.gTaskInventoryListIds && snap.gTaskInventoryListIds[currentGListId]) &&
+    !!(snap.msTaskInventoryListIds && snap.msTaskInventoryListIds[targetMsListId]) &&
+    !isGListFaulted_(state, rec.gListId) && !isMsListFaulted_(state, rec.msListId) &&
+    !isGListFaulted_(state, currentGListId) && !isMsListFaulted_(state, targetMsListId) &&
+    !isListPairReserved_(snap, rec.gListId, rec.msListId) &&
+    !isListPairReserved_(snap, currentGListId, targetMsListId);
+}
+
+function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
+    targetMsListId, progress) {
+  if (!snap.safety || !snap.safety.allowTaskMoves) {
+    console.warn('[MoveBlocked] Google 任務跨清單；SYNC_ALLOW_TASK_MOVES=false：' +
+      taskLabel_(gId, gTask.title));
+    return false;
+  }
+  if (!snap.safety.allowDeletions) {
+    console.warn('[MoveBlocked] Google 任務跨清單；SYNC_ALLOW_DELETIONS=false：' +
+      taskLabel_(gId, gTask.title));
+    return false;
+  }
+  if (state.deletionJournal[gId]) {
+    console.warn('[MoveBlocked] Google 任務跨清單；DELETE_JOURNAL_PENDING：' +
+      taskLabel_(gId, gTask.title));
+    return false;
+  }
+  if (!googleMoveInventoryComplete_(state, snap, rec, currentGListId, targetMsListId)) {
+    console.warn('[MoveBlocked] Google 任務跨清單；MOVE_INVENTORY_INCOMPLETE：' +
+      taskLabel_(gId, gTask.title));
+    return false;
+  }
+
+  const oldMsTask = snap.msTasksById[rec.msId] || null;
+  if (oldMsTask && snap.msListByTask[rec.msId] !== rec.msListId) {
+    console.warn('[MoveBlocked] Google 任務跨清單；MOVE_SOURCE_CHANGED：' +
+      taskLabel_(gId, gTask.title));
+    return false;
+  }
+
+  // Product semantics intentionally treat a cross-list move as a local
+  // re-sync: remove the old counterpart and create a fresh counterpart in the
+  // newly mapped list. Provider task IDs are not preserved.
+  if (oldMsTask) {
+    try {
+      deleteMsTask_(rec.msListId, rec.msId);
+    } catch (e) {
+      if (!isNotFoundError_(e)) throw e;
+    }
+  }
+  const movedMsTask = createMsTask_(
+    targetMsListId,
+    msPayloadFromGoogle_(gTask, 'create')
+  );
+
+  markTaskDeletionCandidateInvalidated_(progress, gId);
+  clearDeletionTracking_(state, gId);
+  clearTaskDeletionConflict_(state, gId);
+  state.tombstones.m[rec.msId] = { at: Date.now(), source: 'move' };
+  putMapping_(state, gTask, currentGListId, movedMsTask, targetMsListId);
+
+  delete snap.msTasksById[rec.msId];
+  delete snap.msListByTask[rec.msId];
+  snap.msTasksById[movedMsTask.id] = movedMsTask;
+  snap.msListByTask[movedMsTask.id] = targetMsListId;
+  console.log('[Move] Google → Microsoft 重新同步：' + taskLabel_(gId, gTask.title));
+  return true;
 }
 
 function cloneTaskDeletionValue_(value) {
@@ -4422,6 +4493,13 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
     const currentGListId = gTask ? snap.gListByTask[gId] : rec.gListId;
     const targetMsListId = state.listMap[currentGListId];
 
+    if (gTask && targetMsListId && targetMsListId !== rec.msListId) {
+      resyncGoogleTaskMove_(
+        state, snap, gId, gTask, rec, currentGListId, targetMsListId, progress
+      );
+      continue;
+    }
+
     const missingSide = missingSide_(gTask, msTask);
     if (missingSide) {
       if (missingSide === 'google' && msTask) {
@@ -4468,16 +4546,6 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
       markTaskDeletionCandidateInvalidated_(progress, gId);
       clearPendingTaskDeletion_(state, gId);
       clearTaskDeletionConflict_(state, gId);
-    }
-    if (targetMsListId && targetMsListId !== rec.msListId) {
-      if (!snap.safety || !snap.safety.allowTaskMoves) {
-        console.warn('[MoveBlocked] Google 任務跨清單；SYNC_ALLOW_TASK_MOVES=false：' + taskLabel_(gId, gTask.title));
-      } else {
-        // A create-before-delete move needs its own durable remote-ID journal.
-        // Until that exists, do not create a potentially unmapped destination copy.
-        console.warn('[MoveBlocked] Google 任務跨清單；MOVE_RECOVERY_JOURNAL_REQUIRED：' + taskLabel_(gId, gTask.title));
-      }
-      continue;
     }
     const gChanged = epoch_(gTask.updated) > epoch_(rec.gUpdated);
     const mChanged = epoch_(msTask.lastModifiedDateTime) > epoch_(rec.msUpdated);
@@ -4777,6 +4845,8 @@ function dryRunReport() {
       }
       if (!safety.allowTaskMoves) {
         info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false；Google 跨清單移動會被阻擋。');
+      } else if (!safety.allowDeletions) {
+        warnings.push('[WARNING] SYNC_ALLOW_TASK_MOVES=true 需要 SYNC_ALLOW_DELETIONS=true；目前跨清單移動仍會被阻擋。');
       }
       if (!safety.allowListDeletions) {
         info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false；不會累積或推進清單刪除候選。');
@@ -4865,6 +4935,8 @@ function dryRunReport() {
     }
     if (!safety.allowTaskMoves) {
       info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false；Google 跨清單移動會被阻擋。');
+    } else if (!safety.allowDeletions) {
+      warnings.push('[WARNING] SYNC_ALLOW_TASK_MOVES=true 需要 SYNC_ALLOW_DELETIONS=true；目前跨清單移動仍會被阻擋。');
     }
     if (!safety.allowListDeletions) {
       info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false；不會累積或推進清單刪除候選。');

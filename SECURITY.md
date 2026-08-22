@@ -4,7 +4,7 @@
 
 | Version | Status |
 | --- | --- |
-| `0.1.0-rc.2` | Supported prerelease only; not stable or production-ready |
+| `0.1.0-rc.3` | Supported prerelease only; not stable or production-ready |
 | Earlier candidates | Not supported for new use |
 
 ## Threat model and handling of secrets
@@ -25,4 +25,4 @@ If a possible destructive-sync issue is found, first run `deleteSyncTriggers()` 
 
 ## RC limitations
 
-`SYNC_ALLOW_DELETIONS`, `SYNC_ALLOW_LIST_DELETIONS`, and `SYNC_ALLOW_TASK_MOVES` must remain `false`. Deletion paths have not received real-account destructive smoke testing, and cross-list moves have no recoverable journal. See [the audit](docs/audit.md) for the remaining verification work.
+Public defaults keep `SYNC_ALLOW_DELETIONS`, `SYNC_ALLOW_LIST_DELETIONS`, and `SYNC_ALLOW_TASK_MOVES` set to `false`. Operators should enable them only after disposable-data testing. Cross-list movement requires both task deletion and task moves, recreates the destination task with a new provider ID, and tombstones the retired counterpart ID. See [the audit](docs/audit.md) for the remaining verification work.
