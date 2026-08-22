@@ -1,48 +1,148 @@
-# Tasks–To Do Sync
+<div align="center">
+  <img src="docs/assets/tasks-todo-sync-hero.svg" width="100%" alt="Tasks–To Do Sync connects Google Tasks with Microsoft To Do through a private Google Apps Script bridge">
+</div>
 
-> **Release status — `0.1.0-rc.2`: first public release candidate, not stable or production-ready.** The `v0.1.0-rc.2` tag identifies this prerelease; it does not imply production readiness.
+<h1 align="center">Tasks–To Do Sync</h1>
 
-Tasks–To Do Sync bridges Google Tasks with Microsoft To Do. Microsoft To Do and iOS Reminders already work well together, but Google, Android, Gemini, and Gmail's default task ecosystem is less compatible with them. This Google Apps Script project provides a personal, single-operator bridge between Google Tasks and Microsoft To Do.
+<p align="center">
+  <strong>Keep Google, Gemini, Gmail, Android, Microsoft To Do, and iOS Reminders in the same task loop.</strong><br>
+  A private, self-hosted bridge for people who live in both ecosystems.
+</p>
 
-Start with the non-technical [quick start](docs/quick-start.md). Use the detailed [deployment guide](docs/deployment.md) before enabling the schedule. Read the [security policy](SECURITY.md), [changelog](CHANGELOG.md), and [MIT license](LICENSE) before using or sharing the code.
+<p align="center">
+  <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/simonchai-tw/tasks-todo-sync/releases"><img src="https://img.shields.io/github/v/release/simonchai-tw/tasks-todo-sync?include_prereleases&amp;sort=semver&amp;style=flat-square" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/simonchai-tw/tasks-todo-sync?style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/runtime-Google%20Apps%20Script-4285F4?style=flat-square" alt="Google Apps Script">
+</p>
 
-## What this RC is — and is not
+<p align="center">
+  <a href="#why-this-exists">Why</a> ·
+  <a href="#what-syncs">Features</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#get-started">Get started</a> ·
+  <a href="#safety-by-default">Safety</a> ·
+  <a href="docs/deployment.md">Deploy</a> ·
+  <a href="https://github.com/simonchai-tw/tasks-todo-sync/graphs/contributors">Contributors</a>
+</p>
 
-- It is a Google Apps Script sync engine. GitHub stores the source; GitHub Pages, Cloudflare Pages, and a GitHub Release do not run the 15-minute sync.
-- It is designed for **one operator, one private Apps Script project, and that operator's own Google and Microsoft accounts**. It is not a hosted multi-user service.
-- Every user needs their **own** Microsoft Entra app registration and client secret. There is no login-only mode, shared secret, or one-click public Apps Script template yet.
-- The three safety switches must remain `false` for this RC:
-  - `SYNC_ALLOW_DELETIONS=false`
-  - `SYNC_ALLOW_LIST_DELETIONS=false`
-  - `SYNC_ALLOW_TASK_MOVES=false`
-- Task-deletion and list-deletion code is implemented, but real-account destructive smoke testing has **not** been completed. Do not enable either deletion switch for important data.
-- Cross-list task moves are unavailable in this RC. The move switch is deliberately blocked because there is no recoverable move journal.
-- `dryRunReport()` is a read-only configuration/list report. It is **not** a per-task mutation plan and cannot prove every later create, update, or deletion is safe.
+---
 
-## Current evidence, with its boundary
+## Why this exists
 
-Static validation and the current local test suite have passed. A staging Apps Script project has also been checked for matching Code and manifest, successfully run its 15-minute trigger on 2026-08-22, and returned a healthy status with zero reported issues. This is useful staging evidence, not proof of production readiness: destructive account testing, full field coverage, OAuth reauthorization, rollback drills, concurrency protection, and long-running/load validation remain incomplete. See [the audit](docs/audit.md).
+Microsoft To Do already fits neatly into the Microsoft and iOS worlds. Google Tasks is the default destination for tasks created through Gemini, Gmail, and Android—but the two ecosystems do not naturally meet.
 
-## Safe first use
+**Tasks–To Do Sync closes that gap.** It runs inside your own private Google Apps Script project, discovers eligible lists on both sides, and keeps task changes moving between Google Tasks and Microsoft To Do every 15 minutes.
 
-1. Make a separate Google Apps Script project for staging and follow the [quick start](docs/quick-start.md).
-2. Set the project to **your own IANA time zone** before syncing. Google Tasks due dates are date-only; Microsoft due times are not preserved.
-3. Run `initializeSafeDefaults()`, add your own Microsoft credentials to Script Properties, complete Microsoft OAuth, and run `setupStatus()` plus `dryRunReport()`.
-4. Test two manual `syncAll()` runs with disposable tasks, then create the 15-minute trigger only after the results are understood.
+No hosted middleman. No shared client secret. Your accounts, your script, your data.
 
-The repository intentionally does not document or link private working notes. They are not part of this public RC.
+## What syncs
 
-## Local checks
+| Capability | Direction | Release candidate status |
+|---|:---:|---|
+| Task creation and edits | Google ↔ Microsoft | Ready for personal use |
+| Complete and reopen | Google ↔ Microsoft | Ready for personal use |
+| Notes | Google ↔ Microsoft | Plain-text round trip |
+| Due dates | Google ↔ Microsoft | Date only; Google Tasks has no time-of-day field |
+| Eligible personal lists | Google ↔ Microsoft | Auto-discovery and counterpart creation |
+| Task deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
+| List deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
+| Cross-list task moves | — | Deliberately unavailable in this RC |
 
-Node.js 22 or later is required for the local checks and optional `clasp` workflow:
+## How it works
+
+```mermaid
+flowchart LR
+    G["Gemini · Gmail · Android"] --> GT["Google Tasks"]
+    GT <--> S["Tasks–To Do Sync<br/>private Google Apps Script"]
+    S <--> MT["Microsoft To Do"]
+    MT -. "existing account integration" .-> IOS["iOS Reminders"]
+```
+
+The script keeps an ID-based mapping between paired lists and tasks. Existing mappings survive list renames; unique custom-list names help with first pairing; ambiguous matches stop with a fault instead of guessing. A 15-minute Apps Script trigger handles normal synchronization after the initial manual checks.
+
+## Get started
+
+> [!TIP]
+> Start with the [non-technical quick start](docs/quick-start.md). The complete [deployment guide](docs/deployment.md) covers Microsoft Entra setup, rollback, explicit pairing, and optional `clasp` deployment.
+
+1. Create a private standalone Google Apps Script project and copy in [`Code.gs`](Code.gs) plus [`appsscript.json`](appsscript.json).
+2. Set your own IANA time zone, then run `initializeSafeDefaults()`.
+3. Register your own Microsoft Entra application with delegated `Tasks.ReadWrite` permission and complete Microsoft authorization.
+4. Run `setupStatus()` and `dryRunReport()`. Resolve every unexpected warning.
+5. Test two manual `syncAll()` runs with disposable tasks. Only then run `createTrigger()` for the 15-minute schedule.
+
+```javascript
+initializeSafeDefaults(); // safe switches off, automatic list discovery on
+setupStatus();            // configuration and authorization health
+dryRunReport();           // read-only list/configuration report
+syncAll();                // run twice before enabling the schedule
+createTrigger();          // install the 15-minute trigger
+```
+
+## Proof, not promises
+
+| Check | Verified result |
+|---|---|
+| Local regression suite | **126 / 126 passed** |
+| GitHub CI | Node.js **22 and 24 passed** |
+| Real scheduled run | 15-minute Apps Script trigger completed successfully |
+| Deployed health check | Healthy, **0 reported issues** |
+| CodeQL | First full scan passed, **0 alerts** |
+| Dependabot | Dependency scan complete, **0 alerts** |
+| Secret scanning | **No secrets found** |
+
+These results were verified for `v0.1.0-rc.2` on 2026-08-22. They are strong release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
+
+## Safety by default
+
+The setup helper explicitly writes these release-candidate defaults:
+
+```properties
+SYNC_LIST_DISCOVERY_MODE=auto
+SYNC_ALLOW_DELETIONS=false
+SYNC_ALLOW_LIST_DELETIONS=false
+SYNC_ALLOW_TASK_MOVES=false
+```
+
+> [!IMPORTANT]
+> Keep all three destructive-feature switches set to `false` for important data. Task and list deletion logic exists, including tombstone safeguards, but real-account destructive smoke testing is still pending. Cross-list moves remain blocked because this RC has no recoverable move journal.
+
+Additional guardrails:
+
+- The bridge is designed for **one operator and that operator's own accounts**.
+- Microsoft credentials stay in private Apps Script Properties and are never part of this repository.
+- Auto-discovery ignores shared, non-owned, unknown, excluded, and special Microsoft lists.
+- `dryRunReport()` is read-only, but it is a list/configuration report—not a promise about every later task mutation.
+- Missing or ambiguous identities stop safely instead of being paired by guesswork.
+
+## Is it for you?
+
+| A good fit | Not yet a fit |
+|---|---|
+| You create tasks through Gemini, Gmail, or Android | You need a hosted multi-user SaaS |
+| You use Microsoft To Do or iOS Reminders as your main task view | You need a one-click login-only setup |
+| You are comfortable owning a private Apps Script project | You need zero-configuration deployment |
+| You want transparent, auditable synchronization | You need task moves or deletion enabled immediately |
+
+## Documentation
+
+| Guide | Use it for |
+|---|---|
+| [Quick start](docs/quick-start.md) | The shortest safe personal setup path |
+| [Deployment guide](docs/deployment.md) | Entra registration, Apps Script, OAuth, validation, rollback |
+| [Engineering audit](docs/audit.md) | Verified behavior, limitations, and deferred risks |
+| [Security policy](SECURITY.md) | Reporting a vulnerability privately |
+| [Changelog](CHANGELOG.md) | Release history and scope |
+
+## Local verification
+
+Node.js 22 or later is required only for repository checks and the optional `clasp` workflow:
 
 ```bash
 npm run check
 npm test
 ```
 
-The CI workflow runs the same checks on Node.js 22 and 24. Deployment and rollback details, including the distinction between restoring source and restoring sync state, are in the [deployment guide](docs/deployment.md).
-
-## Authors
-
-The first public version was created by Simon and ChatGPT.
+GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.2), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.
