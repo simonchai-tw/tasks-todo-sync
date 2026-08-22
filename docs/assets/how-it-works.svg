@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">How Tasks–To Do Sync works</title>
+  <desc id="desc">Google Tasks synchronizes bidirectionally with Microsoft To Do through a private Google Apps Script project.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="1" stop-color="#102b43"/>
+    </linearGradient>
+    <linearGradient id="sync" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4285f4"/>
+      <stop offset="0.5" stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M28 0H0V28" fill="none" stroke="#ffffff" stroke-opacity="0.035"/>
+    </pattern>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="320" rx="28" fill="url(#background)"/>
+  <rect width="1200" height="320" rx="28" fill="url(#grid)"/>
+
+  <text x="600" y="48" text-anchor="middle" fill="#a9bdd3" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" font-weight="700" letter-spacing="2.4">BIDIRECTIONAL PERSONAL SYNC</text>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="90" width="280" height="132" rx="22" fill="#102b4c" stroke="#4285f4" stroke-opacity="0.45"/>
+    <rect x="460" y="78" width="280" height="156" rx="24" fill="#0b1c31" stroke="url(#sync)" stroke-width="2"/>
+    <rect x="850" y="90" width="280" height="132" rx="22" fill="#25204c" stroke="#8b5cf6" stroke-opacity="0.5"/>
+  </g>
+
+  <g transform="translate(100 118)">
+    <circle cx="28" cy="28" r="28" fill="#4285f4"/>
+    <path d="M16 28l8 8 17-20" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="72" y="25" fill="#f7fbff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="700">Google Tasks</text>
+    <text x="72" y="52" fill="#9fb5cb" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">lists · tasks · status · dates</text>
+  </g>
+
+  <g transform="translate(490 104)">
+    <circle cx="110" cy="32" r="32" fill="#0d2740" stroke="url(#sync)" stroke-width="2"/>
+    <path d="M91 29h31l-8-8M129 37H98l8 8" fill="none" stroke="url(#sync)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="110" y="88" text-anchor="middle" fill="#f7fbff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="19" font-weight="700">Tasks–To Do Sync</text>
+    <text x="110" y="112" text-anchor="middle" fill="#9fb5cb" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">private Google Apps Script</text>
+  </g>
+
+  <g transform="translate(880 118)">
+    <circle cx="28" cy="28" r="28" fill="#7656e8"/>
+    <path d="M15 30l9 8 19-22M19 22l7 6" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="72" y="25" fill="#f7fbff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="700">Microsoft To Do</text>
+    <text x="72" y="52" fill="#aeb6d7" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13">lists · tasks · status · dates</text>
+  </g>
+
+  <path d="M366 143h74l-13-13M440 169h-74l13 13" fill="none" stroke="#5cc8f8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M760 143h74l-13-13M834 169h-74l13 13" fill="none" stroke="#7e8df8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <circle cx="447" cy="143" r="4" fill="#67e8f9"/>
+  <circle cx="753" cy="169" r="4" fill="#8b5cf6"/>
+
+  <text x="600" y="280" text-anchor="middle" fill="#a9bdd3" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" letter-spacing="0.6">RUNS FROM YOUR OWN APPS SCRIPT PROJECT · 15-MINUTE SCHEDULE</text>
+</svg>

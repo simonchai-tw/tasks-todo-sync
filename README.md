@@ -5,7 +5,7 @@
 <h1 align="center">Tasks–To Do Sync</h1>
 
 <p align="center">
-  <strong>Keep Google, Gemini, Gmail, Android, Microsoft To Do, and iOS Reminders in the same task loop.</strong><br>
+  <strong>Keep Google Task and Microsoft To Do in the same task loop.</strong><br>
   A private, self-hosted bridge for people who live in both ecosystems.
 </p>
 
@@ -31,7 +31,7 @@
 
 ## Why this exists
 
-Microsoft To Do already fits neatly into the Microsoft and iOS worlds. Google Tasks is the default destination for tasks created through Gemini, Gmail, and Android—but the two ecosystems do not naturally meet.
+Google Tasks and Microsoft To Do are both useful inside their own ecosystems, but they do not naturally stay in sync.
 
 **Tasks–To Do Sync closes that gap.** It runs inside your own private Google Apps Script project, discovers eligible lists on both sides, and keeps task changes moving between Google Tasks and Microsoft To Do every 15 minutes.
 
@@ -52,13 +52,9 @@ No hosted middleman. No shared client secret. Your accounts, your script, your d
 
 ## How it works
 
-```mermaid
-flowchart LR
-    G["Gemini · Gmail · Android"] --> GT["Google Tasks"]
-    GT <--> S["Tasks–To Do Sync<br/>private Google Apps Script"]
-    S <--> MT["Microsoft To Do"]
-    MT -. "existing account integration" .-> IOS["iOS Reminders"]
-```
+<p align="center">
+  <img src="docs/assets/how-it-works.svg" width="100%" alt="Google Tasks synchronizes bidirectionally with Microsoft To Do through a private Google Apps Script project">
+</p>
 
 The script keeps an ID-based mapping between paired lists and tasks. Existing mappings survive list renames; unique custom-list names help with first pairing; ambiguous matches stop with a fault instead of guessing. A 15-minute Apps Script trigger handles normal synchronization after the initial manual checks.
 
@@ -121,8 +117,8 @@ Additional guardrails:
 
 | A good fit | Not yet a fit |
 |---|---|
-| You create tasks through Gemini, Gmail, or Android | You need a hosted multi-user SaaS |
-| You use Microsoft To Do or iOS Reminders as your main task view | You need a one-click login-only setup |
+| You use Google Tasks and Microsoft To Do every day | You need a hosted multi-user SaaS |
+| You want the same task changes reflected on both sides | You need a one-click login-only setup |
 | You are comfortable owning a private Apps Script project | You need zero-configuration deployment |
 | You want transparent, auditable synchronization | You need task moves or deletion enabled immediately |
 

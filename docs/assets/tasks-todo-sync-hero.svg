@@ -48,18 +48,18 @@
     <circle cx="29" cy="29" r="29" fill="#4285f4"/>
     <path d="M16 29l9 9 18-21" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="76" y="24" fill="#f5f9ff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="700">Google Tasks</text>
-    <text x="76" y="51" fill="#9fb5cb" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14">Your Google task source of truth</text>
+    <text x="76" y="51" fill="#9fb5cb" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14">Your Google task source</text>
     <rect x="0" y="90" width="322" height="1" fill="#b6d3ff" opacity="0.15"/>
-    <text x="0" y="120" fill="#c8d8e8" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" letter-spacing="0.6">GEMINI  ·  GMAIL  ·  ANDROID</text>
+    <text x="0" y="120" fill="#c8d8e8" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" letter-spacing="0.6">LISTS  ·  TASKS  ·  DUE DATES</text>
   </g>
 
   <g transform="translate(770 171)">
     <circle cx="29" cy="29" r="29" fill="#7656e8"/>
     <path d="M15 31l9 8 20-23M20 23l7 6" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
     <text x="76" y="24" fill="#f5f9ff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="23" font-weight="700">Microsoft To Do</text>
-    <text x="76" y="51" fill="#aeb6d7" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14">Your Microsoft and iOS task hub</text>
+    <text x="76" y="51" fill="#aeb6d7" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14">Your Microsoft task destination</text>
     <rect x="0" y="90" width="322" height="1" fill="#d6caff" opacity="0.15"/>
-    <text x="0" y="120" fill="#d2d3ea" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" letter-spacing="0.45">TO DO  ·  iOS REMINDERS</text>
+    <text x="0" y="120" fill="#d2d3ea" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" letter-spacing="0.45">LISTS  ·  TASKS  ·  DUE DATES</text>
   </g>
 
   <g transform="translate(600 226)">
