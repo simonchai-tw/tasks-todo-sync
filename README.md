@@ -81,15 +81,15 @@ createTrigger();          // install the 15-minute trigger
 
 | Check | Verified result |
 |---|---|
-| Local regression suite | **138 / 138 passed** |
-| GitHub CI | Node.js **22 and 24 passed** |
-| Real scheduled run | 15-minute Apps Script trigger completed successfully |
-| Deployed health check | Healthy, **0 reported issues** |
-| CodeQL | First full scan passed, **0 alerts** |
-| Dependabot | Dependency scan complete, **0 alerts** |
-| Secret scanning | **No secrets found** |
+| Local regression suite | **146 / 146 passed** in the rc5 worktree |
+| GitHub CI | `v0.1.0-rc.4` baseline: Node.js **22 and 24 passed**; rc5 pending |
+| Real scheduled run | `v0.1.0-rc.4` staging trigger completed successfully |
+| Deployed health check | `v0.1.0-rc.4` staging: Healthy, **0 reported issues** |
+| CodeQL | `v0.1.0-rc.4` baseline: **0 alerts** |
+| Dependabot | `v0.1.0-rc.4` baseline: **0 alerts** |
+| Secret scanning | `v0.1.0-rc.4` baseline: **No secrets found** |
 
-These results were verified for `v0.1.0-rc.4` on 2026-08-22. They are strong release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
+The rc5 local regression result was verified on 2026-08-22. The remaining rows intentionally retain rc4 CI/staging/security evidence until rc5 is independently run and published. These are release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
 
 ## Safety by default
 
@@ -105,15 +105,17 @@ SYNC_ALLOW_TASK_MOVES=false
 > [!IMPORTANT]
 > Keep all three destructive-feature switches set to `false` for important data until you complete a disposable-task smoke test. Task and list deletion use two-round confirmation and 30-day tombstones. Cross-list movement is independently controlled by `SYNC_ALLOW_TASK_MOVES`; it creates the destination counterpart before retiring the source and keeps a durable recovery journal across interrupted runs.
 
-Cross-list movement currently follows a deliberately narrow rule: a move made in Google Tasks is reproduced in Microsoft To Do. The destination task is newly created, so its Microsoft task ID changes. Only the bridge's common fields—title, plain-text notes, date-only due date, and completion state—are rebuilt. Microsoft-only metadata such as reminders, importance, categories, recurrence, attachments, creation date, and completion history is not preserved. A newer Microsoft edit, an ambiguous recovery match, an incomplete inventory, or a source change stops the move without deleting the source task.
+Cross-list movement uses two deliberately different paths. A Google-origin move is reproduced in Microsoft To Do with a guarded create-before-delete transaction; a Microsoft-origin move converges through counterpart creation and the existing missing-task confirmation path. The destination task is newly created, so its provider task ID changes. Only the bridge's common fields—title, plain-text notes, date-only due date, and completion state—are rebuilt. Microsoft-only metadata such as reminders, importance, categories, recurrence, start dates, creation date, and completion history is not preserved. `dryRunReport()` now exposes structured `pendingMoves[]` entries with metadata-loss information for currently observed Google-origin candidates. `hasAttachments=true` is an observable scalar hint; attachment contents, checklist items, linked resources, and extensions are relationships that the current inventory does not expand and therefore are reported as uninspected rather than absent. A newer Microsoft edit, an ambiguous recovery match, an incomplete inventory, or a source change stops the move without deleting the source task.
 
 Additional guardrails:
 
 - The bridge is designed for **one operator and that operator's own accounts**.
 - Microsoft credentials stay in private Apps Script Properties and are never part of this repository.
 - Auto-discovery ignores shared, non-owned, unknown, excluded, and special Microsoft lists.
-- `dryRunReport()` is read-only and now previews detected Google-origin cross-list moves, but it remains a point-in-time report—not a promise about every later mutation.
+- `dryRunReport()` is read-only and now previews detected Google-origin cross-list moves through both human-readable messages and structured `pendingMoves[]` entries. Metadata reporting is point-in-time and inventory-bounded—not a promise about every later mutation or unexpanded relationship.
 - Missing or ambiguous identities stop safely instead of being paired by guesswork.
+
+`pendingMoves[]` reports `hasAttachments=true` when that scalar is present in the Microsoft task snapshot. It does not fetch or inspect attachment relationship contents; `checklistItems`, `linkedResources`, and `extensions` remain unexpanded and must not be interpreted as absent.
 
 ## Is it for you?
 
@@ -143,4 +145,4 @@ npm run check
 npm test
 ```
 
-GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.4), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.
+GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.5), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.

@@ -1,8 +1,8 @@
-# Deployment guide — `0.1.0-rc.4`
+# Deployment guide — `0.1.0-rc.5`
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 15-minute Apps Script trigger is the running service; GitHub is source control only. `0.1.0-rc.4` is a prerelease candidate, not stable or production-ready.
+This guide deploys a personal Google Apps Script sync engine. The 15-minute Apps Script trigger is the running service; GitHub is source control only. `0.1.0-rc.5` is an observability-focused prerelease candidate, not stable or production-ready.
 
 Use a private staging project and disposable tasks first. The code can create counterpart lists/tasks during normal syncing. Keep all three safety switches `false` until destructive smoke testing is complete. Google-origin cross-list movement is independently controlled by the move switch; Microsoft-origin convergence uses the ordinary new-task plus missing-task deletion path.
 
@@ -62,7 +62,7 @@ Never put these values, OAuth tokens, raw state, or IDs in the repository, issue
 
 ### 4. Verify before adding the schedule
 
-1. Run `dryRunReport()` and review its warnings, exclusions, faults, list information, and detected Google-origin move previews. It is read-only and point-in-time; it is **not** a guarantee about later mutations.
+1. Run `dryRunReport()` and review its warnings, exclusions, faults, list information, and `pendingMoves[]` entries. Each move entry should identify the mapped and target lists, its execution state, and metadata that is known to be left behind by delete-and-recreate. It is read-only and point-in-time; it is **not** a guarantee about later mutations. Attachments, checklist items, linked resources, and extensions are relationships that the current inventory does not expand, so the report must not claim that they are absent.
 2. With disposable tasks, run `syncAll()` twice and inspect both services. The second run should not make unexpected duplicates.
 3. Exercise only non-destructive behavior you understand: create, update, complete, and date-only due-date handling.
 4. Run `createTrigger()` only after the staging results are acceptable. It creates the 15-minute `syncAll` trigger.
@@ -70,7 +70,9 @@ Never put these values, OAuth tokens, raw state, or IDs in the repository, issue
 
 Do not enable destructive switches to test them against valuable data. Google-origin cross-list movement intentionally creates a fresh provider task ID in the destination list, durably records the create result, rereads the old source, then retires the old mapping and tombstones the old counterpart ID for 30 days. It needs `SYNC_ALLOW_TASK_MOVES=true`, not general deletion propagation. Microsoft-origin movement normally arrives as a new Microsoft ID plus a missing old ID; full convergence in that direction additionally needs `SYNC_ALLOW_DELETIONS=true`.
 
-The move rebuilds only title, plain-text notes, date-only due date, and completion state. Microsoft-only reminders, importance, categories, recurrence, attachments, creation date, completion history, and other provider metadata are not preserved. If the Microsoft source changed, the post-create source reread differs, recovery has multiple exact candidates, or required inventory is incomplete, the operation stops without deleting the source. An interrupted run may therefore leave a temporary duplicate that requires recovery or review, but it must not prefer deletion over uncertain evidence.
+The move rebuilds only title, plain-text notes, date-only due date, and completion state. Microsoft-only reminders, importance, categories, recurrence, start dates, creation date, completion history, and other provider metadata are not preserved. If the Microsoft source changed, the post-create source reread differs, recovery has multiple exact candidates, or required inventory is incomplete, the operation stops without deleting the source. An interrupted run may therefore leave a temporary duplicate that requires recovery or review, but it must not prefer deletion over uncertain evidence. See [the RC5 disposable-list runbook](e2e-validation.md) for a controlled validation sequence.
+
+`hasAttachments=true` is an observable hint in the Microsoft task snapshot. The current inventory does not expand attachment, checklist, linked-resource, or extension relationships, so `pendingMoves[]` reports those relationship details as uninspected rather than absent.
 
 ## Optional advanced `clasp` route
 
@@ -133,6 +135,7 @@ Source rollback does not roll back mappings, tombstones, move/deletion journals,
 - [ ] `SYNC_ALLOW_DELETIONS=false`, `SYNC_ALLOW_LIST_DELETIONS=false`, and `SYNC_ALLOW_TASK_MOVES=false` remain set.
 - [ ] Two staging `syncAll()` runs are understood and have no unexpected duplicates.
 - [ ] `dryRunReport()` warnings, exclusions, faults, and list information are understood; it has not been mistaken for a mutation plan.
+- [ ] `pendingMoves[]` output has been checked for deterministic ordering, blocked and recovery states, and honest metadata detection. Unexpanded Graph relationships are not described as absent.
 - [ ] A 15-minute trigger and `healthCheck()` have been checked in staging.
 - [ ] Source and state rollback procedures are documented separately, and the operator understands the risks and limits of each.
 - [ ] Private vulnerability reporting is enabled in the GitHub Security tab before public use.

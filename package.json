@@ -1,6 +1,6 @@
 {
   "name": "tasks-todo-sync",
-  "version": "0.1.0-rc.4",
+  "version": "0.1.0-rc.5",
   "private": true,
   "description": "Google Tasks and Microsoft To Do sync engine for Google Apps Script",
   "author": "Simon",

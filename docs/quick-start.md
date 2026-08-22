@@ -35,7 +35,7 @@ Then run `showRedirectUri()`. Copy the displayed address to Entra **Authenticati
 
 1. Run `startAuthorization()`, open its URL, and sign in to your Microsoft account.
 2. Run `setupStatus()` and resolve every unexpected warning. It reports whether safety defaults, credentials, time zone, and trigger state are configured without showing secret values.
-3. Run `dryRunReport()`. It reads the configuration and lists and previews detected Google-origin cross-list moves; it remains a point-in-time report, not a guarantee about later mutations.
+3. Run `dryRunReport()`. It reads the configuration and lists and previews detected Google-origin cross-list moves. Review its structured `pendingMoves[]` entries, including blocked/recovery states and metadata that cannot be rebuilt. It remains a point-in-time report, not a guarantee about later mutations; `hasAttachments=true` may be observed, while attachment contents and other unexpanded relationships are reported as uninspected.
 
 ### Read this before the first automatic sync
 
@@ -50,4 +50,6 @@ Keep `SYNC_ALLOW_DELETIONS=false`, `SYNC_ALLOW_LIST_DELETIONS=false`, and `SYNC_
 
 Delete-and-recreate changes the provider task ID. Only title, plain-text notes, date-only due date, and completion state are rebuilt; reminders, importance, categories, recurrence, attachments, creation date, and completion history are not preserved. Test this with a disposable task before enabling it for important lists.
 
-For rollback, explicit list pairing, or the optional Node/`clasp` path, use the [deployment guide](deployment.md).
+`hasAttachments=true` can be detected from the Microsoft task snapshot, but attachment contents and other Graph relationships are not expanded by this release. Treat those details as uninspected.
+
+For rollback, explicit list pairing, the disposable-list validation sequence, or the optional Node/`clasp` path, use the [deployment guide](deployment.md).

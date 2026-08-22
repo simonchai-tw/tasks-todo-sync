@@ -1,7 +1,7 @@
 # Release-candidate audit
 
 Audit date: 2026-08-22
-Candidate: `0.1.0-rc.4` / intended prerelease tag `v0.1.0-rc.4`
+Candidate: `0.1.0-rc.5` / intended prerelease tag `v0.1.0-rc.5`
 
 ## RC decision
 
@@ -38,6 +38,12 @@ These observations deliberately omit private mappings, task/list counts, timesta
 9. Move recovery persists intent before remote creation, adopts exactly one time-bounded fingerprint match after an uncertain response, waits through two complete inventories before retrying an unmatched create, and fails closed on ambiguity.
 10. Move-versus-edit checks run before destination creation and again through a fresh source reread before source deletion. A newer or concurrently changed Microsoft task is preserved and reported instead of overwritten.
 11. The unusual observation of one Microsoft task ID in a different list fails closed instead of silently rewriting the mapping or bouncing the task.
+
+## RC5 observability review
+
+RC5 adds a deterministic, privacy-bounded `pendingMoves[]` preview alongside the existing human-readable report. Preview identifiers are opaque labels; the report does not add per-task Graph reads. The metadata summary distinguishes fields observed in the current Microsoft task snapshot from relationship contents that are not expanded. In particular, `hasAttachments=true` is an observable hint, while attachment contents, checklist items, linked resources, and extensions remain uninspected.
+
+The preview is read-only and point-in-time. It does not reserve a future mutation, prevent an account-side edit after the report, or claim to precompute the Microsoft-origin new-task plus missing-task path.
 
 ## Remaining blockers before a stable release
 

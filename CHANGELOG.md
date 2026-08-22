@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.5 — 2026-08-22
+
+Public prerelease tag: `v0.1.0-rc.5`. This is an observability-focused release candidate, not a stable or production-ready release.
+
+- Added structured `pendingMoves[]` data to the read-only move preview, while retaining the human-readable `actions[]` and `warnings[]` output.
+- Added per-candidate metadata-loss reporting that distinguishes observed Microsoft task fields from relationships that the current inventory does not expand.
+- Added deterministic, privacy-bounded dry-run assertions and a disposable-list validation runbook; no real account is intentionally throttled.
+- Public destructive-feature defaults remain `false`.
+
 ## 0.1.0-rc.4 — 2026-08-22
 
 Public prerelease tag: `v0.1.0-rc.4`. This is a release candidate, not a stable or production-ready release.

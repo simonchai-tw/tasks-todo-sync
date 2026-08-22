@@ -33,7 +33,8 @@ function propertyStore(initial = {}) {
   };
 }
 
-function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, utilities, scriptApp } = {}) {
+function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, utilities, scriptApp,
+  urlFetchApp } = {}) {
   const scriptStore = propertyStore(scriptValues);
   const userStore = propertyStore(userValues);
   const context = vm.createContext({
@@ -48,8 +49,17 @@ function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, utili
   }
   if (utilities) context.Utilities = utilities;
   if (scriptApp) context.ScriptApp = scriptApp;
+  if (urlFetchApp) context.UrlFetchApp = urlFetchApp;
   new vm.Script(code, { filename: 'Code.gs' }).runInContext(context);
   return { context, scriptStore, userStore };
+}
+
+function httpResponse(status, text = '', headers = {}) {
+  return {
+    getResponseCode: () => status,
+    getContentText: () => text,
+    getAllHeaders: () => headers
+  };
 }
 
 test('initializeSafeDefaults writes only the four safe switches and preserves other properties', () => {
@@ -337,6 +347,61 @@ test('adds the project time zone Prefer header to every Microsoft task request',
   assert.equal(calls[2].options.method, 'post');
   assert.equal(calls[3].options.method, 'patch');
   assert.equal(calls[4].options.method, 'delete');
+});
+
+test('Graph 429 retry honors Retry-After and returns success without a real wait', () => {
+  const sleeps = [];
+  const fetches = [];
+  const responses = [
+    httpResponse(429, 'retry later', { 'Retry-After': '2' }),
+    httpResponse(200, JSON.stringify({ id: 'created-task' }))
+  ];
+  const { context } = loadContext({
+    utilities: { sleep: (milliseconds) => sleeps.push(milliseconds) },
+    urlFetchApp: {
+      fetch(url, options) {
+        fetches.push({ url, options });
+        return responses.shift();
+      }
+    }
+  });
+  context.microsoftService_ = () => ({
+    hasAccess: () => true,
+    getAccessToken: () => 'test-token'
+  });
+
+  const result = context.graphFetch_('https://example.invalid/graph', { method: 'get' });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { id: 'created-task' });
+  assert.equal(fetches.length, 2);
+  assert.deepEqual(sleeps, [2000]);
+  assert.equal(fetches[0].options.headers.Authorization, 'Bearer test-token');
+});
+
+test('Graph exhausted 429 retries throw after HTTP_MAX_RETRIES plus one attempts without real waits', () => {
+  const sleeps = [];
+  let fetches = 0;
+  const { context } = loadContext({
+    utilities: { sleep: (milliseconds) => sleeps.push(milliseconds) },
+    urlFetchApp: {
+      fetch() {
+        fetches += 1;
+        return httpResponse(429, 'retry budget exhausted', { 'Retry-After': '0' });
+      }
+    }
+  });
+  context.microsoftService_ = () => ({
+    hasAccess: () => true,
+    getAccessToken: () => 'test-token'
+  });
+  const maxRetries = vm.runInContext('HTTP_MAX_RETRIES', context);
+
+  assert.throws(() => {
+    context.graphFetch_('https://example.invalid/graph', { method: 'get' });
+  }, /HTTP 429: retry budget exhausted/);
+  assert.equal(fetches, maxRetries + 1);
+  assert.equal(sleeps.length, maxRetries);
+  assert.equal(sleeps.every(Number.isFinite), true);
 });
 
 test('uses create and update notes semantics without trimming non-empty text', () => {
@@ -1865,7 +1930,7 @@ test('Google move fails closed before mutation when Microsoft changed since mapp
   assert.equal(state.taskDeletionConflicts['g-task'].reason, 'MOVE_VS_EDIT_CONFLICT');
 });
 
-test('move create failure keeps the old task and a durable retry journal', () => {
+test('move exhausted-429-shaped create failure keeps source and durable retry journal', () => {
   const { context } = loadContext();
   const state = mappedTaskState(context);
   state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
@@ -1889,22 +1954,32 @@ test('move create failure keeps the old task and a durable retry journal', () =>
   let deletes = 0;
   let creates = 0;
   let freshSource = snap.msTasksById['ms-task'];
-  context.persistSyncState_ = () => {};
+  const durableJournalSnapshots = [];
+  context.persistSyncState_ = (nextState) => {
+    durableJournalSnapshots.push(JSON.parse(JSON.stringify(
+      nextState.taskMoveJournal['g-task'] || null
+    )));
+  };
   context.getMsTask_ = () => freshSource;
   context.createMsTask_ = () => {
     creates += 1;
-    throw new Error('CREATE_FAILED');
+    throw new Error('HTTP 429: retry budget exhausted');
   };
   context.deleteMsTask_ = () => { deletes += 1; };
 
   assert.throws(() => {
     context.reconcileMapped_(state, snap, Date.now(), 'move-create-failed');
-  }, /CREATE_FAILED/);
+  }, /HTTP 429: retry budget exhausted/);
   assert.equal(deletes, 0);
   assert.equal(state.g2m['g-task'].msId, 'ms-task');
+  assert.ok(snap.msTasksById['ms-task']);
   assert.equal(state.taskMoveJournal['g-task'].phase, 'creating');
   assert.equal(state.taskMoveJournal['g-task'].newMsId, null);
   assert.equal(state.taskMoveJournal['g-task'].uncertainConfirmations, 0);
+  assert.equal(durableJournalSnapshots.some((journal) =>
+    journal && journal.phase === 'creating' &&
+    journal.lastBlockedReason === 'MOVE_DESTINATION_CREATE_FAILED'
+  ), true);
   assert.doesNotThrow(() => {
     context.reconcileMapped_(state, snap, Date.now(), 'move-create-miss-1');
   });
@@ -2105,6 +2180,308 @@ test('dry-run task move preview reports enabled, blocked, and recovery states wi
   context.appendTaskMovePreview_(state, inventory, { allowTaskMoves: false }, [], blocked);
   assert.match(blocked[0], /目前被阻擋/);
   assert.equal(state.g2m['g-task'].msListId, 'ms-old');
+});
+
+test('structured move preview is deterministic, opaque, and reports observed metadata only', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-z': 'ms-z', 'g-a': 'ms-a' };
+  state.g2m = {
+    'g-z-task': {
+      msId: 'ms-z-task', gListId: 'g-z', msListId: 'ms-z',
+      gUpdated: '2026-08-14T00:00:00Z', msUpdated: '2026-08-14T00:00:00Z'
+    },
+    'g-a-task': {
+      msId: 'ms-a-task', gListId: 'g-a', msListId: 'ms-a',
+      gUpdated: '2026-08-14T00:00:00Z', msUpdated: '2026-08-14T00:00:00Z'
+    }
+  };
+  state.m2g = { 'ms-z-task': 'g-z-task', 'ms-a-task': 'g-a-task' };
+  const inventory = {
+    gTasksById: {
+      'g-z-task': { id: 'g-z-task', title: 'Private Z title' },
+      'g-a-task': { id: 'g-a-task', title: 'Private A title' }
+    },
+    msTasksById: {
+      'ms-z-task': {
+        id: 'ms-z-task', title: 'Private Z title', importance: 'high',
+        categories: ['Work'], isReminderOn: true,
+        reminderDateTime: { dateTime: '2026-08-14T09:00:00', timeZone: 'Asia/Taipei' },
+        recurrence: { pattern: { type: 'daily', interval: 1 } },
+        startDateTime: { dateTime: '2026-08-14T00:00:00', timeZone: 'Asia/Taipei' },
+        hasAttachments: true, completedDateTime: '2026-08-14T10:00:00Z', status: 'inProgress'
+      },
+      'ms-a-task': {
+        id: 'ms-a-task', title: 'Private A title', importance: 'normal',
+        categories: [], isReminderOn: false, recurrence: null,
+        hasAttachments: false, completedDateTime: null
+      }
+    },
+    gListByTask: { 'g-z-task': 'g-z', 'g-a-task': 'g-a' },
+    msListByTask: { 'ms-z-task': 'ms-z', 'ms-a-task': 'ms-a' }
+  };
+  inventory.gListByTask['g-z-task'] = 'g-target-z';
+  inventory.gListByTask['g-a-task'] = 'g-target-a';
+  state.listMap['g-target-z'] = 'ms-target-z';
+  state.listMap['g-target-a'] = 'ms-target-a';
+
+  const render = (allowTaskMoves) => {
+    const actions = [];
+    const warnings = [];
+    const pendingMoves = [];
+    context.appendTaskMovePreview_(state, inventory, { allowTaskMoves }, actions, warnings, pendingMoves);
+    return { actions, warnings, pendingMoves };
+  };
+  const enabled = render(true);
+  const blocked = render(false);
+
+  assert.deepEqual(enabled.pendingMoves.map((move) => move.status), ['READY', 'READY']);
+  assert.deepEqual(blocked.pendingMoves.map((move) => move.status), ['BLOCKED_SWITCH_OFF', 'BLOCKED_SWITCH_OFF']);
+  assert.deepEqual(enabled.pendingMoves.map((move) => move.googleTaskId).sort(), [
+    context.previewOpaqueId_('gTask', 'g-a-task'),
+    context.previewOpaqueId_('gTask', 'g-z-task')
+  ].sort());
+  const richMove = enabled.pendingMoves.find((move) =>
+    move.sourceMicrosoftTaskId === context.previewOpaqueId_('msTask', 'ms-z-task'));
+  const plainMove = enabled.pendingMoves.find((move) =>
+    move.sourceMicrosoftTaskId === context.previewOpaqueId_('msTask', 'ms-a-task'));
+  assert.ok(richMove);
+  assert.ok(plainMove);
+  assert.deepEqual(JSON.parse(JSON.stringify(richMove.metadataLoss.detectedNonPreserved)),
+    ['categories', 'completedDateTime', 'hasAttachments', 'importance', 'recurrence', 'reminder', 'startDateTime', 'statusDetail']);
+  assert.deepEqual(JSON.parse(JSON.stringify(plainMove.metadataLoss.detectedNonPreserved)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(plainMove.metadataLoss.uninspectedRelationships)),
+    ['attachmentDetails', 'checklistItems', 'linkedResources', 'extensions']);
+  assert.equal(plainMove.metadataLoss.detectionScope.extraMicrosoftRequests, false);
+  assert.equal(plainMove.metadataLoss.detectionScope.valuesIncludedInReport, false);
+  assert.equal(plainMove.metadataLoss.detectionScope.relationshipExpansion, false);
+  assert.equal(plainMove.sourceMicrosoftTaskId.includes('ms-a-task'), false);
+  assert.equal(plainMove.targetMicrosoftListId.includes('ms-target-a'), false);
+  assert.equal(JSON.stringify(enabled.pendingMoves).includes('Private A title'), false);
+  assert.deepEqual(enabled.pendingMoves, render(true).pendingMoves);
+  assert.equal(state.g2m['g-a-task'].msListId, 'ms-a');
+  assert.equal(enabled.actions.length, 2);
+});
+
+test('recovery move preview is emitted once and does not duplicate the mapped candidate', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  state.taskMoveJournal['g-task'] = {
+    phase: 'creating', gId: 'g-task', oldMsId: 'ms-task', newMsId: null,
+    gListId: 'g-new', oldMsListId: 'ms-old', targetMsListId: 'ms-new',
+    gUpdated: '2026-08-14T00:00:00Z', oldMsUpdated: '2026-08-14T00:00:00Z',
+    preparedAt: '2026-08-14T00:01:00Z', fingerprint: 'fingerprint',
+    uncertainConfirmations: 1
+  };
+  const inventory = {
+    gTasksById: { 'g-task': { id: 'g-task', title: 'Recovery task' } },
+    msTasksById: { 'ms-task': { id: 'ms-task', title: 'Recovery task' } },
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask: { 'ms-task': 'ms-old' }
+  };
+  const actions = [];
+  const warnings = [];
+  const pendingMoves = [];
+  context.appendTaskMovePreview_(state, inventory, { allowTaskMoves: true }, actions, warnings, pendingMoves);
+
+  assert.equal(pendingMoves.length, 1);
+  assert.equal(pendingMoves[0].status, 'RECOVERY');
+  assert.equal(pendingMoves[0].recoveryPhase, 'creating');
+  assert.deepEqual(JSON.parse(JSON.stringify(pendingMoves[0].metadataLoss.uninspectedRelationships)),
+    ['attachmentDetails', 'checklistItems', 'linkedResources', 'extensions']);
+  assert.equal(warnings.length, 1);
+  assert.equal(actions.length, 0);
+  assert.equal(JSON.stringify(pendingMoves).includes('g-task'), false);
+  assert.equal(JSON.stringify(pendingMoves).includes('ms-task'), false);
+});
+
+test('dryRunReport returns and logs the same structured preview without N+1 reads or mutations', () => {
+  const logs = [];
+  const { context, userStore } = loadContext({
+    scriptValues: {
+      SYNC_LIST_DISCOVERY_MODE: 'explicit',
+      SYNC_GOOGLE_LIST_IDS: 'g-old,g-new',
+      SYNC_LIST_PAIRS_JSON: JSON.stringify([
+        { googleListId: 'g-old', microsoftListId: 'ms-old' },
+        { googleListId: 'g-new', microsoftListId: 'ms-new' }
+      ]),
+      SYNC_ALLOW_DELETIONS: 'false',
+      SYNC_ALLOW_LIST_DELETIONS: 'false',
+      SYNC_ALLOW_TASK_MOVES: 'true'
+    }
+  });
+  context.console = { log: (message) => logs.push(message), warn: () => {}, error: () => {} };
+  context.LockService = {
+    getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} })
+  };
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  context.saveState_(state);
+  context.getGLists_ = () => [
+    { id: 'g-old', title: 'Source' }, { id: 'g-new', title: 'Target' }
+  ];
+  context.getMsLists_ = () => [
+    { id: 'ms-old', displayName: 'Source' }, { id: 'ms-new', displayName: 'Target' }
+  ];
+  context.getGTasks_ = (listId) => listId === 'g-new'
+    ? [{ id: 'g-task', title: 'Private title' }]
+    : [];
+  context.getMsTasks_ = (listId) => listId === 'ms-old'
+    ? [{ id: 'ms-task', title: 'Private title', importance: 'high' }]
+    : [];
+  context.getMsTask_ = () => { throw new Error('dryRunReport must not perform per-task reads'); };
+  const writes = [];
+  for (const name of ['createGTask_', 'updateGTask_', 'deleteGTask_', 'createMsTask_', 'updateMsTask_', 'deleteMsTask_', 'createGList_', 'createMsList_', 'deleteGList_', 'deleteMsList_']) {
+    context[name] = () => writes.push(name);
+  }
+
+  const beforeState = JSON.stringify(userStore.values);
+  const report = context.dryRunReport();
+  const afterState = JSON.stringify(userStore.values);
+  const logged = JSON.parse(logs.at(-1));
+
+  assert.equal(report.pendingMoves.length, 1);
+  assert.deepEqual(logged.pendingMoves, JSON.parse(JSON.stringify(report.pendingMoves)));
+  assert.deepEqual(logged.pendingMoveSummary, JSON.parse(JSON.stringify(report.pendingMoveSummary)));
+  assert.equal(report.pendingMoves[0].status, 'READY');
+  assert.deepEqual(JSON.parse(JSON.stringify(report.pendingMoves[0].metadataLoss.detectedNonPreserved)), ['importance']);
+  assert.equal(JSON.stringify(report.pendingMoves).includes('g-task'), false);
+  assert.equal(JSON.stringify(report.pendingMoves).includes('ms-task'), false);
+  assert.equal(JSON.stringify(report.pendingMoves).includes('Private title'), false);
+  assert.equal(writes.length, 0);
+  assert.equal(afterState, beforeState);
+});
+
+test('corrupt-state dryRunReport returns empty pending moves and preserves return-log parity', () => {
+  const logs = [];
+  const { context, userStore } = loadContext();
+  context.console = { log: (message) => logs.push(message), warn: () => {}, error: () => {} };
+  context.LockService = {
+    getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} })
+  };
+  context.loadStateForInspection_ = () => ({ corrupt: true, state: context.newState_() });
+  const beforeState = JSON.stringify(userStore.values);
+
+  const report = context.dryRunReport();
+  const logged = JSON.parse(logs.at(-1));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(report.pendingMoves)), []);
+  assert.deepEqual(JSON.parse(JSON.stringify(report.pendingMoveSummary)), {
+    total: 0,
+    byStatus: { READY: 0, BLOCKED_SWITCH_OFF: 0, RECOVERY: 0 },
+    movesWithDetectedNonPreserved: 0,
+    detectedNonPreserved: [],
+    movesWithUninspectedRelationships: 0,
+    microsoftTaskSnapshotsPresent: 0,
+    microsoftTaskSnapshotsMissing: 0,
+    detectionScope: 'CURRENT_MICROSOFT_TASK_SNAPSHOT_ONLY_NO_EXTRA_GRAPH_REQUESTS'
+  });
+  assert.deepEqual(logged.pendingMoves, []);
+  assert.deepEqual(logged.pendingMoveSummary, JSON.parse(JSON.stringify(report.pendingMoveSummary)));
+  assert.match(report.warnings[0], /STATE_CORRUPT/);
+  assert.equal(JSON.stringify(userStore.values), beforeState);
+});
+
+test('auto-mode dryRunReport returns and logs the same pending move preview without mutations', () => {
+  const logs = [];
+  const { context, userStore } = loadContext({
+    scriptValues: {
+      SYNC_LIST_DISCOVERY_MODE: 'auto',
+      SYNC_ALLOW_DELETIONS: 'false',
+      SYNC_ALLOW_LIST_DELETIONS: 'false',
+      SYNC_ALLOW_TASK_MOVES: 'true'
+    }
+  });
+  context.console = { log: (message) => logs.push(message), warn: () => {}, error: () => {} };
+  context.LockService = {
+    getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} })
+  };
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  context.saveState_(state);
+  context.getGLists_ = () => [
+    { id: 'g-old', title: 'Source' }, { id: 'g-new', title: 'Target' }
+  ];
+  context.getGDefaultList_ = () => ({ id: 'g-old', title: 'Source' });
+  context.getMsLists_ = () => [
+    { id: 'ms-old', displayName: 'Source', isOwner: true, isShared: false, wellknownListName: 'none' },
+    { id: 'ms-new', displayName: 'Target', isOwner: true, isShared: false, wellknownListName: 'none' }
+  ];
+  context.getGTasks_ = (listId) => listId === 'g-new'
+    ? [{ id: 'g-task', title: 'Private title' }]
+    : [];
+  context.getMsTasks_ = (listId) => listId === 'ms-old'
+    ? [{ id: 'ms-task', title: 'Private title', importance: 'high' }]
+    : [];
+  context.getMsTask_ = () => { throw new Error('auto dry-run must not perform per-task reads'); };
+  const writes = [];
+  for (const name of ['createGTask_', 'updateGTask_', 'deleteGTask_', 'createMsTask_', 'updateMsTask_', 'deleteMsTask_', 'createGList_', 'createMsList_', 'deleteGList_', 'deleteMsList_']) {
+    context[name] = () => writes.push(name);
+  }
+
+  const beforeState = JSON.stringify(userStore.values);
+  const report = context.dryRunReport();
+  const logged = JSON.parse(logs.at(-1));
+
+  assert.equal(report.listDiscoveryMode, 'auto');
+  assert.equal(report.pendingMoves.length, 1);
+  assert.deepEqual(logged.pendingMoves, JSON.parse(JSON.stringify(report.pendingMoves)));
+  assert.deepEqual(logged.pendingMoveSummary, JSON.parse(JSON.stringify(report.pendingMoveSummary)));
+  assert.equal(report.pendingMoves[0].status, 'READY');
+  assert.equal(writes.length, 0);
+  assert.equal(JSON.stringify(userStore.values), beforeState);
+});
+
+test('auto discovery dry-run failure preserves a durable move journal and reports no guessed preview', () => {
+  const logs = [];
+  const { context, userStore } = loadContext({
+    scriptValues: {
+      SYNC_LIST_DISCOVERY_MODE: 'auto',
+      SYNC_ALLOW_DELETIONS: 'false',
+      SYNC_ALLOW_LIST_DELETIONS: 'false',
+      SYNC_ALLOW_TASK_MOVES: 'true'
+    }
+  });
+  context.console = { log: (message) => logs.push(message), warn: () => {}, error: () => {} };
+  context.LockService = {
+    getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} })
+  };
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  state.taskMoveJournal['g-task'] = {
+    phase: 'creating', gId: 'g-task', oldMsId: 'ms-task', newMsId: null,
+    gListId: 'g-new', oldMsListId: 'ms-old', targetMsListId: 'ms-new',
+    gUpdated: '2026-08-14T00:00:00Z', oldMsUpdated: '2026-08-14T00:00:00Z',
+    preparedAt: '2026-08-14T00:01:00Z', fingerprint: 'fingerprint',
+    uncertainConfirmations: 1
+  };
+  context.saveState_(state);
+  context.getGLists_ = () => [{ id: 'g-old', title: 'Source' }];
+  context.getMsLists_ = () => [{ id: 'ms-old', displayName: 'Source', isOwner: true, isShared: false, wellknownListName: 'none' }];
+  context.getGDefaultList_ = () => { throw new Error('AUTO_DEFAULT_FAIL'); };
+
+  const beforeState = JSON.stringify(userStore.values);
+  const report = context.dryRunReport();
+  const logged = JSON.parse(logs.at(-1));
+
+  assert.equal(report.pendingMoves.length, 1);
+  assert.equal(report.pendingMoves[0].status, 'RECOVERY');
+  assert.equal(report.pendingMoves[0].metadataLoss.detectionScope.microsoftTaskSnapshot, 'MISSING');
+  assert.deepEqual(JSON.parse(JSON.stringify(report.pendingMoves[0].metadataLoss.detectedNonPreserved)), []);
+  assert.equal(report.pendingMoveSummary.total, 1);
+  assert.equal(report.pendingMoveSummary.microsoftTaskSnapshotsMissing, 1);
+  assert.deepEqual(logged.pendingMoves, JSON.parse(JSON.stringify(report.pendingMoves)));
+  assert.match(report.warnings.join('\n'), /auto/);
+  assert.equal(JSON.stringify(userStore.values), beforeState);
 });
 
 test('Microsoft cross-list move converges as create-new then confirmed delete-old', () => {
