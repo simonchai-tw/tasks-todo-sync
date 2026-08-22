@@ -4,7 +4,7 @@
 
 | Version | Status |
 | --- | --- |
-| `0.1.0-rc.3` | Supported prerelease only; not stable or production-ready |
+| `0.1.0-rc.4` | Supported prerelease only; not stable or production-ready |
 | Earlier candidates | Not supported for new use |
 
 ## Threat model and handling of secrets
@@ -25,4 +25,4 @@ If a possible destructive-sync issue is found, first run `deleteSyncTriggers()` 
 
 ## RC limitations
 
-Public defaults keep `SYNC_ALLOW_DELETIONS`, `SYNC_ALLOW_LIST_DELETIONS`, and `SYNC_ALLOW_TASK_MOVES` set to `false`. Operators should enable them only after disposable-data testing. Cross-list movement requires both task deletion and task moves, recreates the destination task with a new provider ID, and tombstones the retired counterpart ID. See [the audit](docs/audit.md) for the remaining verification work.
+Public defaults keep `SYNC_ALLOW_DELETIONS`, `SYNC_ALLOW_LIST_DELETIONS`, and `SYNC_ALLOW_TASK_MOVES` set to `false`. Operators should enable them only after disposable-data testing. Google-origin cross-list movement is independently controlled by the move switch, creates the destination before deleting the source, persists a recovery journal, replaces the Microsoft provider ID, and tombstones the retired counterpart ID. It fails closed if Microsoft changed, recovery is ambiguous, or inventory proof is incomplete. See [the audit](docs/audit.md) for the remaining verification work.

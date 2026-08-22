@@ -1,7 +1,7 @@
 # Release-candidate audit
 
 Audit date: 2026-08-22
-Candidate: `0.1.0-rc.3` / intended prerelease tag `v0.1.0-rc.3`
+Candidate: `0.1.0-rc.4` / intended prerelease tag `v0.1.0-rc.4`
 
 ## RC decision
 
@@ -13,7 +13,7 @@ The three safety switches remain required defaults:
 - `SYNC_ALLOW_LIST_DELETIONS=false`
 - `SYNC_ALLOW_TASK_MOVES=false`
 
-Task and list deletion logic is implemented but has not yet completed a week of real-account observation. Cross-list movement is implemented as delete-and-recreate rather than provider-ID-preserving movement; it requires task deletion, retires the old mapping, and keeps the old provider ID tombstoned for 30 days. `dryRunReport()` is a read-only configuration/list report, not a task-level mutation plan.
+Task and list deletion logic is implemented but has not yet completed a week of real-account observation. Google-origin cross-list movement is implemented as guarded create-before-delete rather than provider-ID-preserving movement. It is independently enabled by the move switch, uses a durable recovery journal, rereads the old Microsoft source before deletion, and keeps the retired provider ID tombstoned for 30 days. Microsoft-origin movement normally converges through counterpart creation plus ordinary two-round missing-task deletion. `dryRunReport()` is read-only and previews currently detected Google-origin moves, but is not a guarantee about later mutations.
 
 ## Evidence reviewed
 
@@ -34,7 +34,10 @@ These observations deliberately omit private mappings, task/list counts, timesta
 5. Explicit pairing remains available for deployments that require manual ID-based control; it does not infer pairs from titles.
 6. Task deletion is guarded by independent snapshots, delete-versus-edit checks, journals, and tombstones. List deletion adds auto-mode provenance, complete inventory evidence, exact task fingerprints, re-reads, and per-pair journals.
 7. Setup helpers make the safe defaults visible: `initializeSafeDefaults()` preserves unrelated Script Properties, while `setupStatus()` reports configuration and trigger readiness without disclosing credentials.
-8. State inspection/export and prior-generation recovery are intentionally constrained by active sync fences, deletion journals, and tombstone-evidence checks.
+8. State inspection/export and prior-generation recovery are intentionally constrained by active sync fences, task-move/deletion journals, and tombstone-evidence checks.
+9. Move recovery persists intent before remote creation, adopts exactly one time-bounded fingerprint match after an uncertain response, waits through two complete inventories before retrying an unmatched create, and fails closed on ambiguity.
+10. Move-versus-edit checks run before destination creation and again through a fresh source reread before source deletion. A newer or concurrently changed Microsoft task is preserved and reported instead of overwritten.
+11. The unusual observation of one Microsoft task ID in a different list fails closed instead of silently rewriting the mapping or bouncing the task.
 
 ## Remaining blockers before a stable release
 
@@ -42,9 +45,11 @@ These observations deliberately omit private mappings, task/list counts, timesta
 - A complete field matrix for title, notes/content, date-only due dates, and completion state.
 - OAuth refresh, reauthorization, and recovery exercises.
 - A rehearsed source rollback and separately rehearsed state rollback.
-- Concurrency protections such as conditional writes/ETags, plus delete-versus-edit race coverage.
+- Provider APIs do not make the cross-cloud move atomic. Conditional writes/ETags should be revisited if the Microsoft task endpoint adds a documented contract; current protection is a fresh reread and fail-closed recovery, whose safe residue can be a temporary duplicate.
+- The recovery journal has no provider-side correlation marker. If a user manually creates an otherwise unmapped Microsoft task with exactly the same synchronized fields inside the bounded 10-minute recovery window, that task can be adopted as the uncertain create result. Ambiguous multiple matches stop safely, but a single coincidental match can merge logical identity.
+- Real-account cross-list smoke tests in both directions, including interrupted recovery, Microsoft-only metadata loss, and a concurrent Microsoft edit.
 - Capacity behavior for large state, long content, many tasks, and long-running scheduled use.
-- A genuine per-task mutation plan if a future dry-run safety guarantee is needed.
+- A complete per-task mutation plan if a future dry-run safety guarantee beyond the current move preview is needed.
 - Clear public release operations: private vulnerability reporting enabled, no private notes/snapshots in the release, and a verified CI run.
 
 Until those items are closed, keep the safety switches off and describe releases only as RCs.

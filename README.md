@@ -48,7 +48,7 @@ No hosted middleman. No shared client secret. Your accounts, your script, your d
 | Eligible personal lists | Google ↔ Microsoft | Auto-discovery and counterpart creation |
 | Task deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
 | List deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
-| Cross-list task moves | Google ↔ Microsoft | Implemented as delete-and-recreate, **off by default**; requires task deletion |
+| Cross-list task moves | Google ↔ Microsoft | Google → Microsoft uses guarded create-then-delete; Microsoft → Google converges through new-task plus deletion handling; **off by default** |
 
 ## How it works
 
@@ -81,7 +81,7 @@ createTrigger();          // install the 15-minute trigger
 
 | Check | Verified result |
 |---|---|
-| Local regression suite | **130 / 130 passed** |
+| Local regression suite | **138 / 138 passed** |
 | GitHub CI | Node.js **22 and 24 passed** |
 | Real scheduled run | 15-minute Apps Script trigger completed successfully |
 | Deployed health check | Healthy, **0 reported issues** |
@@ -89,7 +89,7 @@ createTrigger();          // install the 15-minute trigger
 | Dependabot | Dependency scan complete, **0 alerts** |
 | Secret scanning | **No secrets found** |
 
-These results were verified for `v0.1.0-rc.3` on 2026-08-22. They are strong release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
+These results were verified for `v0.1.0-rc.4` on 2026-08-22. They are strong release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
 
 ## Safety by default
 
@@ -103,14 +103,16 @@ SYNC_ALLOW_TASK_MOVES=false
 ```
 
 > [!IMPORTANT]
-> Keep all three destructive-feature switches set to `false` for important data until you complete a disposable-task smoke test. Task and list deletion use two-round confirmation and 30-day tombstones. Cross-list movement is modeled as deleting the old counterpart and recreating it in the newly mapped list, and is effective only when both `SYNC_ALLOW_TASK_MOVES=true` and `SYNC_ALLOW_DELETIONS=true`.
+> Keep all three destructive-feature switches set to `false` for important data until you complete a disposable-task smoke test. Task and list deletion use two-round confirmation and 30-day tombstones. Cross-list movement is independently controlled by `SYNC_ALLOW_TASK_MOVES`; it creates the destination counterpart before retiring the source and keeps a durable recovery journal across interrupted runs.
+
+Cross-list movement currently follows a deliberately narrow rule: a move made in Google Tasks is reproduced in Microsoft To Do. The destination task is newly created, so its Microsoft task ID changes. Only the bridge's common fields—title, plain-text notes, date-only due date, and completion state—are rebuilt. Microsoft-only metadata such as reminders, importance, categories, recurrence, attachments, creation date, and completion history is not preserved. A newer Microsoft edit, an ambiguous recovery match, an incomplete inventory, or a source change stops the move without deleting the source task.
 
 Additional guardrails:
 
 - The bridge is designed for **one operator and that operator's own accounts**.
 - Microsoft credentials stay in private Apps Script Properties and are never part of this repository.
 - Auto-discovery ignores shared, non-owned, unknown, excluded, and special Microsoft lists.
-- `dryRunReport()` is read-only, but it is a list/configuration report—not a promise about every later task mutation.
+- `dryRunReport()` is read-only and now previews detected Google-origin cross-list moves, but it remains a point-in-time report—not a promise about every later mutation.
 - Missing or ambiguous identities stop safely instead of being paired by guesswork.
 
 ## Is it for you?
@@ -141,4 +143,4 @@ npm run check
 npm test
 ```
 
-GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.3), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.
+GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.4), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.

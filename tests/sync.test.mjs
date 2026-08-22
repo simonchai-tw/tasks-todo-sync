@@ -1650,6 +1650,7 @@ test('new deletion fields remain backward-compatible with schema 2 imports and o
     taskMovesEnabled: false,
     taskMovesAvailable: true,
     taskMovesEffective: false,
+    taskMoveJournals: 0,
     pendingTaskDeletionCandidates: 0,
     deletionJournals: 0,
     orphanDeletionJournals: 0,
@@ -1660,9 +1661,10 @@ test('new deletion fields remain backward-compatible with schema 2 imports and o
   });
 });
 
-test('task moves remain blocked when deletion permission is disabled', () => {
+test('task moves are independently authorized when deletion propagation is disabled', () => {
   const { context } = loadContext({ scriptValues: { SYNC_ALLOW_TASK_MOVES: 'true' } });
   const state = mappedTaskState(context);
+  state.listMap['g-old'] = 'ms-old';
   state.listMap['g-new'] = 'ms-new';
   state.g2m['g-task'].gListId = 'g-old';
   state.g2m['g-task'].msListId = 'ms-old';
@@ -1670,6 +1672,8 @@ test('task moves remain blocked when deletion permission is disabled', () => {
   state.m2g = { 'ms-task-old': 'g-task' };
   const snap = {
     activeGListIds: { 'g-old': true, 'g-new': true },
+    gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
+    msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
     inventoryComplete: true,
     safety: { allowDeletions: false, allowTaskMoves: context.getSafetyConfig_().allowTaskMoves },
     gTasksById: { 'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:00:00Z' } },
@@ -1677,12 +1681,53 @@ test('task moves remain blocked when deletion permission is disabled', () => {
     gListByTask: { 'g-task': 'g-new' },
     msListByTask: { 'ms-task-old': 'ms-old' }
   };
-  context.createMsTask_ = () => { throw new Error('must not create an unmapped move copy'); };
-  context.deleteMsTask_ = () => { throw new Error('must not delete without a move journal'); };
+  const oldMsTask = {
+    id: 'ms-task-old', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:00:00Z'
+  };
+  const movedMsTask = {
+    id: 'ms-task-new', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:01:00Z'
+  };
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task-new' ? movedMsTask : oldMsTask;
+  context.createMsTask_ = () => movedMsTask;
+  context.deleteMsTask_ = () => {};
 
   context.reconcileMapped_(state, snap, Date.now(), 'move-round');
-  assert.equal(state.g2m['g-task'].msId, 'ms-task-old');
-  assert.equal(state.g2m['g-task'].msListId, 'ms-old');
+  assert.equal(state.g2m['g-task'].msId, 'ms-task-new');
+  assert.equal(state.g2m['g-task'].msListId, 'ms-new');
+  assert.equal(state.taskMoveJournal['g-task'], undefined);
+});
+
+test('move journal rejects unknown phases and created state without destination ID', () => {
+  const { context } = loadContext();
+  const makeState = () => {
+    const state = mappedTaskState(context);
+    const rec = state.g2m['g-task'];
+    state.taskMoveJournal['g-task'] = {
+      phase: 'creating',
+      gId: 'g-task',
+      oldMsId: rec.msId,
+      newMsId: null,
+      gListId: 'g-new',
+      oldMsListId: rec.msListId,
+      targetMsListId: 'ms-new',
+      gUpdated: rec.gUpdated,
+      oldMsUpdated: rec.msUpdated,
+      preparedAt: '2026-08-14T00:01:00Z',
+      fingerprint: '{}',
+      uncertainConfirmations: 0,
+      lastRoundId: null
+    };
+    return state;
+  };
+
+  const unknownPhase = makeState();
+  unknownPhase.taskMoveJournal['g-task'].phase = 'typo';
+  assert.throws(() => context.normalizeState_(unknownPhase), /STATE_MALFORMED.*taskMoveJournal/);
+
+  const missingDestination = makeState();
+  missingDestination.taskMoveJournal['g-task'].phase = 'created';
+  assert.throws(() => context.normalizeState_(missingDestination), /STATE_MALFORMED.*taskMoveJournal/);
 });
 
 test('Google cross-list move re-syncs only that task and retires the old Microsoft ID', () => {
@@ -1717,13 +1762,18 @@ test('Google cross-list move re-syncs only that task and retires the old Microso
     msListByTask: { 'ms-task-old': 'ms-old' }
   };
   const calls = [];
+  const oldMsTask = {
+    id: 'ms-task-old', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:00:00Z'
+  };
+  const movedMsTask = {
+    id: 'ms-task-new', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:02:00Z'
+  };
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task-new' ? movedMsTask : oldMsTask;
   context.deleteMsTask_ = (listId, taskId) => calls.push(['delete', listId, taskId]);
   context.createMsTask_ = (listId, payload) => {
     calls.push(['create', listId, payload.title]);
-    return {
-      id: 'ms-task-new', title: payload.title,
-      lastModifiedDateTime: '2026-08-14T00:02:00Z'
-    };
+    return movedMsTask;
   };
 
   context.reconcileMapped_(state, snap, Date.now(), 'move-round', {
@@ -1731,8 +1781,8 @@ test('Google cross-list move re-syncs only that task and retires the old Microso
   });
 
   assert.deepEqual(calls, [
-    ['delete', 'ms-old', 'ms-task-old'],
-    ['create', 'ms-new', 'Moved']
+    ['create', 'ms-new', 'Moved'],
+    ['delete', 'ms-old', 'ms-task-old']
   ]);
   assert.equal(state.g2m['g-task'].msId, 'ms-task-new');
   assert.equal(state.g2m['g-task'].gListId, 'g-new');
@@ -1766,16 +1816,295 @@ test('Google move retries from its still-live source when the old Microsoft task
     msListByTask: {}
   };
   let deletes = 0;
-  context.deleteMsTask_ = () => { deletes += 1; };
-  context.createMsTask_ = () => ({
+  const movedMsTask = {
     id: 'ms-task-new', title: 'Retry move', lastModifiedDateTime: '2026-08-14T00:02:00Z'
-  });
+  };
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task-new' ? movedMsTask : null;
+  context.deleteMsTask_ = () => { deletes += 1; };
+  context.createMsTask_ = () => movedMsTask;
 
   context.reconcileMapped_(state, snap, Date.now(), 'move-retry');
 
   assert.equal(deletes, 0);
   assert.equal(state.g2m['g-task'].msId, 'ms-task-new');
   assert.equal(state.g2m['g-task'].msListId, 'ms-new');
+});
+
+test('Google move fails closed before mutation when Microsoft changed since mapping', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  const snap = {
+    inventoryComplete: true,
+    activeGListIds: { 'g-old': true, 'g-new': true },
+    gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
+    msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    safety: { allowDeletions: false, allowTaskMoves: true },
+    gTasksById: {
+      'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:01:00Z' }
+    },
+    msTasksById: {
+      'ms-task': {
+        id: 'ms-task', title: 'Edited on Microsoft',
+        lastModifiedDateTime: '2026-08-14T00:05:00Z'
+      }
+    },
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask: { 'ms-task': 'ms-old' }
+  };
+  context.createMsTask_ = () => { throw new Error('must fail before create'); };
+  context.deleteMsTask_ = () => { throw new Error('must fail before delete'); };
+
+  context.reconcileMapped_(state, snap, Date.now(), 'move-edit-conflict');
+
+  assert.equal(state.g2m['g-task'].msId, 'ms-task');
+  assert.equal(state.taskMoveJournal['g-task'], undefined);
+  assert.equal(state.taskDeletionConflicts['g-task'].reason, 'MOVE_VS_EDIT_CONFLICT');
+});
+
+test('move create failure keeps the old task and a durable retry journal', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  const snap = {
+    inventoryComplete: true,
+    activeGListIds: { 'g-old': true, 'g-new': true },
+    gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
+    msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    safety: { allowDeletions: false, allowTaskMoves: true },
+    gTasksById: {
+      'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:01:00Z' }
+    },
+    msTasksById: {
+      'ms-task': { id: 'ms-task', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:00:00Z' }
+    },
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask: { 'ms-task': 'ms-old' }
+  };
+  let deletes = 0;
+  let creates = 0;
+  let freshSource = snap.msTasksById['ms-task'];
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = () => freshSource;
+  context.createMsTask_ = () => {
+    creates += 1;
+    throw new Error('CREATE_FAILED');
+  };
+  context.deleteMsTask_ = () => { deletes += 1; };
+
+  assert.throws(() => {
+    context.reconcileMapped_(state, snap, Date.now(), 'move-create-failed');
+  }, /CREATE_FAILED/);
+  assert.equal(deletes, 0);
+  assert.equal(state.g2m['g-task'].msId, 'ms-task');
+  assert.equal(state.taskMoveJournal['g-task'].phase, 'creating');
+  assert.equal(state.taskMoveJournal['g-task'].newMsId, null);
+  assert.equal(state.taskMoveJournal['g-task'].uncertainConfirmations, 0);
+  assert.doesNotThrow(() => {
+    context.reconcileMapped_(state, snap, Date.now(), 'move-create-miss-1');
+  });
+  assert.equal(creates, 1);
+  assert.equal(state.taskMoveJournal['g-task'].phase, 'creating');
+  assert.equal(state.taskMoveJournal['g-task'].uncertainConfirmations, 1);
+  freshSource = {
+    id: 'ms-task', title: 'Edited during recovery',
+    lastModifiedDateTime: '2026-08-14T00:05:00Z'
+  };
+  assert.doesNotThrow(() => {
+    context.reconcileMapped_(state, snap, Date.now(), 'move-create-miss-2');
+  });
+  assert.equal(creates, 1);
+  assert.equal(state.taskDeletionConflicts['g-task'].reason, 'MOVE_VS_EDIT_CONFLICT');
+});
+
+test('a creating move journal adopts one matching destination task instead of duplicating it', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  const gTask = {
+    id: 'g-task', title: 'Moved', notes: '', status: 'needsAction',
+    updated: '2026-08-14T00:01:00Z'
+  };
+  const oldTask = {
+    id: 'ms-task', title: 'Moved', body: { content: '', contentType: 'html' },
+    status: 'notStarted', lastModifiedDateTime: '2026-08-14T00:00:00Z'
+  };
+  const recovered = {
+    id: 'ms-task-new', title: 'Moved', body: { content: '', contentType: 'html' },
+    status: 'notStarted', createdDateTime: '2026-08-14T00:02:00Z',
+    lastModifiedDateTime: '2026-08-14T00:02:00Z'
+  };
+  state.taskMoveJournal['g-task'] = {
+    phase: 'creating', gId: 'g-task', oldMsId: 'ms-task', newMsId: null,
+    gListId: 'g-new', oldMsListId: 'ms-old', targetMsListId: 'ms-new',
+    gUpdated: gTask.updated, oldMsUpdated: oldTask.lastModifiedDateTime,
+    preparedAt: '2026-08-14T00:01:30Z',
+    fingerprint: context.moveFingerprintFromGoogle_(gTask),
+    uncertainConfirmations: 0, lastRoundId: 'prior-round'
+  };
+  const snap = {
+    inventoryComplete: true,
+    activeGListIds: { 'g-old': true, 'g-new': true },
+    gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
+    msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    safety: { allowDeletions: false, allowTaskMoves: true },
+    gTasksById: { 'g-task': gTask },
+    msTasksById: { 'ms-task': oldTask, 'ms-task-new': recovered },
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask: { 'ms-task': 'ms-old', 'ms-task-new': 'ms-new' }
+  };
+  let creates = 0;
+  const deletes = [];
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task' ? oldTask : recovered;
+  context.createMsTask_ = () => { creates += 1; };
+  context.deleteMsTask_ = (listId, taskId) => deletes.push([listId, taskId]);
+
+  context.reconcileMapped_(state, snap, Date.now(), 'recovery-round');
+
+  assert.equal(creates, 0);
+  assert.deepEqual(deletes, [['ms-old', 'ms-task']]);
+  assert.equal(state.g2m['g-task'].msId, 'ms-task-new');
+  assert.equal(state.taskMoveJournal['g-task'], undefined);
+});
+
+test('pre-delete re-read preserves both tasks when Microsoft changes during move creation', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  const oldTask = {
+    id: 'ms-task', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:00:00Z'
+  };
+  const editedOldTask = {
+    id: 'ms-task', title: 'Edited while moving', lastModifiedDateTime: '2026-08-14T00:05:00Z'
+  };
+  const snap = {
+    inventoryComplete: true,
+    activeGListIds: { 'g-old': true, 'g-new': true },
+    gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
+    msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    safety: { allowDeletions: false, allowTaskMoves: true },
+    gTasksById: {
+      'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:01:00Z' }
+    },
+    msTasksById: { 'ms-task': oldTask },
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask: { 'ms-task': 'ms-old' }
+  };
+  const movedMsTask = {
+    id: 'ms-task-new', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:02:00Z'
+  };
+  let oldReads = 0;
+  let deletes = 0;
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => {
+    if (taskId === 'ms-task-new') return movedMsTask;
+    oldReads += 1;
+    return oldReads <= 2 ? oldTask : editedOldTask;
+  };
+  context.createMsTask_ = () => movedMsTask;
+  context.deleteMsTask_ = () => { deletes += 1; };
+
+  context.reconcileMapped_(state, snap, Date.now(), 'move-race');
+
+  assert.equal(deletes, 0);
+  assert.equal(state.g2m['g-task'].msId, 'ms-task');
+  assert.equal(state.taskMoveJournal['g-task'].newMsId, 'ms-task-new');
+  assert.equal(state.taskDeletionConflicts['g-task'].reason, 'MOVE_VS_EDIT_CONFLICT');
+});
+
+test('destination edit after move creation preserves both tasks and fails closed', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  const oldTask = {
+    id: 'ms-task', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:00:00Z'
+  };
+  const createdDestination = {
+    id: 'ms-task-new', title: 'Moved', lastModifiedDateTime: '2026-08-14T00:02:00Z'
+  };
+  const editedDestination = {
+    id: 'ms-task-new', title: 'Edited at destination',
+    lastModifiedDateTime: '2026-08-14T00:03:00Z'
+  };
+  const snap = {
+    inventoryComplete: true,
+    activeGListIds: { 'g-old': true, 'g-new': true },
+    gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
+    msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    safety: { allowDeletions: false, allowTaskMoves: true },
+    gTasksById: {
+      'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:01:00Z' }
+    },
+    msTasksById: { 'ms-task': oldTask },
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask: { 'ms-task': 'ms-old' }
+  };
+  let deletes = 0;
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) =>
+    taskId === 'ms-task-new' ? editedDestination : oldTask;
+  context.createMsTask_ = () => createdDestination;
+  context.deleteMsTask_ = () => { deletes += 1; };
+
+  context.reconcileMapped_(state, snap, Date.now(), 'move-destination-edit');
+
+  assert.equal(deletes, 0);
+  assert.equal(state.g2m['g-task'].msId, 'ms-task');
+  assert.equal(state.taskMoveJournal['g-task'].newMsId, 'ms-task-new');
+  assert.equal(state.taskDeletionConflicts['g-task'].reason, 'MOVE_DESTINATION_EDIT_CONFLICT');
+});
+
+test('same-ID Microsoft list change fails closed instead of rebounding the task', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  const snap = mappedTaskSnapshot();
+  snap.msListByTask['ms-task'] = 'ms-new';
+  let writes = 0;
+  context.updateGTask_ = () => { writes += 1; };
+  context.updateMsTask_ = () => { writes += 1; };
+
+  context.reconcileMapped_(state, snap, Date.now(), 'same-id-move');
+
+  assert.equal(writes, 0);
+  assert.equal(state.g2m['g-task'].msListId, 'ms-list');
+  assert.equal(state.taskDeletionConflicts['g-task'].reason,
+    'MOVE_MICROSOFT_SAME_ID_LIST_CHANGED');
+});
+
+test('dry-run task move preview reports enabled, blocked, and recovery states without mutation', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'].gListId = 'g-old';
+  state.g2m['g-task'].msListId = 'ms-old';
+  const inventory = {
+    gTasksById: { 'g-task': { id: 'g-task', title: 'Moved' } },
+    msTasksById: { 'ms-task': { id: 'ms-task', title: 'Moved' } },
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask: { 'ms-task': 'ms-old' }
+  };
+  const actions = [];
+  const warnings = [];
+  context.appendTaskMovePreview_(state, inventory, { allowTaskMoves: true }, actions, warnings);
+  assert.equal(actions.length, 1);
+  assert.match(actions[0], /Google 跨清單移動/);
+
+  const blocked = [];
+  context.appendTaskMovePreview_(state, inventory, { allowTaskMoves: false }, [], blocked);
+  assert.match(blocked[0], /目前被阻擋/);
+  assert.equal(state.g2m['g-task'].msListId, 'ms-old');
 });
 
 test('Microsoft cross-list move converges as create-new then confirmed delete-old', () => {

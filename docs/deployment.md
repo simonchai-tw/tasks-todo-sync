@@ -1,10 +1,10 @@
-# Deployment guide — `0.1.0-rc.3`
+# Deployment guide — `0.1.0-rc.4`
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 15-minute Apps Script trigger is the running service; GitHub is source control only. `0.1.0-rc.3` is a prerelease candidate, not stable or production-ready.
+This guide deploys a personal Google Apps Script sync engine. The 15-minute Apps Script trigger is the running service; GitHub is source control only. `0.1.0-rc.4` is a prerelease candidate, not stable or production-ready.
 
-Use a private staging project and disposable tasks first. The code can create counterpart lists/tasks during normal syncing. Keep all three safety switches `false` until destructive smoke testing is complete. Cross-list movement uses delete-and-recreate semantics and is effective only when both task deletion and task moves are enabled.
+Use a private staging project and disposable tasks first. The code can create counterpart lists/tasks during normal syncing. Keep all three safety switches `false` until destructive smoke testing is complete. Google-origin cross-list movement is independently controlled by the move switch; Microsoft-origin convergence uses the ordinary new-task plus missing-task deletion path.
 
 There is no public Apps Script copy/template yet. The manual Apps Script route below is the supported first path. The optional `clasp` route is for people who already use Node.js and source control.
 
@@ -62,13 +62,15 @@ Never put these values, OAuth tokens, raw state, or IDs in the repository, issue
 
 ### 4. Verify before adding the schedule
 
-1. Run `dryRunReport()` and review its warnings, exclusions, faults, and list information. It is read-only and **not** a per-task mutation plan.
+1. Run `dryRunReport()` and review its warnings, exclusions, faults, list information, and detected Google-origin move previews. It is read-only and point-in-time; it is **not** a guarantee about later mutations.
 2. With disposable tasks, run `syncAll()` twice and inspect both services. The second run should not make unexpected duplicates.
 3. Exercise only non-destructive behavior you understand: create, update, complete, and date-only due-date handling.
 4. Run `createTrigger()` only after the staging results are acceptable. It creates the 15-minute `syncAll` trigger.
 5. After it runs, use `healthCheck()` and `setupStatus()` to check health and trigger state.
 
-Do not enable destructive switches to test them against valuable data. Cross-list movement intentionally creates a fresh provider task ID in the destination list, retires the old mapping, and tombstones the old counterpart ID for 30 days. Set both `SYNC_ALLOW_TASK_MOVES=true` and `SYNC_ALLOW_DELETIONS=true` only after a disposable-task trial.
+Do not enable destructive switches to test them against valuable data. Google-origin cross-list movement intentionally creates a fresh provider task ID in the destination list, durably records the create result, rereads the old source, then retires the old mapping and tombstones the old counterpart ID for 30 days. It needs `SYNC_ALLOW_TASK_MOVES=true`, not general deletion propagation. Microsoft-origin movement normally arrives as a new Microsoft ID plus a missing old ID; full convergence in that direction additionally needs `SYNC_ALLOW_DELETIONS=true`.
+
+The move rebuilds only title, plain-text notes, date-only due date, and completion state. Microsoft-only reminders, importance, categories, recurrence, attachments, creation date, completion history, and other provider metadata are not preserved. If the Microsoft source changed, the post-create source reread differs, recovery has multiple exact candidates, or required inventory is incomplete, the operation stops without deleting the source. An interrupted run may therefore leave a temporary duplicate that requires recovery or review, but it must not prefer deletion over uncertain evidence.
 
 ## Optional advanced `clasp` route
 
@@ -121,7 +123,7 @@ Do not depend on a Git tag that may not exist. Keep private source/version recor
 
 ### Sync-state rollback
 
-Source rollback does not roll back mappings, tombstones, journals, or OAuth state. First export/retain state privately with `inspectSyncState()` and `exportRawSyncState()`. `restorePreviousSyncState()` is deliberately limited: it refuses an active sync-round fence, refuses active task/list deletion journals, and preserves deletion/tombstone evidence. Never clear properties or force-import state merely to bypass those safeguards. After any state restore, run `dryRunReport()` and manually review before resuming.
+Source rollback does not roll back mappings, tombstones, move/deletion journals, or OAuth state. First export/retain state privately with `inspectSyncState()` and `exportRawSyncState()`. `restorePreviousSyncState()` is deliberately limited: it refuses an active sync-round fence, refuses active task move/deletion/list-deletion journals, and preserves deletion/tombstone evidence. Never clear properties or force-import state merely to bypass those safeguards. After any state restore, run `dryRunReport()` and manually review before resuming.
 
 ## RC release gate
 

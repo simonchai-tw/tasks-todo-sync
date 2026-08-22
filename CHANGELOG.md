@@ -4,6 +4,18 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.4 — 2026-08-22
+
+Public prerelease tag: `v0.1.0-rc.4`. This is a release candidate, not a stable or production-ready release.
+
+- Reworked Google-origin cross-list movement into a guarded create-before-delete transaction with a durable `taskMoveJournal`.
+- Added interrupted-create recovery: one exact destination match is adopted, ambiguous matches fail closed, and an uncertain result is observed across two inventory rounds before a create retry.
+- Added move-versus-edit protection before mutation and a fresh Microsoft source reread before deletion. A newer or concurrently changed Microsoft task is preserved and reported as a conflict.
+- Decoupled `SYNC_ALLOW_TASK_MOVES` from general task-deletion propagation. Google-origin movement can be tested without enabling ordinary missing-task deletion.
+- Added fail-closed handling for the unusual same-ID Microsoft cross-list observation and a read-only move preview in `dryRunReport()`.
+- Documented provider-ID replacement and the Microsoft-only metadata that delete-and-recreate cannot preserve.
+- Public destructive-feature defaults remain `false`; the maintainer's private Apps Script settings are not repository defaults.
+
 ## 0.1.0-rc.3 — 2026-08-22
 
 Public prerelease tag: `v0.1.0-rc.3`. This is a release candidate, not a stable or production-ready release.

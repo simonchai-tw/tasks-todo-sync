@@ -3,6 +3,7 @@ const MS_TODO_BASE = 'https://graph.microsoft.com/v1.0/me/todo/lists';
 const STATE_KEY = 'sync_state_main';
 const ROUND_FENCE_KEY = STATE_KEY + '_round_fence';
 const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const MOVE_CREATE_RECOVERY_WINDOW_MS = 10 * 60 * 1000;
 const RUN_LIMIT_MS = 5.25 * 60 * 1000;
 const HTTP_MAX_RETRIES = 4;
 // Execution-local only. The durable fence lives in User Properties; this flag
@@ -866,6 +867,10 @@ function newState_() {
     // A prepared journal is saved before every remote delete. This lets a later
     // run decide whether the delete completed if the final state save was lost.
     deletionJournal: {},
+    // Durable cross-list move intent.  A prepared/creating record keeps a
+    // remote create from being mistaken for an ordinary unmapped task, while
+    // a created record lets a later run finish deleting the old counterpart.
+    taskMoveJournal: {},
     // Kept separately from list faults so delete-vs-edit does not hide a whole list.
     taskDeletionConflicts: {},
     // List lifecycle state is intentionally separate from task deletion.  A
@@ -920,7 +925,7 @@ function assertStrictSchema3StateShape_(state, errorCode) {
   if (!state || state.schema !== 3) return;
   const allowedTopLevel = [
     'schema', 'listMap', 'g2m', 'm2g', 'tombstones', 'pendingTaskDeletions',
-    'deletionJournal', 'taskDeletionConflicts', 'listPairMeta',
+    'deletionJournal', 'taskMoveJournal', 'taskDeletionConflicts', 'listPairMeta',
     'pendingListDeletions', 'listDeletionJournal', 'listDeletionConflicts',
     'listTombstones', 'listTombstoneNames', 'listFaults', 'health', 'updatedAt'
   ];
@@ -931,6 +936,9 @@ function assertStrictSchema3StateShape_(state, errorCode) {
       'firstConfirmedAt', 'lastConfirmedAt', 'lastRoundId', 'confirmations'],
     deletionJournal: ['phase', 'gId', 'msId', 'missingSide', 'gListId', 'msListId', 'gUpdated', 'msUpdated',
       'preparedAt', 'lastBlockedReason', 'lastBlockedAt'],
+    taskMoveJournal: ['phase', 'gId', 'oldMsId', 'newMsId', 'gListId', 'oldMsListId',
+      'targetMsListId', 'gUpdated', 'oldMsUpdated', 'preparedAt', 'fingerprint',
+      'uncertainConfirmations', 'lastRoundId', 'lastBlockedReason', 'lastBlockedAt'],
     taskDeletionConflicts: ['at', 'reason', 'msId', 'gListId', 'msListId'],
     listPairMeta: ['gListId', 'msListId', 'gTitle', 'msTitle', 'gFingerprint', 'msFingerprint',
       'gDeletable', 'msDeletable', 'autoBothLiveProvenAt'],
@@ -1069,7 +1077,7 @@ function normalizeState_(state) {
       throw new Error('STATE_MALFORMED：' + field + ' 必須是物件，已拒絕覆寫。');
     }
   });
-  ['listPairMeta', 'pendingListDeletions', 'listDeletionJournal',
+  ['taskMoveJournal', 'listPairMeta', 'pendingListDeletions', 'listDeletionJournal',
     'listDeletionConflicts'].forEach(function(field) {
     if (state[field] === undefined) state[field] = {};
     if (!state[field] || typeof state[field] !== 'object' || Array.isArray(state[field])) {
@@ -1133,6 +1141,22 @@ function normalizeState_(state) {
   Object.keys(state.taskDeletionConflicts).forEach(function(gId) {
     if (!state.g2m[gId]) {
       throw new Error('STATE_MALFORMED：taskDeletionConflicts[' + gId + '] 缺少 mapping，已拒絕覆寫。');
+    }
+  });
+  Object.keys(state.taskMoveJournal).forEach(function(gId) {
+    const journal = state.taskMoveJournal[gId];
+    const mapping = state.g2m[gId];
+    const validMovePhases = ['creating', 'retry_create', 'created'];
+    if (!journal || !mapping || journal.gId !== gId || journal.oldMsId !== mapping.msId ||
+        journal.oldMsListId !== mapping.msListId || !journal.targetMsListId ||
+        !journal.gListId || !journal.preparedAt || !journal.fingerprint ||
+        validMovePhases.indexOf(journal.phase) < 0 ||
+        (journal.phase === 'created' && !journal.newMsId) ||
+        !Number.isInteger(Number(journal.uncertainConfirmations || 0)) ||
+        Number(journal.uncertainConfirmations || 0) < 0 ||
+        Number(journal.uncertainConfirmations || 0) > 2) {
+      throw new Error('STATE_MALFORMED：taskMoveJournal[' + gId +
+        '] 與 mapping 不一致或缺少復原證據，已拒絕覆寫。');
     }
   });
   return state;
@@ -1762,6 +1786,16 @@ function getMsTasks_(listId) {
   return getAllPages_(first, function(url) {
     return graphFetch_(url, microsoftTaskRequestOptions_());
   }, 'value', 'graph');
+}
+
+function getMsTask_(listId, taskId) {
+  try {
+    return graphFetch_(MS_TODO_BASE + '/' + encodeURIComponent(listId) +
+      '/tasks/' + encodeURIComponent(taskId), microsoftTaskRequestOptions_());
+  } catch (e) {
+    if (isNotFoundError_(e)) return null;
+    throw e;
+  }
 }
 
 function createMsList_(displayName) {
@@ -2432,9 +2466,15 @@ function markListPairDeleted_(state, pair, source) {
 }
 
 function listPairHasTaskDeletionJournal_(state, gListId, msListId) {
-  return Object.keys(state.deletionJournal || {}).some(function(gTaskId) {
+  const deletePending = Object.keys(state.deletionJournal || {}).some(function(gTaskId) {
     const journal = state.deletionJournal[gTaskId];
     return !!journal && journal.gListId === gListId && journal.msListId === msListId;
+  });
+  if (deletePending) return true;
+  return Object.keys(state.taskMoveJournal || {}).some(function(gTaskId) {
+    const journal = state.taskMoveJournal[gTaskId];
+    return !!journal && (journal.gListId === gListId ||
+      journal.oldMsListId === msListId || journal.targetMsListId === msListId);
   });
 }
 
@@ -3314,6 +3354,13 @@ function hasDeletionJournalForMsTask_(state, msId) {
   });
 }
 
+function hasMoveJournalForMsTask_(state, msId) {
+  return Object.keys(state.taskMoveJournal || {}).some(function(gId) {
+    const journal = state.taskMoveJournal[gId];
+    return !!journal && (journal.oldMsId === msId || journal.newMsId === msId);
+  });
+}
+
 function clearDeletionTracking_(state, gId) {
   if (!gId) return;
   clearPendingTaskDeletion_(state, gId);
@@ -3711,6 +3758,7 @@ function applyConfirmedTaskDeletions_(state, snap, roundId, progress) {
 
 function taskDeletionObservability_(state, safety) {
   ensureTaskDeletionState_(state);
+  ensureTaskMoveState_(state);
   const orphanDeletionJournals = Object.keys(state.deletionJournal).filter(function(gId) {
     return !state.g2m[gId];
   }).length;
@@ -3721,7 +3769,8 @@ function taskDeletionObservability_(state, safety) {
     deletionsEnabled: !!(safety && safety.allowDeletions),
     taskMovesEnabled: !!(safety && safety.allowTaskMoves),
     taskMovesAvailable: true,
-    taskMovesEffective: !!(safety && safety.allowTaskMoves && safety.allowDeletions),
+    taskMovesEffective: !!(safety && safety.allowTaskMoves),
+    taskMoveJournals: Object.keys(state.taskMoveJournal).length,
     pendingTaskDeletionCandidates: Object.keys(state.pendingTaskDeletions).length,
     deletionJournals: Object.keys(state.deletionJournal).length,
     orphanDeletionJournals: orphanDeletionJournals,
@@ -3743,15 +3792,66 @@ function googleMoveInventoryComplete_(state, snap, rec, currentGListId, targetMs
     !isListPairReserved_(snap, currentGListId, targetMsListId);
 }
 
+function ensureTaskMoveState_(state) {
+  state.taskMoveJournal = state.taskMoveJournal || {};
+}
+
+function moveFingerprintFromGoogle_(task) {
+  return JSON.stringify({
+    title: task && task.title || '(無標題)',
+    notes: task && task.notes == null ? '' : String(task.notes),
+    due: task && task.due ? String(task.due).slice(0, 10) : null,
+    status: task && task.status === 'completed' ? 'completed' : 'needsAction'
+  });
+}
+
+function moveFingerprintFromMicrosoft_(task) {
+  return moveFingerprintFromGoogle_(googlePayloadFromMs_(task || {}));
+}
+
+function moveJournalCandidates_(state, snap, journal) {
+  const preparedAt = validTimestampMs_(journal.preparedAt);
+  return Object.keys(snap.msTasksById || {}).filter(function(msId) {
+    const task = snap.msTasksById[msId];
+    if (!task || snap.msListByTask[msId] !== journal.targetMsListId) return false;
+    if (state.m2g[msId] && state.m2g[msId] !== journal.gId) return false;
+    if (moveFingerprintFromMicrosoft_(task) !== journal.fingerprint) return false;
+    const createdAt = validTimestampMs_(task.createdDateTime);
+    return preparedAt !== null && createdAt !== null &&
+      createdAt >= preparedAt - 60000 &&
+      createdAt <= preparedAt + MOVE_CREATE_RECOVERY_WINDOW_MS;
+  }).map(function(msId) { return snap.msTasksById[msId]; });
+}
+
+function blockTaskMove_(state, gId, rec, journal, reason) {
+  if (journal) {
+    journal.lastBlockedReason = reason;
+    journal.lastBlockedAt = new Date().toISOString();
+  }
+  recordTaskDeletionConflict_(state, gId, rec, reason);
+  console.warn('[MoveConflict] ' + reason + '：' + gId);
+  return false;
+}
+
+function msTaskMatchesMoveBaseline_(task, journal) {
+  if (!task) return true;
+  const observed = validTimestampMs_(task.lastModifiedDateTime);
+  const baseline = validTimestampMs_(journal.oldMsUpdated);
+  return observed !== null && baseline !== null && observed === baseline;
+}
+
+function msTaskChangedSinceMapping_(task, mappedTimestamp) {
+  if (!task) return false;
+  const observed = validTimestampMs_(task.lastModifiedDateTime);
+  const mapped = validTimestampMs_(mappedTimestamp);
+  return observed === null || mapped === null || observed > mapped;
+}
+
 function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
-    targetMsListId, progress) {
+    targetMsListId, progress, roundId) {
+  ensureTaskMoveState_(state);
   if (!snap.safety || !snap.safety.allowTaskMoves) {
     console.warn('[MoveBlocked] Google 任務跨清單；SYNC_ALLOW_TASK_MOVES=false：' +
-      taskLabel_(gId, gTask.title));
-    return false;
-  }
-  if (!snap.safety.allowDeletions) {
-    console.warn('[MoveBlocked] Google 任務跨清單；SYNC_ALLOW_DELETIONS=false：' +
       taskLabel_(gId, gTask.title));
     return false;
   }
@@ -3766,6 +3866,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
     return false;
   }
 
+  let journal = state.taskMoveJournal[gId] || null;
   const oldMsTask = snap.msTasksById[rec.msId] || null;
   if (oldMsTask && snap.msListByTask[rec.msId] !== rec.msListId) {
     console.warn('[MoveBlocked] Google 任務跨清單；MOVE_SOURCE_CHANGED：' +
@@ -3773,31 +3874,150 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
     return false;
   }
 
-  // Product semantics intentionally treat a cross-list move as a local
-  // re-sync: remove the old counterpart and create a fresh counterpart in the
-  // newly mapped list. Provider task IDs are not preserved.
-  if (oldMsTask) {
+  const fingerprint = moveFingerprintFromGoogle_(gTask);
+  let newJournal = false;
+  if (!journal) {
+    if (msTaskChangedSinceMapping_(oldMsTask, rec.msUpdated)) {
+      return blockTaskMove_(state, gId, rec, null, 'MOVE_VS_EDIT_CONFLICT');
+    }
+    const freshBeforeCreate = oldMsTask ? getMsTask_(rec.msListId, rec.msId) : null;
+    if (msTaskChangedSinceMapping_(freshBeforeCreate, rec.msUpdated)) {
+      return blockTaskMove_(state, gId, rec, null, 'MOVE_VS_EDIT_CONFLICT');
+    }
+    journal = {
+      phase: 'creating',
+      gId: gId,
+      oldMsId: rec.msId,
+      newMsId: null,
+      gListId: currentGListId,
+      oldMsListId: rec.msListId,
+      targetMsListId: targetMsListId,
+      gUpdated: gTask.updated || null,
+      oldMsUpdated: freshBeforeCreate && freshBeforeCreate.lastModifiedDateTime || rec.msUpdated || null,
+      preparedAt: new Date().toISOString(),
+      fingerprint: fingerprint,
+      uncertainConfirmations: 0,
+      lastRoundId: roundId || null
+    };
+    state.taskMoveJournal[gId] = journal;
+    persistSyncState_(state);
+    newJournal = true;
+  } else if (journal.oldMsId !== rec.msId || journal.oldMsListId !== rec.msListId ||
+      journal.gListId !== currentGListId || journal.targetMsListId !== targetMsListId ||
+      journal.fingerprint !== fingerprint) {
+    return blockTaskMove_(state, gId, rec, journal, 'MOVE_SOURCE_SCENARIO_CHANGED');
+  }
+
+  let movedMsTask = journal.newMsId
+    ? (snap.msTasksById[journal.newMsId] || getMsTask_(journal.targetMsListId, journal.newMsId))
+    : null;
+  if (!movedMsTask && !journal.newMsId && !newJournal) {
+    const candidates = moveJournalCandidates_(state, snap, journal);
+    if (candidates.length > 1) {
+      return blockTaskMove_(state, gId, rec, journal, 'MOVE_CREATE_RESULT_AMBIGUOUS');
+    }
+    if (candidates.length === 1) movedMsTask = candidates[0];
+  }
+  if (movedMsTask && !journal.newMsId) {
+    journal.newMsId = movedMsTask.id;
+    journal.phase = 'created';
+    delete journal.lastBlockedReason;
+    delete journal.lastBlockedAt;
+    persistSyncState_(state);
+  }
+  if (!movedMsTask && journal.newMsId) {
+    journal.phase = 'creating';
+    journal.newMsId = null;
+  }
+  if (!movedMsTask && !newJournal && journal.phase === 'creating') {
+    if (journal.lastRoundId !== roundId) {
+      journal.uncertainConfirmations = Number(journal.uncertainConfirmations || 0) + 1;
+      journal.lastRoundId = roundId;
+      persistSyncState_(state);
+    }
+    if (Number(journal.uncertainConfirmations || 0) < 2) {
+      console.warn('[MoveRecovery] 建立結果尚未確認，下一輪再查：' + taskLabel_(gId, gTask.title));
+      return false;
+    }
+    journal.phase = 'retry_create';
+    persistSyncState_(state);
+  }
+  if (!movedMsTask) {
+    // This can be the initial create or a retry after two uncertain inventory
+    // rounds. Revalidate the old source every time; it may have been edited
+    // while recovery was waiting.
+    const freshBeforeDestinationCreate = getMsTask_(journal.oldMsListId, journal.oldMsId);
+    if (freshBeforeDestinationCreate &&
+        !msTaskMatchesMoveBaseline_(freshBeforeDestinationCreate, journal)) {
+      return blockTaskMove_(state, gId, rec, journal, 'MOVE_VS_EDIT_CONFLICT');
+    }
     try {
-      deleteMsTask_(rec.msListId, rec.msId);
+      journal.phase = 'creating';
+      journal.lastRoundId = roundId || journal.lastRoundId || null;
+      persistSyncState_(state);
+      movedMsTask = createMsTask_(
+        journal.targetMsListId,
+        msPayloadFromGoogle_(gTask, 'create')
+      );
+    } catch (e) {
+      // A client-side error does not prove the remote create failed. Keep the
+      // result uncertain so two later complete inventories must miss it before
+      // another create attempt is allowed.
+      journal.phase = 'creating';
+      journal.uncertainConfirmations = 0;
+      journal.lastRoundId = roundId || journal.lastRoundId || null;
+      journal.lastBlockedReason = 'MOVE_DESTINATION_CREATE_FAILED';
+      journal.lastBlockedAt = new Date().toISOString();
+      persistSyncState_(state);
+      throw e;
+    }
+    journal.newMsId = movedMsTask.id;
+    journal.phase = 'created';
+    journal.uncertainConfirmations = 0;
+    delete journal.lastBlockedReason;
+    delete journal.lastBlockedAt;
+    snap.msTasksById[movedMsTask.id] = movedMsTask;
+    snap.msListByTask[movedMsTask.id] = journal.targetMsListId;
+    persistSyncState_(state);
+  }
+
+  // Re-read the destination before source deletion. A stale snapshot, a
+  // temporarily invisible create, or a concurrent destination edit must leave
+  // the old task intact instead of silently accepting divergent content.
+  const freshDestination = getMsTask_(journal.targetMsListId, journal.newMsId);
+  if (!freshDestination) {
+    return blockTaskMove_(state, gId, rec, journal, 'MOVE_DESTINATION_UNAVAILABLE');
+  }
+  if (moveFingerprintFromMicrosoft_(freshDestination) !== journal.fingerprint) {
+    return blockTaskMove_(state, gId, rec, journal, 'MOVE_DESTINATION_EDIT_CONFLICT');
+  }
+  movedMsTask = freshDestination;
+  snap.msTasksById[movedMsTask.id] = movedMsTask;
+  snap.msListByTask[movedMsTask.id] = journal.targetMsListId;
+
+  const freshOld = getMsTask_(journal.oldMsListId, journal.oldMsId);
+  if (freshOld && !msTaskMatchesMoveBaseline_(freshOld, journal)) {
+    return blockTaskMove_(state, gId, rec, journal, 'MOVE_VS_EDIT_CONFLICT');
+  }
+  if (freshOld) {
+    try {
+      deleteMsTask_(journal.oldMsListId, journal.oldMsId);
     } catch (e) {
       if (!isNotFoundError_(e)) throw e;
     }
   }
-  const movedMsTask = createMsTask_(
-    targetMsListId,
-    msPayloadFromGoogle_(gTask, 'create')
-  );
 
   markTaskDeletionCandidateInvalidated_(progress, gId);
   clearDeletionTracking_(state, gId);
   clearTaskDeletionConflict_(state, gId);
-  state.tombstones.m[rec.msId] = { at: Date.now(), source: 'move' };
-  putMapping_(state, gTask, currentGListId, movedMsTask, targetMsListId);
+  state.tombstones.m[journal.oldMsId] = { at: Date.now(), source: 'move' };
+  putMapping_(state, gTask, currentGListId, movedMsTask, journal.targetMsListId);
+  delete state.taskMoveJournal[gId];
 
-  delete snap.msTasksById[rec.msId];
-  delete snap.msListByTask[rec.msId];
+  delete snap.msTasksById[journal.oldMsId];
+  delete snap.msListByTask[journal.oldMsId];
   snap.msTasksById[movedMsTask.id] = movedMsTask;
-  snap.msListByTask[movedMsTask.id] = targetMsListId;
+  snap.msListByTask[movedMsTask.id] = journal.targetMsListId;
   console.log('[Move] Google → Microsoft 重新同步：' + taskLabel_(gId, gTask.title));
   return true;
 }
@@ -4490,12 +4710,29 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
     const msId = rec.msId;
     const gTask = snap.gTasksById[gId] || null;
     const msTask = snap.msTasksById[msId] || null;
+    if (msTask && snap.msListByTask[msId] && snap.msListByTask[msId] !== rec.msListId) {
+      blockTaskMove_(state, gId, rec, state.taskMoveJournal[gId] || null,
+        'MOVE_MICROSOFT_SAME_ID_LIST_CHANGED');
+      continue;
+    }
     const currentGListId = gTask ? snap.gListByTask[gId] : rec.gListId;
     const targetMsListId = state.listMap[currentGListId];
 
+    const moveJournal = state.taskMoveJournal && state.taskMoveJournal[gId];
+    if (moveJournal && !gTask) {
+      blockTaskMove_(state, gId, rec, moveJournal, 'MOVE_GOOGLE_SOURCE_MISSING');
+      continue;
+    }
+    if (gTask && moveJournal) {
+      resyncGoogleTaskMove_(
+        state, snap, gId, gTask, rec, currentGListId,
+        moveJournal.targetMsListId, progress, roundId
+      );
+      continue;
+    }
     if (gTask && targetMsListId && targetMsListId !== rec.msListId) {
       resyncGoogleTaskMove_(
-        state, snap, gId, gTask, rec, currentGListId, targetMsListId, progress
+        state, snap, gId, gTask, rec, currentGListId, targetMsListId, progress, roundId
       );
       continue;
     }
@@ -4567,7 +4804,6 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
       }
     } else {
       rec.gListId = currentGListId;
-      rec.msListId = snap.msListByTask[msId] || rec.msListId;
     }
   }
 }
@@ -4575,7 +4811,8 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
 function createUnmapped_(state, snap, startedAt) {
   for (const gId of Object.keys(snap.gTasksById)) {
     if (!remainingTimeOk_(startedAt, 30000)) throw new Error('TIME_BUDGET_CREATE');
-    if (state.g2m[gId] || state.tombstones.g[gId] || state.deletionJournal[gId]) continue;
+    if (state.g2m[gId] || state.tombstones.g[gId] || state.deletionJournal[gId] ||
+        (state.taskMoveJournal && state.taskMoveJournal[gId])) continue;
     const gTask = snap.gTasksById[gId];
     const gListId = snap.gListByTask[gId];
     if (isGListFaulted_(state, gListId)) continue;
@@ -4590,7 +4827,8 @@ function createUnmapped_(state, snap, startedAt) {
   }
   for (const msId of Object.keys(snap.msTasksById)) {
     if (!remainingTimeOk_(startedAt, 30000)) throw new Error('TIME_BUDGET_CREATE');
-    if (state.m2g[msId] || state.tombstones.m[msId] || hasDeletionJournalForMsTask_(state, msId)) continue;
+    if (state.m2g[msId] || state.tombstones.m[msId] ||
+        hasDeletionJournalForMsTask_(state, msId) || hasMoveJournalForMsTask_(state, msId)) continue;
     const msTask = snap.msTasksById[msId];
     const msListId = snap.msListByTask[msId];
     if (isMsListFaulted_(state, msListId)) continue;
@@ -4726,6 +4964,38 @@ function syncAll() {
   });
 }
 
+function appendTaskMovePreview_(state, inventory, safety, actions, warnings) {
+  Object.keys(state.g2m || {}).forEach(function(gId) {
+    const rec = state.g2m[gId];
+    const gTask = inventory.gTasksById[gId];
+    const msTask = inventory.msTasksById[rec.msId];
+    if (gTask) {
+      const currentGListId = inventory.gListByTask[gId];
+      const targetMsListId = state.listMap[currentGListId];
+      if (targetMsListId && targetMsListId !== rec.msListId) {
+        const label = taskLabel_(gId, gTask.title);
+        if (safety.allowTaskMoves) {
+          actions.push('[ACTION] Google 跨清單移動將重建 Microsoft 對應：' + label +
+            '（' + rec.msListId + ' → ' + targetMsListId + '）');
+        } else {
+          warnings.push('[WARNING] Google 跨清單移動目前被阻擋：' + label);
+        }
+      }
+    }
+    if (msTask && inventory.msListByTask[rec.msId] &&
+        inventory.msListByTask[rec.msId] !== rec.msListId) {
+      warnings.push('[WARNING] Microsoft 任務以相同 ID 出現在不同清單，下一輪會 fail closed：' +
+        taskLabel_(rec.msId, msTask.title));
+    }
+  });
+  Object.keys(state.taskMoveJournal || {}).forEach(function(gId) {
+    const journal = state.taskMoveJournal[gId];
+    warnings.push('[WARNING] 尚有待復原的跨清單移動：' + gId +
+      ' phase=' + journal.phase + (journal.lastBlockedReason
+        ? ' reason=' + journal.lastBlockedReason : ''));
+  });
+}
+
 function dryRunReport() {
   RUN_STARTED_AT = Date.now();
   return withGlobalLock_(function() {
@@ -4785,16 +5055,26 @@ function dryRunReport() {
       } catch (e) {
         autoError = String(e.message || e);
       }
-      const googleTaskCounts = {};
-      const microsoftTaskCounts = {};
+    const googleTaskCounts = {};
+    const microsoftTaskCounts = {};
+    const moveInventory = {
+      gTasksById: {},
+      msTasksById: {},
+      gListByTask: {},
+      msListByTask: {}
+    };
       let googleTasks = 0;
       let microsoftTasks = 0;
       if (!autoError) {
         gLists.forEach(function(list) {
           try {
-            const count = getGTasks_(list.id).length;
-            googleTaskCounts[list.id] = count;
-            googleTasks += count;
+          const tasks = getGTasks_(list.id);
+          googleTaskCounts[list.id] = tasks.length;
+          googleTasks += tasks.length;
+          tasks.forEach(function(task) {
+            moveInventory.gTasksById[task.id] = task;
+            moveInventory.gListByTask[task.id] = list.id;
+          });
           } catch (e) {
             if (isNotFoundError_(e)) {
               warnings.push('[WARNING] Google 清單 ' + (list.title || list.id) + ' 無法讀取，可能已消失。');
@@ -4805,9 +5085,13 @@ function dryRunReport() {
         });
         plan.eligibleMicrosoftLists.forEach(function(list) {
           try {
-            const count = getMsTasks_(list.id).length;
-            microsoftTaskCounts[list.id] = count;
-            microsoftTasks += count;
+          const tasks = getMsTasks_(list.id);
+          microsoftTaskCounts[list.id] = tasks.length;
+          microsoftTasks += tasks.length;
+          tasks.forEach(function(task) {
+            moveInventory.msTasksById[task.id] = task;
+            moveInventory.msListByTask[task.id] = list.id;
+          });
           } catch (e) {
             if (isNotFoundError_(e)) {
               warnings.push('[WARNING] Microsoft 清單 ' + (list.displayName || list.id) + ' 無法讀取，可能已消失。');
@@ -4832,10 +5116,11 @@ function dryRunReport() {
         plan.createMicrosoft.forEach(function(list) {
           actions.push('[ACTION] Google → Microsoft 建立清單：' + (list.title || '(無標題清單)'));
         });
-        plan.createGoogle.forEach(function(list) {
-          actions.push('[ACTION] Microsoft → Google 建立清單：' + (list.displayName || '(無標題清單)'));
-        });
-        plan.faults.forEach(function(fault) {
+      plan.createGoogle.forEach(function(list) {
+        actions.push('[ACTION] Microsoft → Google 建立清單：' + (list.displayName || '(無標題清單)'));
+      });
+      appendTaskMovePreview_(state, moveInventory, safety, actions, warnings);
+      plan.faults.forEach(function(fault) {
           warnings.push('[WARNING] 將隔離而不猜測配對：' + fault.reason + '（' +
             (fault.googleListTitle || fault.microsoftListTitle || '未知清單') + '）');
         });
@@ -4845,8 +5130,6 @@ function dryRunReport() {
       }
       if (!safety.allowTaskMoves) {
         info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false；Google 跨清單移動會被阻擋。');
-      } else if (!safety.allowDeletions) {
-        warnings.push('[WARNING] SYNC_ALLOW_TASK_MOVES=true 需要 SYNC_ALLOW_DELETIONS=true；目前跨清單移動仍會被阻擋。');
       }
       if (!safety.allowListDeletions) {
         info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false；不會累積或推進清單刪除候選。');
@@ -4935,8 +5218,6 @@ function dryRunReport() {
     }
     if (!safety.allowTaskMoves) {
       info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false；Google 跨清單移動會被阻擋。');
-    } else if (!safety.allowDeletions) {
-      warnings.push('[WARNING] SYNC_ALLOW_TASK_MOVES=true 需要 SYNC_ALLOW_DELETIONS=true；目前跨清單移動仍會被阻擋。');
     }
     if (!safety.allowListDeletions) {
       info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false；不會累積或推進清單刪除候選。');
@@ -5000,12 +5281,23 @@ function dryRunReport() {
         info.push('[INFO] Google 清單「' + item.googleListTitle + '」在 Microsoft 有同名清單，但不會自動配對。');
       });
     }
-    let gTaskCount = 0;
-    let msTaskCount = 0;
-    gLists.forEach(function(list) {
+  let gTaskCount = 0;
+  let msTaskCount = 0;
+  const explicitMoveInventory = {
+    gTasksById: {},
+    msTasksById: {},
+    gListByTask: {},
+    msListByTask: {}
+  };
+  gLists.forEach(function(list) {
       if (isGListFaulted_(state, list.id)) return;
       try {
-        gTaskCount += getGTasks_(list.id).length;
+      const tasks = getGTasks_(list.id);
+      gTaskCount += tasks.length;
+      tasks.forEach(function(task) {
+        explicitMoveInventory.gTasksById[task.id] = task;
+        explicitMoveInventory.gListByTask[task.id] = list.id;
+      });
       } catch (e) {
         if (isNotFoundError_(e)) {
           warnings.push('[WARNING] Google 清單 ' + (list.title || list.id) + ' 無法讀取，可能已消失。');
@@ -5027,18 +5319,24 @@ function dryRunReport() {
       });
     }
     const mappedMsIds = Array.from(new Set(candidateMsIds));
-    mappedMsIds.forEach(function(msListId) {
-      try {
-        msTaskCount += getMsTasks_(msListId).length;
+  mappedMsIds.forEach(function(msListId) {
+    try {
+      const tasks = getMsTasks_(msListId);
+      msTaskCount += tasks.length;
+      tasks.forEach(function(task) {
+        explicitMoveInventory.msTasksById[task.id] = task;
+        explicitMoveInventory.msListByTask[task.id] = msListId;
+      });
       } catch (e) {
         if (isNotFoundError_(e)) {
           warnings.push('[WARNING] Microsoft 清單 ' + msListId + ' 無法讀取，可能已消失。');
           return;
         }
         throw e;
-      }
-    });
-    console.log(JSON.stringify({
+    }
+  });
+  appendTaskMovePreview_(state, explicitMoveInventory, safety, actions, warnings);
+  console.log(JSON.stringify({
       warnings: warnings,
       actions: actions,
       info: info,
@@ -5273,7 +5571,8 @@ function importSyncState(jsonString) {
 
 function validateImportedState_(state) {
   const objectFields = ['listMap', 'g2m', 'm2g', 'tombstones', 'listFaults', 'health'];
-  const optionalObjectFields = ['pendingTaskDeletions', 'deletionJournal', 'taskDeletionConflicts'];
+  const optionalObjectFields = ['pendingTaskDeletions', 'deletionJournal', 'taskMoveJournal',
+    'taskDeletionConflicts'];
   if (state.schema !== 2 && state.schema !== 3) {
     throw new Error('IMPORT_INVALID_STATE：僅接受 schema=2 或 schema=3 的完整匯出。');
   }
@@ -5520,13 +5819,20 @@ function listSyncFaults() {
 
 function deletionJournalIdsForListPair_(state, gListId, msListId) {
   ensureTaskDeletionState_(state);
-  return Object.keys(state.deletionJournal).filter(function(gTaskId) {
+  ensureTaskMoveState_(state);
+  const deleteIds = Object.keys(state.deletionJournal).filter(function(gTaskId) {
     const journal = state.deletionJournal[gTaskId];
     const mapping = state.g2m[gTaskId];
     return !!journal &&
       ((gListId && (journal.gListId === gListId || (mapping && mapping.gListId === gListId))) ||
-       (msListId && (journal.msListId === msListId || (mapping && mapping.msListId === msListId))));
+      (msListId && (journal.msListId === msListId || (mapping && mapping.msListId === msListId))));
   });
+  const moveIds = Object.keys(state.taskMoveJournal).filter(function(gTaskId) {
+    const journal = state.taskMoveJournal[gTaskId];
+    return !!journal && ((gListId && journal.gListId === gListId) ||
+      (msListId && (journal.oldMsListId === msListId || journal.targetMsListId === msListId)));
+  });
+  return Array.from(new Set(deleteIds.concat(moveIds)));
 }
 
 function assertNoDeletionJournalForListPair_(state, gListId, msListId) {
@@ -5583,9 +5889,12 @@ function preserveListPairMetaForRepair_(state, gListId, msListId) {
 
 function assertNoAnyDeletionJournals_(state, code) {
   ensureTaskDeletionState_(state);
+  ensureTaskMoveState_(state);
   ensureListDeletionState_(state);
-  if (Object.keys(state.deletionJournal).length || Object.keys(state.listDeletionJournal).length) {
-    throw new Error((code || 'STATE_CHANGE') + '_DELETION_JOURNAL_PENDING：存在 task 或 list deletion journal，已拒絕覆寫。');
+  if (Object.keys(state.deletionJournal).length || Object.keys(state.taskMoveJournal).length ||
+      Object.keys(state.listDeletionJournal).length) {
+    throw new Error((code || 'STATE_CHANGE') +
+      '_DELETION_JOURNAL_PENDING：存在 task deletion、task move 或 list deletion journal，已拒絕覆寫。');
   }
 }
 
