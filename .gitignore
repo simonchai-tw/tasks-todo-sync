@@ -1,0 +1,13 @@
+node_modules/
+coverage/
+.clasp.json
+.clasprc.json
+.env
+.env.*
+!.env.example
+*.secret.json
+*sync-state*.json
+*state-export*.json
+npm-debug.log*
+/docs/original-opus-guide.md
+/Tasks-ToDo-Sync-Code.md

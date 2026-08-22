@@ -1,0 +1,26 @@
+{
+  "name": "tasks-todo-sync",
+  "version": "0.1.0-rc.2",
+  "private": true,
+  "description": "Google Tasks and Microsoft To Do sync engine for Google Apps Script",
+  "author": "Simon",
+  "contributors": [
+    "ChatGPT"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/simonchai-tw/tasks-todo-sync.git"
+  },
+  "bugs": {
+    "url": "https://github.com/simonchai-tw/tasks-todo-sync/issues"
+  },
+  "homepage": "https://github.com/simonchai-tw/tasks-todo-sync#readme",
+  "scripts": {
+    "check": "node scripts/validate.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
