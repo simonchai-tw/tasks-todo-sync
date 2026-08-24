@@ -6,7 +6,7 @@ All notable changes to this project are documented here.
 
 ## 0.1.0-rc.6 — 2026-08-23
 
-Intended public prerelease tag: `v0.1.0-rc.6`. This remains a release candidate, not a stable or production-ready release.
+Public prerelease tag: `v0.1.0-rc.6`. This remains a release candidate, not a stable or production-ready release.
 
 - Replaced fingerprint-only interrupted-move adoption with a per-journal UUID and a Microsoft Graph open type extension written atomically with the destination task. Recovery uses the documented short-name extension filter only for unresolved target lists, then locally accepts only the exact `microsoft.graph.openTypeExtension.` and legacy `Microsoft.OutlookServices.OpenTypeExtension.` identities for the exact extension name, plus a valid matching UUID, destination list, unmapped task, and synchronized-field fingerprint. Bare names, suffix matches, other prefixes, missing, duplicate, edited, or unreadable evidence fail closed.
 - Kept pre-rc.6 move journals readable. A legacy `created` journal with a known destination ID can finish under the existing strict rereads, while an unresolved legacy journal cannot auto-adopt or recreate a task.

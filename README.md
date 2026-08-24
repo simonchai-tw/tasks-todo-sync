@@ -60,7 +60,7 @@ The script keeps an ID-based mapping between paired lists and tasks. Existing ma
 
 Apps Script limits one execution to six minutes. The synchronizer uses a 5.25-minute budget and a global lock, leaving 45 seconds before the platform ceiling and preventing overlapping work from running concurrently. Destructive journal paths stop with an additional 45-second reserve inside that budget before live revalidation, durable journal writes, or remote deletion, leaving bounded room for catch-save and lock cleanup. Ten minutes is the first supported minute-trigger cadence above the six-minute ceiling. Ordinary changes are therefore normally observed in 0–10 minutes; a two-complete-round deletion or Microsoft-origin move cleanup normally needs about 10–20 minutes, and can take longer after throttling or a failed run.
 
-A time-budget exit does **not** preserve a Google or Graph page cursor. The next run starts a complete inventory again. If a single complete inventory always exceeds the 5.25-minute budget, changing 10 minutes back to 15 minutes will not solve it; the future remedy is persistent pagination/delta state or workload sharding.
+A time-budget exit does **not** preserve a Google or Graph page cursor. The next run starts a complete inventory again. If a single complete inventory always exceeds the 5.25-minute budget, increasing the trigger interval will not solve it; the future remedy is persistent pagination/delta state or workload sharding.
 
 ## Get started
 
@@ -86,14 +86,14 @@ createTrigger();          // install the 10-minute trigger
 | Check | Verified result |
 |---|---|
 | Local regression suite | **168 / 168 passed** in the rc6 worktree |
-| GitHub CI | `v0.1.0-rc.5` baseline passed; rc6 pending publication |
-| Real scheduled run | `v0.1.0-rc.4` staging trigger completed successfully |
-| Deployed health check | `v0.1.0-rc.4` staging: Healthy, **0 reported issues** |
-| CodeQL | `v0.1.0-rc.4` baseline: **0 alerts** |
+| GitHub CI | `v0.1.0-rc.6`: **168 / 168 passed** |
+| Real scheduled run | `v0.1.0-rc.6` personal Apps Script completed successfully; 67 mapped tasks, no mutations or conflicts observed |
+| Deployed health check | `v0.1.0-rc.6` personal Apps Script: Healthy, **0 reported issues** |
+| CodeQL | `v0.1.0-rc.6`: **0 alerts** |
 | Dependabot | `v0.1.0-rc.4` baseline: **0 alerts** |
 | Secret scanning | `v0.1.0-rc.4` baseline: **No secrets found** |
 
-The rc6 local regression result was verified on 2026-08-24. CI, Apps Script, and real-account rows remain prior-release evidence until rc6 is independently deployed and published. These are release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
+The rc6 regression, GitHub CI/CodeQL checks, and personal Apps Script sync/health checks were verified on 2026-08-24. The live run observed no creates, moves, deletes, or conflicts; this is a bounded smoke check, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
 
 ## Safety by default
 
