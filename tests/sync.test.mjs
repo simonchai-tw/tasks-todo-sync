@@ -1739,6 +1739,7 @@ test('task moves are independently authorized when deletion propagation is disab
     activeGListIds: { 'g-old': true, 'g-new': true },
     gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
     msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    moveExtensionInventoryListIds: { 'ms-new': true },
     inventoryComplete: true,
     safety: { allowDeletions: false, allowTaskMoves: context.getSafetyConfig_().allowTaskMoves },
     gTasksById: { 'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:00:00Z' } },
@@ -1907,6 +1908,7 @@ test('Google move fails closed before mutation when Microsoft changed since mapp
     activeGListIds: { 'g-old': true, 'g-new': true },
     gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
     msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    moveExtensionInventoryListIds: { 'ms-new': true },
     safety: { allowDeletions: false, allowTaskMoves: true },
     gTasksById: {
       'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:01:00Z' }
@@ -1941,6 +1943,7 @@ test('move exhausted-429-shaped create failure keeps source and durable retry jo
     activeGListIds: { 'g-old': true, 'g-new': true },
     gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
     msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    moveExtensionInventoryListIds: { 'ms-new': true },
     safety: { allowDeletions: false, allowTaskMoves: true },
     gTasksById: {
       'g-task': { id: 'g-task', title: 'Moved', updated: '2026-08-14T00:01:00Z' }
@@ -1997,7 +2000,7 @@ test('move exhausted-429-shaped create failure keeps source and durable retry jo
   assert.equal(state.taskDeletionConflicts['g-task'].reason, 'MOVE_VS_EDIT_CONFLICT');
 });
 
-test('a creating move journal adopts one matching destination task instead of duplicating it', () => {
+test('a crashed creating move journal adopts its fully-qualified marker without a duplicate POST', () => {
   const { context } = loadContext();
   const state = mappedTaskState(context);
   state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
@@ -2014,7 +2017,12 @@ test('a creating move journal adopts one matching destination task instead of du
   const recovered = {
     id: 'ms-task-new', title: 'Moved', body: { content: '', contentType: 'html' },
     status: 'notStarted', createdDateTime: '2026-08-14T00:02:00Z',
-    lastModifiedDateTime: '2026-08-14T00:02:00Z'
+    lastModifiedDateTime: '2026-08-14T00:02:00Z',
+    extensions: [{
+      id: 'microsoft.graph.openTypeExtension.com.tasksTodoSync.move',
+      extensionName: 'com.tasksTodoSync.move',
+      correlationId: '11111111-1111-4111-8111-111111111111'
+    }]
   };
   state.taskMoveJournal['g-task'] = {
     phase: 'creating', gId: 'g-task', oldMsId: 'ms-task', newMsId: null,
@@ -2022,6 +2030,7 @@ test('a creating move journal adopts one matching destination task instead of du
     gUpdated: gTask.updated, oldMsUpdated: oldTask.lastModifiedDateTime,
     preparedAt: '2026-08-14T00:01:30Z',
     fingerprint: context.moveFingerprintFromGoogle_(gTask),
+    correlationId: '11111111-1111-4111-8111-111111111111',
     uncertainConfirmations: 0, lastRoundId: 'prior-round'
   };
   const snap = {
@@ -2029,6 +2038,7 @@ test('a creating move journal adopts one matching destination task instead of du
     activeGListIds: { 'g-old': true, 'g-new': true },
     gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
     msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    moveExtensionInventoryListIds: { 'ms-new': true },
     safety: { allowDeletions: false, allowTaskMoves: true },
     gTasksById: { 'g-task': gTask },
     msTasksById: { 'ms-task': oldTask, 'ms-task-new': recovered },
@@ -4976,4 +4986,913 @@ test('malformed list tombstones reject import and restore without save, while he
     assert.equal(JSON.stringify(report).includes('g-tombstone'), false, 'health must not disclose IDs');
     assert.equal(JSON.stringify(report).includes('custom google'), false, 'health must not disclose names');
   }
+});
+
+const RC6_CORRELATION = '11111111-1111-4111-8111-111111111111';
+const RC6_EXTENSION_NAME = 'com.tasksTodoSync.move';
+const RC6_EXTENSION_ID = 'microsoft.graph.openTypeExtension.' + RC6_EXTENSION_NAME;
+const RC6_LEGACY_EXTENSION_ID =
+  'Microsoft.OutlookServices.OpenTypeExtension.' + RC6_EXTENSION_NAME;
+
+function rc6MoveFixture(context, { legacy = false, phase = 'creating', newMsId = null } = {}) {
+  const state = context.newState_();
+  state.listMap = { 'g-old': 'ms-old', 'g-new': 'ms-new' };
+  state.g2m['g-task'] = {
+    msId: 'ms-task', gListId: 'g-old', msListId: 'ms-old',
+    gUpdated: '2026-08-14T00:01:00Z', msUpdated: '2026-08-14T00:00:00Z'
+  };
+  state.m2g['ms-task'] = 'g-task';
+  const gTask = {
+    id: 'g-task', title: 'Private moved title', notes: 'Private body',
+    status: 'needsAction', updated: '2026-08-14T00:01:00Z'
+  };
+  const oldMsTask = {
+    id: 'ms-task', title: 'Private moved title',
+    body: { content: 'Private body', contentType: 'text' }, status: 'notStarted',
+    lastModifiedDateTime: '2026-08-14T00:00:00Z'
+  };
+  const journal = {
+    phase, gId: 'g-task', oldMsId: 'ms-task', newMsId,
+    gListId: 'g-new', oldMsListId: 'ms-old', targetMsListId: 'ms-new',
+    gUpdated: gTask.updated, oldMsUpdated: oldMsTask.lastModifiedDateTime,
+    preparedAt: '2026-08-14T00:01:30Z',
+    fingerprint: context.moveFingerprintFromGoogle_(gTask),
+    uncertainConfirmations: 0, lastRoundId: 'prior-round',
+    lastBlockedReason: 'MOVE_DESTINATION_CREATE_FAILED',
+    lastBlockedAt: '2026-08-14T00:03:00Z'
+  };
+  if (!legacy) journal.correlationId = RC6_CORRELATION;
+  state.taskMoveJournal['g-task'] = journal;
+  return { state, journal, gTask, oldMsTask };
+}
+
+function rc6MoveSnapshot(fixture, targetTasks = [], extensionComplete = true) {
+  const msTasksById = { 'ms-task': fixture.oldMsTask };
+  const msListByTask = { 'ms-task': 'ms-old' };
+  for (const task of targetTasks) {
+    msTasksById[task.id] = task;
+    msListByTask[task.id] = 'ms-new';
+  }
+  return {
+    inventoryComplete: true,
+    activeGListIds: { 'g-old': true, 'g-new': true },
+    gTaskInventoryListIds: { 'g-old': true, 'g-new': true },
+    msTaskInventoryListIds: { 'ms-old': true, 'ms-new': true },
+    moveExtensionInventoryListIds: extensionComplete ? { 'ms-new': true } : {},
+    safety: { allowDeletions: false, allowTaskMoves: true },
+    gTasksById: { 'g-task': fixture.gTask },
+    msTasksById,
+    gListByTask: { 'g-task': 'g-new' },
+    msListByTask
+  };
+}
+
+function rc6Destination(context, fixture, {
+  id = 'ms-task-new', correlationId = RC6_CORRELATION, title = fixture.gTask.title,
+  marked = true, extensionId = RC6_EXTENSION_ID,
+  createdDateTime = '2026-08-14T00:02:00Z'
+} = {}) {
+  const task = {
+    id, title, body: { content: 'Private body', contentType: 'text' },
+    status: 'notStarted', createdDateTime,
+    lastModifiedDateTime: '2026-08-14T00:02:00Z'
+  };
+  if (marked) task.extensions = [{
+    id: extensionId,
+    extensionName: RC6_EXTENSION_NAME,
+    correlationId
+  }];
+  return task;
+}
+
+test('rc6 persists a UUID move journal before POST and atomically sends its open extension', () => {
+  const { context } = loadContext({
+    utilities: { getUuid: () => RC6_CORRELATION }
+  });
+  const fixture = rc6MoveFixture(context);
+  delete fixture.state.taskMoveJournal['g-task'];
+  const snap = rc6MoveSnapshot(fixture);
+  const durable = [];
+  const calls = [];
+  const created = rc6Destination(context, fixture);
+  context.persistSyncState_ = (state) => durable.push(JSON.parse(JSON.stringify(state.taskMoveJournal)));
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task' ? fixture.oldMsTask : created;
+  context.createMsTask_ = (listId, payload) => {
+    calls.push({ listId, payload: JSON.parse(JSON.stringify(payload)) });
+    assert.equal(durable.some((value) =>
+      value['g-task']?.correlationId === RC6_CORRELATION && value['g-task']?.phase === 'creating'
+    ), true, 'journal and correlation must be durable before POST');
+    return created;
+  };
+  context.deleteMsTask_ = () => {};
+
+  context.reconcileMapped_(fixture.state, snap, Date.now(), 'rc6-first-create');
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].listId, 'ms-new');
+  assert.deepEqual(calls[0].payload.extensions, [{
+    '@odata.type': 'microsoft.graph.openTypeExtension',
+    extensionName: 'com.tasksTodoSync.move',
+    correlationId: RC6_CORRELATION
+  }]);
+  assert.equal(fixture.state.g2m['g-task'].msId, 'ms-task-new');
+});
+
+test('rc6 correlation recovery rejects lookalikes, edited markers, duplicate markers, incomplete expansion, and legacy uncertainty', () => {
+  const cases = [
+    {
+      name: 'same fingerprint without marker is not adopted',
+      fixture: {}, destination: { marked: false }, extensionComplete: true,
+      expectedReason: 'MOVE_DESTINATION_CREATE_FAILED', expectedConfirmations: 1
+    },
+    {
+      name: 'exact marker with changed content fails closed',
+      fixture: {}, destination: { title: 'Edited destination' }, extensionComplete: true,
+      expectedReason: 'MOVE_DESTINATION_EDIT_CONFLICT'
+    },
+    {
+      name: 'multiple exact markers fail closed', fixture: {},
+      destinations: [{ id: 'ms-new-a' }, { id: 'ms-new-b' }], extensionComplete: true,
+      expectedReason: 'MOVE_CORRELATION_AMBIGUOUS'
+    },
+    {
+      name: 'missing extension inventory fails closed', fixture: {}, destination: { marked: false },
+      extensionComplete: false, expectedReason: 'MOVE_EXTENSION_INVENTORY_INCOMPLETE'
+    },
+    {
+      name: 'legacy unresolved journal cannot auto-adopt or recreate', fixture: { legacy: true },
+      destination: { marked: false }, extensionComplete: true,
+      expectedReason: 'MOVE_LEGACY_CORRELATION_MISSING'
+    }
+  ];
+  for (const item of cases) {
+    const { context } = loadContext();
+    const fixture = rc6MoveFixture(context, item.fixture);
+    const targetTasks = item.destinations
+      ? item.destinations.map((details) => rc6Destination(context, fixture, details))
+      : [rc6Destination(context, fixture, item.destination)];
+    const snap = rc6MoveSnapshot(fixture, targetTasks, item.extensionComplete);
+    let creates = 0;
+    let deletes = 0;
+    context.persistSyncState_ = () => {};
+    context.getMsTask_ = () => fixture.oldMsTask;
+    context.createMsTask_ = () => { creates += 1; throw new Error('must not create'); };
+    context.deleteMsTask_ = () => { deletes += 1; };
+
+    assert.doesNotThrow(() => context.reconcileMapped_(fixture.state, snap, Date.now(), 'matrix-round'), item.name);
+    assert.equal(creates, 0, item.name);
+    assert.equal(deletes, 0, item.name);
+    assert.equal(fixture.journal.newMsId, null, item.name);
+    assert.equal(fixture.journal.lastBlockedReason || null, item.expectedReason, item.name);
+    if (item.expectedConfirmations !== undefined) {
+      assert.equal(fixture.journal.uncertainConfirmations, item.expectedConfirmations, item.name);
+    }
+  }
+});
+
+test('move marker recovery accepts only the two exact service-normalized ids with exact name and UUID', () => {
+  const { context } = loadContext();
+  const extensions = context.moveExtensionOnTask_({ extensions: [
+    { id: RC6_EXTENSION_NAME, extensionName: RC6_EXTENSION_NAME, correlationId: RC6_CORRELATION },
+    { id: 'evil.' + RC6_EXTENSION_ID, extensionName: RC6_EXTENSION_NAME, correlationId: RC6_CORRELATION },
+    { id: 'contoso.openTypeExtension.' + RC6_EXTENSION_NAME, extensionName: RC6_EXTENSION_NAME, correlationId: RC6_CORRELATION },
+    { id: RC6_EXTENSION_ID, extensionName: 'com.example.wrong', correlationId: RC6_CORRELATION },
+    { id: RC6_EXTENSION_ID, extensionName: RC6_EXTENSION_NAME, correlationId: 'invalid' },
+    { id: RC6_EXTENSION_ID, extensionName: RC6_EXTENSION_NAME, correlationId: RC6_CORRELATION },
+    { id: RC6_LEGACY_EXTENSION_ID, extensionName: RC6_EXTENSION_NAME, correlationId: RC6_CORRELATION }
+  ] });
+  assert.deepEqual(
+    extensions.map((extension) => extension.id),
+    [RC6_EXTENSION_ID, RC6_LEGACY_EXTENSION_ID]
+  );
+});
+
+test('the exact legacy Outlook service id also recovers without a duplicate POST', () => {
+  const { context } = loadContext();
+  const fixture = rc6MoveFixture(context);
+  const destination = rc6Destination(context, fixture, {
+    extensionId: RC6_LEGACY_EXTENSION_ID
+  });
+  const snap = rc6MoveSnapshot(fixture, [destination]);
+  let creates = 0;
+  context.persistSyncState_ = () => {};
+  context.createMsTask_ = () => { creates += 1; throw new Error('must not duplicate'); };
+  context.getMsTask_ = (listId, taskId) =>
+    taskId === destination.id ? destination : fixture.oldMsTask;
+  context.deleteMsTask_ = () => {};
+
+  context.reconcileMapped_(fixture.state, snap, Date.now(), 'legacy-prefix-recovery');
+
+  assert.equal(creates, 0);
+  assert.equal(fixture.state.g2m['g-task'].msId, destination.id);
+  assert.equal(fixture.state.taskMoveJournal['g-task'], undefined);
+});
+
+test('rc6 accepts a strict legacy created journal but rejects malformed non-empty correlations', () => {
+  const { context } = loadContext();
+  const fixture = rc6MoveFixture(context, { legacy: true, phase: 'created', newMsId: 'ms-task-new' });
+  const destination = rc6Destination(context, fixture, { marked: false });
+  const snap = rc6MoveSnapshot(fixture, [destination], false);
+  let deletes = 0;
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task' ? fixture.oldMsTask : destination;
+  context.deleteMsTask_ = () => { deletes += 1; };
+  context.createMsTask_ = () => { throw new Error('legacy created recovery must not recreate'); };
+
+  context.reconcileMapped_(fixture.state, snap, Date.now(), 'legacy-created');
+  assert.equal(deletes, 1);
+  assert.equal(fixture.state.g2m['g-task'].msId, 'ms-task-new');
+
+  const absentCorrelation = rc6MoveFixture(context, { legacy: true }).state;
+  assert.doesNotThrow(() => context.normalizeState_(absentCorrelation));
+  const malformed = rc6MoveFixture(context).state;
+  malformed.taskMoveJournal['g-task'].correlationId = 'not-a-uuid';
+  assert.throws(() => context.normalizeState_(malformed), /STATE_MALFORMED/);
+});
+
+test('snapshot expands extensions once per unresolved target list and never performs per-task Graph reads', () => {
+  const { context } = loadContext();
+  context.getSafetyConfig_ = () => ({
+    googleListIds: ['g-old', 'g-new'], listDiscoveryMode: 'explicit',
+    allowDeletions: false, allowListDeletions: false, allowTaskMoves: true
+  });
+  context.getGLists_ = () => [{ id: 'g-old', title: 'Old' }, { id: 'g-new', title: 'New' }];
+  context.getMsLists_ = () => [{ id: 'ms-old', displayName: 'Old' }, { id: 'ms-new', displayName: 'New' }];
+  context.getGTasks_ = () => [];
+  const reads = [];
+  context.getMsTasks_ = (listId, options) => {
+    reads.push([listId, !!options?.includeMoveExtension]);
+    return [];
+  };
+  context.getMsTask_ = () => { throw new Error('snapshot must not perform N+1 reads'); };
+  const fixture = rc6MoveFixture(context);
+
+  const snap = context.buildSnapshot_(fixture.state, Date.now());
+
+  assert.deepEqual(reads.sort(), [['ms-new', true], ['ms-old', false]].sort());
+  assert.deepEqual(Object.keys(snap.moveExtensionInventoryListIds), ['ms-new']);
+});
+
+test('extension inventory failure aborts before move create, adoption, or delete', () => {
+  const { context } = loadContext();
+  context.getSafetyConfig_ = () => ({
+    googleListIds: ['g-old', 'g-new'], listDiscoveryMode: 'explicit',
+    allowDeletions: false, allowListDeletions: false, allowTaskMoves: true
+  });
+  context.getGLists_ = () => [{ id: 'g-old', title: 'Old' }, { id: 'g-new', title: 'New' }];
+  context.getMsLists_ = () => [{ id: 'ms-old', displayName: 'Old' }, { id: 'ms-new', displayName: 'New' }];
+  context.getGTasks_ = () => [];
+  context.getMsTasks_ = (listId, options) => {
+    if (options?.includeMoveExtension) throw new Error('extension expansion unavailable');
+    return [];
+  };
+  let mutations = 0;
+  context.createMsTask_ = context.deleteMsTask_ = context.updateMsTask_ = () => { mutations += 1; };
+  const fixture = rc6MoveFixture(context);
+
+  assert.throws(() => context.buildSnapshot_(fixture.state, Date.now()), /extension expansion unavailable/);
+  assert.equal(mutations, 0);
+  assert.equal(fixture.journal.newMsId, null);
+});
+
+function rc6OperationHarness({ legacy = false, targetTasks = [], googleLocation = 'g-new' } = {}) {
+  const logs = [];
+  const { context, scriptStore, userStore } = loadContext();
+  const fixture = rc6MoveFixture(context, { legacy });
+  fixture.state.taskDeletionConflicts['g-task'] = {
+    at: '2026-08-14T00:03:00Z', reason: fixture.journal.lastBlockedReason,
+    msId: 'ms-task', gListId: 'g-old', msListId: 'ms-old'
+  };
+  const liveGoogleTask = { ...fixture.gTask };
+  if (googleLocation === 'g-old') liveGoogleTask.updated = '2026-08-14T00:05:00Z';
+  const providerMutations = [];
+  let saves = 0;
+  context.withGlobalLock_ = (fn) => fn();
+  context.syncRoundFenceStatus_ = () => ({ active: false });
+  context.loadStateForSync_ = () => fixture.state;
+  context.saveState_ = () => { saves += 1; };
+  context.getGTasks_ = (listId) => listId === googleLocation ? [liveGoogleTask] : [];
+  context.getMsTasks_ = (listId, options) => {
+    assert.equal(listId, 'ms-new');
+    assert.equal(options?.includeMoveExtension, true);
+    return targetTasks;
+  };
+  context.getMsTask_ = (listId, taskId) =>
+    listId === 'ms-old' && taskId === 'ms-task' ? fixture.oldMsTask : null;
+  for (const name of [
+    'createGTask_', 'updateGTask_', 'deleteGTask_',
+    'createMsTask_', 'updateMsTask_', 'deleteMsTask_'
+  ]) {
+    context[name] = () => { providerMutations.push(name); throw new Error('operation helper mutated provider'); };
+  }
+  context.console = { log: (value) => logs.push(String(value)), warn: () => {}, error: () => {} };
+  return {
+    context, scriptStore, userStore, fixture, liveGoogleTask,
+    providerMutations, logs, get saves() { return saves; }
+  };
+}
+
+function rc6SetOperation(harness, operation) {
+  harness.scriptStore.setProperty('SYNC_TASK_MOVE_OPERATION_JSON', JSON.stringify(operation));
+}
+
+function rc6InspectEntry(harness, gId = 'g-task') {
+  const report = harness.context.inspectTaskMoveJournals();
+  assert.equal(report.journalCount >= 1, true);
+  return report.journals.find((journal) =>
+    journal.journalRef === harness.context.taskMoveJournalRef_(gId));
+}
+
+test('move journal inspection and preview are deterministic, private, locked, and read-only', () => {
+  const harness = rc6OperationHarness();
+  let lockAttempts = 0;
+  let releases = 0;
+  delete harness.context.withGlobalLock_;
+  // Re-evaluate the real helper because deleting a global function binding is
+  // not portable across V8 contexts; assign its original implementation body.
+  harness.context.withGlobalLock_ = (fn) => {
+    const lock = harness.context.LockService.getScriptLock();
+    lockAttempts += 1;
+    assert.equal(lock.tryLock(10000), true);
+    try { return fn(); } finally { lock.releaseLock(); }
+  };
+  harness.context.LockService = {
+    getScriptLock: () => ({ tryLock: () => true, releaseLock: () => { releases += 1; } })
+  };
+  const before = JSON.stringify(harness.fixture.state);
+  const first = rc6InspectEntry(harness);
+  const second = rc6InspectEntry(harness);
+  assert.deepEqual(JSON.parse(JSON.stringify(first)), JSON.parse(JSON.stringify(second)));
+  rc6SetOperation(harness, { action: 'resume', journalRef: first.journalRef, revision: first.revision });
+  const previewOne = harness.context.previewTaskMoveJournalOperation();
+  const previewTwo = harness.context.previewTaskMoveJournalOperation();
+  assert.equal(previewOne.previewToken, previewTwo.previewToken);
+  assert.equal(previewOne.ok, true);
+  assert.equal(JSON.stringify(harness.fixture.state), before);
+  assert.equal(harness.saves, 0);
+  assert.equal(lockAttempts, 4);
+  assert.equal(releases, 4);
+  assert.deepEqual(harness.providerMutations, []);
+  const publicText = harness.logs.join('\n') + JSON.stringify([first, previewOne]);
+  for (const privateValue of [
+    'g-task', 'ms-task', 'g-old', 'g-new', 'ms-old', 'ms-new',
+    'Private moved title', 'Private body', RC6_CORRELATION
+  ]) assert.equal(publicText.includes(privateValue), false, privateValue);
+});
+
+test('resume clears only bounded move blockers after fresh evidence and writes a private receipt first', () => {
+  const harness = rc6OperationHarness();
+  const entry = rc6InspectEntry(harness);
+  const operation = { action: 'resume', journalRef: entry.journalRef, revision: entry.revision };
+  rc6SetOperation(harness, operation);
+  const preview = harness.context.previewTaskMoveJournalOperation();
+  rc6SetOperation(harness, { ...operation, previewToken: preview.previewToken });
+
+  const applied = harness.context.applyTaskMoveJournalOperation();
+
+  assert.equal(applied.applied, true);
+  assert.equal(harness.fixture.journal.lastBlockedReason, undefined);
+  assert.equal(harness.fixture.journal.lastBlockedAt, undefined);
+  assert.equal(harness.fixture.journal.uncertainConfirmations, 0);
+  assert.equal(harness.fixture.state.taskMoveJournal['g-task'], harness.fixture.journal);
+  assert.ok(harness.userStore.getProperty('sync_task_move_operation_before_image'));
+  assert.equal(harness.saves, 1);
+  assert.deepEqual(harness.providerMutations, []);
+});
+
+test('move operation rejects stale revision, stale live token, active fence, and incomplete inventory without mutation', () => {
+  const staleRevision = rc6OperationHarness();
+  const first = rc6InspectEntry(staleRevision);
+  rc6SetOperation(staleRevision, {
+    action: 'resume', journalRef: first.journalRef, revision: 'moveRevision_stale'
+  });
+  assert.throws(() => staleRevision.context.previewTaskMoveJournalOperation(), /STALE_REVISION/);
+
+  const staleToken = rc6OperationHarness();
+  const entry = rc6InspectEntry(staleToken);
+  const operation = { action: 'resume', journalRef: entry.journalRef, revision: entry.revision };
+  rc6SetOperation(staleToken, operation);
+  const preview = staleToken.context.previewTaskMoveJournalOperation();
+  staleToken.fixture.oldMsTask.lastModifiedDateTime = '2026-08-14T00:06:00Z';
+  rc6SetOperation(staleToken, { ...operation, previewToken: preview.previewToken });
+  const before = JSON.stringify(staleToken.fixture.state);
+  assert.throws(() => staleToken.context.applyTaskMoveJournalOperation(), /STALE_PREVIEW/);
+  assert.equal(JSON.stringify(staleToken.fixture.state), before);
+  assert.equal(staleToken.saves, 0);
+
+  const fenced = rc6OperationHarness();
+  const fencedEntry = rc6InspectEntry(fenced);
+  fenced.context.syncRoundFenceStatus_ = () => ({ active: true, valid: true });
+  rc6SetOperation(fenced, {
+    action: 'resume', journalRef: fencedEntry.journalRef, revision: fencedEntry.revision
+  });
+  assert.throws(() => fenced.context.previewTaskMoveJournalOperation(), /ROUND_FENCE_ACTIVE/);
+
+  const incomplete = rc6OperationHarness();
+  const incompleteEntry = rc6InspectEntry(incomplete);
+  incomplete.context.getMsTasks_ = () => { throw new Error('partial inventory'); };
+  rc6SetOperation(incomplete, {
+    action: 'resume', journalRef: incompleteEntry.journalRef, revision: incompleteEntry.revision
+  });
+  const incompletePreview = incomplete.context.previewTaskMoveJournalOperation();
+  assert.equal(incompletePreview.ok, false);
+  assert.equal(incompletePreview.code, 'MOVE_OPERATION_INVENTORY_INCOMPLETE');
+  assert.equal(incomplete.saves, 0);
+});
+
+test('preview tokens cannot be reused after action, candidate, or confirmation intent changes', () => {
+  const actionSwap = rc6OperationHarness();
+  const actionEntry = rc6InspectEntry(actionSwap);
+  const resume = {
+    action: 'resume', journalRef: actionEntry.journalRef, revision: actionEntry.revision
+  };
+  rc6SetOperation(actionSwap, resume);
+  const resumePreview = actionSwap.context.previewTaskMoveJournalOperation();
+  const actionBefore = JSON.stringify(actionSwap.fixture.state);
+  rc6SetOperation(actionSwap, {
+    action: 'cancel', journalRef: resume.journalRef, revision: resume.revision,
+    previewToken: resumePreview.previewToken
+  });
+  assert.throws(() => actionSwap.context.applyTaskMoveJournalOperation(), /STALE_PREVIEW/);
+  assert.equal(JSON.stringify(actionSwap.fixture.state), actionBefore);
+  assert.equal(actionSwap.saves, 0);
+  assert.deepEqual(actionSwap.providerMutations, []);
+
+  const base = loadContext();
+  const baseFixture = rc6MoveFixture(base.context, { legacy: true });
+  const candidateA = rc6Destination(base.context, baseFixture, {
+    id: 'ms-candidate-a', marked: false
+  });
+  const candidateB = rc6Destination(base.context, baseFixture, {
+    id: 'ms-candidate-b', marked: false
+  });
+  const candidateSwap = rc6OperationHarness({
+    legacy: true, targetTasks: [candidateA, candidateB]
+  });
+  const candidateEntry = rc6InspectEntry(candidateSwap);
+  const discover = {
+    action: 'reconcile', journalRef: candidateEntry.journalRef, revision: candidateEntry.revision
+  };
+  rc6SetOperation(candidateSwap, discover);
+  const candidates = candidateSwap.context.previewTaskMoveJournalOperation().evidence.candidateRefs;
+  const reconcile = {
+    ...discover, candidateRef: candidates[0], confirmation: 'ADOPT_EXACT_DESTINATION'
+  };
+  rc6SetOperation(candidateSwap, reconcile);
+  const reconcilePreview = candidateSwap.context.previewTaskMoveJournalOperation();
+  assert.equal(reconcilePreview.ok, true);
+  const candidateBefore = JSON.stringify(candidateSwap.fixture.state);
+  rc6SetOperation(candidateSwap, {
+    ...reconcile, candidateRef: candidates[1], previewToken: reconcilePreview.previewToken
+  });
+  assert.throws(() => candidateSwap.context.applyTaskMoveJournalOperation(), /STALE_PREVIEW/);
+  assert.equal(JSON.stringify(candidateSwap.fixture.state), candidateBefore);
+  assert.equal(candidateSwap.saves, 0);
+  assert.deepEqual(candidateSwap.providerMutations, []);
+
+  rc6SetOperation(candidateSwap, reconcile);
+  const confirmationPreview = candidateSwap.context.previewTaskMoveJournalOperation();
+  rc6SetOperation(candidateSwap, {
+    ...reconcile, confirmation: 'CHANGED_CONFIRMATION',
+    previewToken: confirmationPreview.previewToken
+  });
+  assert.throws(() => candidateSwap.context.applyTaskMoveJournalOperation(), /STALE_PREVIEW/);
+  assert.equal(JSON.stringify(candidateSwap.fixture.state), candidateBefore);
+  assert.equal(candidateSwap.saves, 0);
+  assert.deepEqual(candidateSwap.providerMutations, []);
+});
+
+test('cancel requires a manual Google rollback, preserves mappings and other journals, and never touches providers', () => {
+  const harness = rc6OperationHarness({ googleLocation: 'g-old' });
+  const secondTask = {
+    id: 'g-task-two', title: 'Second', notes: '', status: 'needsAction',
+    updated: '2026-08-14T00:01:00Z'
+  };
+  harness.fixture.state.g2m['g-task-two'] = {
+    msId: 'ms-task-two', gListId: 'g-old', msListId: 'ms-old',
+    gUpdated: secondTask.updated, msUpdated: '2026-08-14T00:00:00Z'
+  };
+  harness.fixture.state.m2g['ms-task-two'] = 'g-task-two';
+  harness.fixture.state.taskMoveJournal['g-task-two'] = {
+    phase: 'creating', gId: 'g-task-two', oldMsId: 'ms-task-two', newMsId: null,
+    gListId: 'g-new', oldMsListId: 'ms-old', targetMsListId: 'ms-new',
+    gUpdated: secondTask.updated, oldMsUpdated: '2026-08-14T00:00:00Z',
+    preparedAt: '2026-08-14T00:01:30Z',
+    fingerprint: harness.context.moveFingerprintFromGoogle_(secondTask),
+    correlationId: '22222222-2222-4222-8222-222222222222',
+    uncertainConfirmations: 0, lastRoundId: 'prior-round'
+  };
+  const entry = rc6InspectEntry(harness);
+  const operation = { action: 'cancel', journalRef: entry.journalRef, revision: entry.revision };
+  rc6SetOperation(harness, operation);
+  const preview = harness.context.previewTaskMoveJournalOperation();
+  assert.equal(preview.ok, true);
+  rc6SetOperation(harness, { ...operation, previewToken: preview.previewToken });
+  harness.context.applyTaskMoveJournalOperation();
+
+  assert.equal(harness.fixture.state.taskMoveJournal['g-task'], undefined);
+  assert.ok(harness.fixture.state.taskMoveJournal['g-task-two']);
+  assert.equal(harness.fixture.state.taskDeletionConflicts['g-task'], undefined);
+  assert.equal(harness.fixture.state.g2m['g-task'].msId, 'ms-task');
+  assert.equal(harness.fixture.state.m2g['ms-task'], 'g-task');
+  assert.deepEqual(harness.providerMutations, []);
+
+  const candidatePresent = rc6OperationHarness({
+    googleLocation: 'g-old',
+    targetTasks: [rc6Destination(harness.context, harness.fixture)]
+  });
+  const blocked = rc6InspectEntry(candidatePresent);
+  rc6SetOperation(candidatePresent, {
+    action: 'cancel', journalRef: blocked.journalRef, revision: blocked.revision
+  });
+  assert.equal(candidatePresent.context.previewTaskMoveJournalOperation().code,
+    'MOVE_OPERATION_DESTINATION_CANDIDATE_PRESENT');
+});
+
+test('reconcile adopts one exact correlated candidate into journal only', () => {
+  const base = loadContext();
+  const baseFixture = rc6MoveFixture(base.context);
+  const candidate = rc6Destination(base.context, baseFixture);
+  const harness = rc6OperationHarness({ targetTasks: [candidate] });
+  const entry = rc6InspectEntry(harness);
+  const operation = { action: 'reconcile', journalRef: entry.journalRef, revision: entry.revision };
+  rc6SetOperation(harness, operation);
+  const preview = harness.context.previewTaskMoveJournalOperation();
+  assert.equal(preview.ok, true);
+  assert.equal(preview.evidence.candidateRefs.length, 1);
+  rc6SetOperation(harness, { ...operation, previewToken: preview.previewToken });
+  harness.context.applyTaskMoveJournalOperation();
+
+  assert.equal(harness.fixture.journal.phase, 'created');
+  assert.equal(harness.fixture.journal.newMsId, 'ms-task-new');
+  assert.equal(harness.fixture.state.g2m['g-task'].msId, 'ms-task');
+  assert.deepEqual(harness.providerMutations, []);
+});
+
+test('legacy reconcile exposes only an opaque candidate ref and requires explicit exact-adoption confirmation', () => {
+  const base = loadContext();
+  const baseFixture = rc6MoveFixture(base.context, { legacy: true });
+  const candidate = rc6Destination(base.context, baseFixture, { marked: false });
+  const harness = rc6OperationHarness({ legacy: true, targetTasks: [candidate] });
+  const entry = rc6InspectEntry(harness);
+  const operation = { action: 'reconcile', journalRef: entry.journalRef, revision: entry.revision };
+  rc6SetOperation(harness, operation);
+  const preview = harness.context.previewTaskMoveJournalOperation();
+  assert.equal(preview.ok, false);
+  assert.equal(preview.code, 'MOVE_OPERATION_LEGACY_CONFIRMATION_REQUIRED');
+  assert.equal(preview.evidence.candidateRefs.length, 1);
+  const candidateRef = preview.evidence.candidateRefs[0];
+  assert.equal(candidateRef.includes('ms-task-new'), false);
+  const adoptOperation = {
+    ...operation, candidateRef, confirmation: 'ADOPT_EXACT_DESTINATION'
+  };
+  rc6SetOperation(harness, adoptOperation);
+  const adoptPreview = harness.context.previewTaskMoveJournalOperation();
+  assert.equal(adoptPreview.ok, true);
+  rc6SetOperation(harness, { ...adoptOperation, previewToken: adoptPreview.previewToken });
+  harness.context.applyTaskMoveJournalOperation();
+  assert.equal(harness.fixture.journal.phase, 'created');
+  assert.equal(harness.fixture.journal.newMsId, 'ms-task-new');
+  assert.deepEqual(harness.providerMutations, []);
+});
+
+test('journal ref collisions and receipt failures fail closed with zero state mutation', () => {
+  const collision = rc6OperationHarness();
+  const second = rc6MoveFixture(collision.context);
+  second.journal.gId = 'g-task-two';
+  second.journal.oldMsId = 'ms-task-two';
+  second.journal.correlationId = '22222222-2222-4222-8222-222222222222';
+  collision.fixture.state.g2m['g-task-two'] = {
+    msId: 'ms-task-two', gListId: 'g-old', msListId: 'ms-old',
+    gUpdated: second.journal.gUpdated, msUpdated: second.journal.oldMsUpdated
+  };
+  collision.fixture.state.m2g['ms-task-two'] = 'g-task-two';
+  collision.fixture.state.taskMoveJournal['g-task-two'] = second.journal;
+  const originalOpaque = collision.context.previewOpaqueId_;
+  collision.context.previewOpaqueId_ = (kind, value) =>
+    kind === 'moveJournal' ? 'moveJournal_collision' : originalOpaque(kind, value);
+  const reports = collision.context.inspectTaskMoveJournals();
+  rc6SetOperation(collision, {
+    action: 'resume', journalRef: reports.journals[0].journalRef,
+    revision: reports.journals[0].revision
+  });
+  assert.throws(() => collision.context.previewTaskMoveJournalOperation(), /REF_COLLISION/);
+
+  const receipt = rc6OperationHarness();
+  const entry = rc6InspectEntry(receipt);
+  const operation = { action: 'resume', journalRef: entry.journalRef, revision: entry.revision };
+  rc6SetOperation(receipt, operation);
+  const preview = receipt.context.previewTaskMoveJournalOperation();
+  rc6SetOperation(receipt, { ...operation, previewToken: preview.previewToken });
+  const before = JSON.stringify(receipt.fixture.state);
+  const realSetProperty = receipt.userStore.setProperty.bind(receipt.userStore);
+  receipt.userStore.setProperty = (key, value) => {
+    if (key === 'sync_task_move_operation_before_image') throw new Error('quota failure');
+    return realSetProperty(key, value);
+  };
+  assert.throws(() => receipt.context.applyTaskMoveJournalOperation(), /RECEIPT_SAVE_FAILED/);
+  assert.equal(JSON.stringify(receipt.fixture.state), before);
+  assert.equal(receipt.saves, 0);
+  assert.deepEqual(receipt.providerMutations, []);
+
+  const staleReceipt = rc6OperationHarness();
+  const staleEntry = rc6InspectEntry(staleReceipt);
+  const staleOperation = {
+    action: 'resume', journalRef: staleEntry.journalRef, revision: staleEntry.revision
+  };
+  rc6SetOperation(staleReceipt, staleOperation);
+  const stalePreview = staleReceipt.context.previewTaskMoveJournalOperation();
+  rc6SetOperation(staleReceipt, {
+    ...staleOperation, previewToken: stalePreview.previewToken
+  });
+  staleReceipt.userStore.setProperty(
+    'sync_task_move_operation_before_image', '{"old":"receipt"}'
+  );
+  const normalSetProperty = staleReceipt.userStore.setProperty.bind(staleReceipt.userStore);
+  staleReceipt.userStore.setProperty = (key, value) => {
+    if (key === 'sync_task_move_operation_before_image') return staleReceipt.userStore;
+    return normalSetProperty(key, value);
+  };
+  const staleBefore = JSON.stringify(staleReceipt.fixture.state);
+  assert.throws(() => staleReceipt.context.applyTaskMoveJournalOperation(), /RECEIPT_SAVE_FAILED/);
+  assert.equal(JSON.stringify(staleReceipt.fixture.state), staleBefore);
+  assert.equal(staleReceipt.saves, 0);
+  assert.deepEqual(staleReceipt.providerMutations, []);
+});
+
+test('move observability makes blocked and legacy journals health issues without leaking arbitrary reasons', () => {
+  const reports = [];
+  const { context } = loadContext();
+  const fixture = rc6MoveFixture(context, { legacy: true });
+  fixture.journal.lastBlockedReason = 'PRIVATE_REASON_WITH_TASK_g-task';
+  context.getConfig_ = () => ({});
+  context.microsoftService_ = () => ({ hasAccess: () => true });
+  context.ScriptApp = { getProjectTriggers: () => [{ getHandlerFunction: () => 'syncAll' }] };
+  context.getSafetyConfig_ = () => ({
+    listDiscoveryMode: 'auto', googleListIds: ['g-old'], allowDeletions: false,
+    allowTaskMoves: true, requestedListDeletions: false, allowListDeletions: false
+  });
+  context.requireConfiguredListPairsApplied_ = () => ({ configured: false, pairs: [] });
+  context.loadStateForInspection_ = () => ({ corrupt: false, state: fixture.state });
+  context.syncRoundFenceStatus_ = () => ({ active: false });
+  context.console = { log: (value) => reports.push(JSON.parse(value)) };
+
+  context.healthCheck();
+
+  const report = reports.at(-1);
+  assert.equal(report.ok, false);
+  assert.equal(report.taskMoves.journals, 1);
+  assert.equal(report.taskMoves.blockedJournals, 1);
+  assert.equal(report.taskMoves.blockedReasons.OTHER, 1);
+  assert.equal(report.taskMoves.legacyWithoutCorrelation, 1);
+  assert.ok(report.issues.some((issue) => issue.includes('inspectTaskMoveJournals')));
+  assert.equal(JSON.stringify(report).includes('PRIVATE_REASON_WITH_TASK_g-task'), false);
+  assert.equal(JSON.stringify(report).includes(RC6_CORRELATION), false);
+
+  fixture.state.taskMoveJournal = {};
+  fixture.state.taskDeletionConflicts = {};
+  context.healthCheck();
+  assert.equal(reports.at(-1).taskMoves.journals, 0);
+  assert.equal(reports.at(-1).issues.some((issue) => issue.includes('task move journal')), false);
+});
+
+test('state replacement and explicit pair apply remain blocked while any move journal exists', () => {
+  const { context } = loadContext();
+  const fixture = rc6MoveFixture(context);
+  context.withGlobalLock_ = (fn) => fn();
+  context.syncRoundFenceStatus_ = () => ({ active: false });
+  context.loadStateForSync_ = () => fixture.state;
+  context.getSafetyConfig_ = () => ({
+    listDiscoveryMode: 'explicit', googleListIds: ['g-old'], allowDeletions: false,
+    allowTaskMoves: true, requestedListDeletions: false, allowListDeletions: false
+  });
+  context.getConfiguredListPairs_ = () => ({
+    configured: true, pairs: [{ googleListId: 'g-old', microsoftListId: 'ms-old' }]
+  });
+  context.getGLists_ = context.getMsLists_ = () => { throw new Error('inventory must not run'); };
+
+  assert.throws(() => context.importSyncState('{}'), /DELETION_JOURNAL_PENDING/);
+  assert.throws(() => context.restorePreviousSyncState(), /DELETION_JOURNAL_PENDING/);
+  assert.throws(() => context.applyConfiguredListPairs(), /DELETION_JOURNAL_PENDING/);
+});
+
+test('createTrigger replaces sync triggers with the exact 10-minute cadence and explains overlap safety', () => {
+  const logs = [];
+  const deleted = [];
+  const everyMinutesCalls = [];
+  const { context } = loadContext();
+  context.getSafetyConfig_ = () => ({ listDiscoveryMode: 'auto', googleListIds: [] });
+  context.requireSyncAllowlist_ = () => {};
+  context.requireSafeAutoDiscovery_ = () => {};
+  context.loadStateForSync_ = () => context.newState_();
+  context.requireConfiguredListPairsApplied_ = () => {};
+  const triggers = [
+    { name: 'sync', getHandlerFunction: () => 'syncAll' },
+    { name: 'other', getHandlerFunction: () => 'other' }
+  ];
+  context.ScriptApp = {
+    getProjectTriggers: () => triggers,
+    deleteTrigger: (trigger) => deleted.push(trigger.name),
+    newTrigger: (handler) => {
+      assert.equal(handler, 'syncAll');
+      return {
+        timeBased() { return this; },
+        everyMinutes(value) { everyMinutesCalls.push(value); return this; },
+        create() { return { created: true }; }
+      };
+    }
+  };
+  context.console = { log: (value) => logs.push(String(value)) };
+
+  context.createTrigger();
+
+  assert.deepEqual(deleted, ['sync']);
+  assert.deepEqual(everyMinutesCalls, [10]);
+  assert.match(logs.join('\n'), /每 10 分鐘/);
+  assert.match(logs.join('\n'), /5\.25 分鐘/);
+  assert.match(logs.join('\n'), /lock/);
+});
+
+test('destructive task and list delete paths stop at the reserve with journals intact and no remote delete', () => {
+  function exhaustBudget(context) {
+    new vm.Script('RUN_STARTED_AT = 1000; Date.now = function() { return 271000; };')
+      .runInContext(context);
+  }
+
+  const taskRecovery = loadContext();
+  const taskRecoveryState = mappedTaskState(taskRecovery.context);
+  readyDeletionCandidate(taskRecoveryState, 'google');
+  taskRecoveryState.deletionJournal['g-task'] =
+    taskRecovery.context.preparedDeletionJournal_(taskRecoveryState.pendingTaskDeletions['g-task']);
+  const taskSnap = mappedTaskSnapshot({ gTask: null });
+  let taskRecoveryDeletes = 0;
+  taskRecovery.context.deleteMsTask_ = () => { taskRecoveryDeletes += 1; };
+  exhaustBudget(taskRecovery.context);
+  assert.throws(
+    () => taskRecovery.context.recoverPreparedTaskDeletions_(taskRecoveryState, taskSnap),
+    /TIME_BUDGET_TASK_DELETE_RECOVERY_READ/
+  );
+  assert.ok(taskRecoveryState.deletionJournal['g-task']);
+  assert.equal(taskRecoveryDeletes, 0);
+
+  const taskApply = loadContext();
+  const taskApplyState = mappedTaskState(taskApply.context);
+  readyDeletionCandidate(taskApplyState, 'google', 'budget-round');
+  let taskApplyDeletes = 0;
+  let taskApplySaves = 0;
+  taskApply.context.deleteMsTask_ = () => { taskApplyDeletes += 1; };
+  taskApply.context.persistSyncState_ = () => { taskApplySaves += 1; };
+  exhaustBudget(taskApply.context);
+  assert.throws(
+    () => taskApply.context.applyConfirmedTaskDeletions_(
+      taskApplyState, taskSnap, 'budget-round', {
+        durableJournalTaskIds: {}, invalidatedCandidateTaskIds: {}, discardCandidateTaskIds: {}
+      }
+    ),
+    /TIME_BUDGET_TASK_DELETE_REVALIDATION/
+  );
+  assert.equal(taskApplyState.deletionJournal['g-task'], undefined);
+  assert.equal(taskApplySaves, 0, 'current-round confirmation must remain volatile');
+  assert.equal(taskApplyDeletes, 0);
+
+  const listRecovery = loadContext();
+  const recoveryPair = listDeletionPair(listRecovery.context);
+  const listRecoveryState = listDeletionState(listRecovery.context);
+  const recoveryCandidate = listDeletionCandidateRecord(recoveryPair, {
+    confirmations: 2, lastRoundId: 'budget-round'
+  });
+  listRecoveryState.listDeletionJournal[recoveryPair.key] =
+    listRecovery.context.preparedListDeletionJournal_(recoveryCandidate);
+  let listRecoveryDeletes = 0;
+  listRecovery.context.deleteMsList_ = () => { listRecoveryDeletes += 1; };
+  exhaustBudget(listRecovery.context);
+  assert.throws(
+    () => listRecovery.context.recoverPreparedListDeletions_(
+      listRecoveryState, listDeletionSnapshot(recoveryPair).safety, {}
+    ),
+    /TIME_BUDGET_LIST_DELETE_RECOVERY_READ/
+  );
+  assert.ok(listRecoveryState.listDeletionJournal[recoveryPair.key]);
+  assert.equal(listRecoveryDeletes, 0);
+
+  const listApply = loadContext();
+  const applyPair = listDeletionPair(listApply.context);
+  const listApplyState = listDeletionState(listApply.context);
+  listApplyState.pendingListDeletions[applyPair.key] = listDeletionCandidateRecord(applyPair, {
+    confirmations: 2, lastRoundId: 'budget-round'
+  });
+  let listApplyDeletes = 0;
+  let listApplySaves = 0;
+  listApply.context.deleteMsList_ = () => { listApplyDeletes += 1; };
+  listApply.context.persistSyncState_ = () => { listApplySaves += 1; };
+  exhaustBudget(listApply.context);
+  assert.throws(
+    () => listApply.context.applyConfirmedListDeletions_(
+      listApplyState,
+      listDeletionSnapshot(applyPair, {
+        listLifecycle: { inventoryComplete: true, pairs: [] }
+      }),
+      'budget-round',
+      { durableListJournalKeys: {}, invalidatedListCandidateKeys: {} },
+      { durableJournalTaskIds: {}, invalidatedCandidateTaskIds: {}, discardCandidateTaskIds: {} }
+    ),
+    /TIME_BUDGET_LIST_DELETE_REVALIDATION/
+  );
+  assert.equal(listApplyState.listDeletionJournal[applyPair.key], undefined);
+  assert.equal(listApplySaves, 0, 'current-round list confirmation must remain volatile');
+  assert.equal(listApplyDeletes, 0);
+
+  const round = loadContext();
+  const roundState = mappedTaskState(round.context);
+  readyDeletionCandidate(roundState, 'google', 'previous-round');
+  roundState.pendingTaskDeletions['g-task'].confirmations = 1;
+  const catchSaves = [];
+  let roundDeletes = 0;
+  round.context.withGlobalLock_ = (fn) => fn();
+  round.context.loadStateForSync_ = () => roundState;
+  round.context.sanitizePreexistingSyncRoundFence_ = (value) => value;
+  round.context.openSyncRoundFence_ = () => {};
+  round.context.clearSyncRoundFence_ = () => {};
+  round.context.getSafetyConfig_ = () => ({
+    allowDeletions: true, allowListDeletions: false, allowTaskMoves: false
+  });
+  round.context.pauseListDeletionIntentBeforeInventory_ = () => {};
+  round.context.cleanupTombstones_ = () => {};
+  round.context.cleanupListTombstones_ = () => {};
+  round.context.buildSnapshot_ = () => mappedTaskSnapshot({ gTask: null });
+  round.context.reconcileMapped_ = (state, snap, startedAt, roundId) => {
+    state.pendingTaskDeletions['g-task'].confirmations = 2;
+    state.pendingTaskDeletions['g-task'].lastRoundId = roundId;
+  };
+  round.context.createUnmapped_ = () => {
+    new vm.Script('Date.now = function() { return 271000; };').runInContext(round.context);
+  };
+  round.context.deleteMsTask_ = () => { roundDeletes += 1; };
+  round.context.saveState_ = (value) => {
+    catchSaves.push(JSON.parse(JSON.stringify(value)));
+  };
+  round.context.sendFatalAlert_ = () => {};
+  new vm.Script('Date.now = function() { return 1000; };').runInContext(round.context);
+
+  assert.equal(round.context.syncAll(), undefined);
+  assert.equal(roundDeletes, 0);
+  assert.ok(catchSaves.length > 0);
+  assert.equal(catchSaves.at(-1).pendingTaskDeletions['g-task'].confirmations, 1);
+  assert.equal(catchSaves.at(-1).deletionJournal['g-task'], undefined);
+});
+
+test('completed move preserves its durable journal when the delete boundary runs out of time', () => {
+  const { context } = loadContext();
+  const fixture = rc6MoveFixture(context, { phase: 'created', newMsId: 'ms-task-new' });
+  const destination = rc6Destination(context, fixture);
+  const snap = rc6MoveSnapshot(fixture, [destination]);
+  let deletes = 0;
+  let reads = 0;
+  context.getMsTask_ = () => { reads += 1; return null; };
+  context.deleteMsTask_ = () => { deletes += 1; };
+  context.persistSyncState_ = () => {};
+  new vm.Script('RUN_STARTED_AT = 1000; Date.now = function() { return 271000; };')
+    .runInContext(context);
+
+  assert.throws(
+    () => context.resyncGoogleTaskMove_(
+      fixture.state, snap, 'g-task', fixture.gTask, fixture.state.g2m['g-task'],
+      'g-new', 'ms-new', {}, 'budget-round'
+    ),
+    /TIME_BUDGET_MOVE_DESTINATION_READ/
+  );
+  assert.ok(fixture.state.taskMoveJournal['g-task']);
+  assert.equal(fixture.state.taskMoveJournal['g-task'].newMsId, 'ms-task-new');
+  assert.equal(reads, 0);
+  assert.equal(deletes, 0);
+});
+
+test('time budget text promises full re-inventory instead of cursor resume', () => {
+  assert.match(code, /下輪會重新執行完整 inventory，沒有持久化 page cursor/);
+  assert.doesNotMatch(code, /TIME_BUDGET_HTTP[^\n]*下輪續跑/);
+  assert.match(code, /SYNC_TRIGGER_INTERVAL_MINUTES = 10/);
+});
+
+test('Microsoft task inventory expands only the requested move extension list', () => {
+  const { context } = loadContext();
+  const urls = [];
+  context.graphFetch_ = (url) => { urls.push(url); return { value: [] }; };
+  context.getMsTasks_('ms-list');
+  context.getMsTasks_('ms-list', { includeMoveExtension: true });
+  assert.equal(urls.length, 2);
+  assert.equal(urls[0].includes('$expand'), false);
+  assert.equal(
+    urls[1].includes(
+      '&$expand=extensions($filter=id%20eq%20%27com.tasksTodoSync.move%27)'
+    ),
+    true
+  );
+  assert.equal(
+    decodeURIComponent(urls[1]).includes(
+      "$expand=extensions($filter=id eq 'com.tasksTodoSync.move')"
+    ),
+    true
+  );
+  assert.equal(urls[1].includes('microsoft.graph.openTypeExtension.'), false);
+  assert.equal(urls[1].includes('Microsoft.OutlookServices.OpenTypeExtension.'), false);
 });

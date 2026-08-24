@@ -4,6 +4,19 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 0.1.0-rc.6 — 2026-08-23
+
+Intended public prerelease tag: `v0.1.0-rc.6`. This remains a release candidate, not a stable or production-ready release.
+
+- Replaced fingerprint-only interrupted-move adoption with a per-journal UUID and a Microsoft Graph open type extension written atomically with the destination task. Recovery uses the documented short-name extension filter only for unresolved target lists, then locally accepts only the exact `microsoft.graph.openTypeExtension.` and legacy `Microsoft.OutlookServices.OpenTypeExtension.` identities for the exact extension name, plus a valid matching UUID, destination list, unmapped task, and synchronized-field fingerprint. Bare names, suffix matches, other prefixes, missing, duplicate, edited, or unreadable evidence fail closed.
+- Kept pre-rc.6 move journals readable. A legacy `created` journal with a known destination ID can finish under the existing strict rereads, while an unresolved legacy journal cannot auto-adopt or recreate a task.
+- Added privacy-bounded `inspectTaskMoveJournals()`, `previewTaskMoveJournalOperation()`, and `applyTaskMoveJournalOperation()` operations for guarded resume, cancel, and reconcile workflows. Preview tokens bind the normalized action, journal reference/revision, candidate reference, confirmation, and live evidence. Apply requires an exact read-back of the newly serialized private before-image receipt and changes only local journal state; provider mutation remains the next `syncAll()` responsibility.
+- Added task-move health observability with bounded phase/reason counts. Blocked or legacy journals now make `healthCheck()` unhealthy without exposing provider IDs, task content, or correlation values.
+- Changed the installed Apps Script trigger from 15 to 10 minutes. Apps Script still has a six-minute single-execution limit; this project budgets 5.25 minutes and adds a 45-second internal reserve before destructive journal revalidation, durable save, and provider mutation. Time-budget exits retain durable journals, roll back volatile current-round confirmations, and restart a complete inventory on the next run because no persistent page cursor, delta token, or shard checkpoint exists.
+- Documented Microsoft-origin move behavior: with task deletion disabled the new-ID and old Google counterparts can remain as two tasks; with deletion enabled the old counterpart normally converges after a later complete confirmation round.
+- Expanded local regression coverage for fully-qualified correlation identity, crash recovery without duplicate POST, intent-bound preview tokens, exact receipt read-back, destructive fake-clock budget boundaries, legacy compatibility, privacy, health, trigger cadence, and timeout wording.
+- Public destructive-feature defaults remain `false`.
+
 ## 0.1.0-rc.5 — 2026-08-22
 
 Public prerelease tag: `v0.1.0-rc.5`. This is an observability-focused release candidate, not a stable or production-ready release.

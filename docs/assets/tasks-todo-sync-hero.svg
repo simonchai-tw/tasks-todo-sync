@@ -72,6 +72,6 @@
   <g transform="translate(310 357)">
     <rect width="580" height="34" rx="17" fill="#ffffff" fill-opacity="0.055" stroke="#ffffff" stroke-opacity="0.08"/>
     <circle cx="24" cy="17" r="5" fill="#42d392"/>
-    <text x="42" y="22" fill="#b9cada" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" letter-spacing="0.55">GOOGLE APPS SCRIPT  ·  15-MINUTE SYNC  ·  SAFE BY DEFAULT</text>
+    <text x="42" y="22" fill="#b9cada" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" letter-spacing="0.55">GOOGLE APPS SCRIPT  ·  10-MINUTE SYNC  ·  SAFE BY DEFAULT</text>
   </g>
 </svg>

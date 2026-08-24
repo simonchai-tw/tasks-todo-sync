@@ -33,7 +33,7 @@
 
 Google Tasks and Microsoft To Do are both useful inside their own ecosystems, but they do not naturally stay in sync.
 
-**Tasks–To Do Sync closes that gap.** It runs inside your own private Google Apps Script project, discovers eligible lists on both sides, and keeps task changes moving between Google Tasks and Microsoft To Do every 15 minutes.
+**Tasks–To Do Sync closes that gap.** It runs inside your own private Google Apps Script project, discovers eligible lists on both sides, and keeps task changes moving between Google Tasks and Microsoft To Do every 10 minutes.
 
 No hosted middleman. No shared client secret. Your accounts, your script, your data.
 
@@ -56,7 +56,11 @@ No hosted middleman. No shared client secret. Your accounts, your script, your d
   <img src="docs/assets/how-it-works.svg" width="100%" alt="Google Tasks synchronizes bidirectionally with Microsoft To Do through a private Google Apps Script project">
 </p>
 
-The script keeps an ID-based mapping between paired lists and tasks. Existing mappings survive list renames; unique custom-list names help with first pairing; ambiguous matches stop with a fault instead of guessing. A 15-minute Apps Script trigger handles normal synchronization after the initial manual checks.
+The script keeps an ID-based mapping between paired lists and tasks. Existing mappings survive list renames; unique custom-list names help with first pairing; ambiguous matches stop with a fault instead of guessing. A 10-minute Apps Script trigger handles normal synchronization after the initial manual checks.
+
+Apps Script limits one execution to six minutes. The synchronizer uses a 5.25-minute budget and a global lock, leaving 45 seconds before the platform ceiling and preventing overlapping work from running concurrently. Destructive journal paths stop with an additional 45-second reserve inside that budget before live revalidation, durable journal writes, or remote deletion, leaving bounded room for catch-save and lock cleanup. Ten minutes is the first supported minute-trigger cadence above the six-minute ceiling. Ordinary changes are therefore normally observed in 0–10 minutes; a two-complete-round deletion or Microsoft-origin move cleanup normally needs about 10–20 minutes, and can take longer after throttling or a failed run.
+
+A time-budget exit does **not** preserve a Google or Graph page cursor. The next run starts a complete inventory again. If a single complete inventory always exceeds the 5.25-minute budget, changing 10 minutes back to 15 minutes will not solve it; the future remedy is persistent pagination/delta state or workload sharding.
 
 ## Get started
 
@@ -67,29 +71,29 @@ The script keeps an ID-based mapping between paired lists and tasks. Existing ma
 2. Set your own IANA time zone, then run `initializeSafeDefaults()`.
 3. Register your own Microsoft Entra application with delegated `Tasks.ReadWrite` permission and complete Microsoft authorization.
 4. Run `setupStatus()` and `dryRunReport()`. Resolve every unexpected warning.
-5. Test two manual `syncAll()` runs with disposable tasks. Only then run `createTrigger()` for the 15-minute schedule.
+5. Test two manual `syncAll()` runs with disposable tasks. Only then run `createTrigger()` for the 10-minute schedule.
 
 ```javascript
 initializeSafeDefaults(); // safe switches off, automatic list discovery on
 setupStatus();            // configuration and authorization health
 dryRunReport();           // read-only list/configuration report
 syncAll();                // run twice before enabling the schedule
-createTrigger();          // install the 15-minute trigger
+createTrigger();          // install the 10-minute trigger
 ```
 
 ## Proof, not promises
 
 | Check | Verified result |
 |---|---|
-| Local regression suite | **146 / 146 passed** in the rc5 worktree |
-| GitHub CI | `v0.1.0-rc.4` baseline: Node.js **22 and 24 passed**; rc5 pending |
+| Local regression suite | **168 / 168 passed** in the rc6 worktree |
+| GitHub CI | `v0.1.0-rc.5` baseline passed; rc6 pending publication |
 | Real scheduled run | `v0.1.0-rc.4` staging trigger completed successfully |
 | Deployed health check | `v0.1.0-rc.4` staging: Healthy, **0 reported issues** |
 | CodeQL | `v0.1.0-rc.4` baseline: **0 alerts** |
 | Dependabot | `v0.1.0-rc.4` baseline: **0 alerts** |
 | Secret scanning | `v0.1.0-rc.4` baseline: **No secrets found** |
 
-The rc5 local regression result was verified on 2026-08-22. The remaining rows intentionally retain rc4 CI/staging/security evidence until rc5 is independently run and published. These are release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
+The rc6 local regression result was verified on 2026-08-24. CI, Apps Script, and real-account rows remain prior-release evidence until rc6 is independently deployed and published. These are release-candidate evidence, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
 
 ## Safety by default
 
@@ -105,7 +109,11 @@ SYNC_ALLOW_TASK_MOVES=false
 > [!IMPORTANT]
 > Keep all three destructive-feature switches set to `false` for important data until you complete a disposable-task smoke test. Task and list deletion use two-round confirmation and 30-day tombstones. Cross-list movement is independently controlled by `SYNC_ALLOW_TASK_MOVES`; it creates the destination counterpart before retiring the source and keeps a durable recovery journal across interrupted runs.
 
-Cross-list movement uses two deliberately different paths. A Google-origin move is reproduced in Microsoft To Do with a guarded create-before-delete transaction; a Microsoft-origin move converges through counterpart creation and the existing missing-task confirmation path. The destination task is newly created, so its provider task ID changes. Only the bridge's common fields—title, plain-text notes, date-only due date, and completion state—are rebuilt. Microsoft-only metadata such as reminders, importance, categories, recurrence, start dates, creation date, and completion history is not preserved. `dryRunReport()` now exposes structured `pendingMoves[]` entries with metadata-loss information for currently observed Google-origin candidates. `hasAttachments=true` is an observable scalar hint; attachment contents, checklist items, linked resources, and extensions are relationships that the current inventory does not expand and therefore are reported as uninspected rather than absent. A newer Microsoft edit, an ambiguous recovery match, an incomplete inventory, or a source change stops the move without deleting the source task.
+Cross-list movement uses two deliberately different paths. A Google-origin move is reproduced in Microsoft To Do with a guarded create-before-delete transaction. Before the destination POST, the script durably records a UUID; the same POST writes a `com.tasksTodoSync.move` open type extension. Graph To Do responses may normalize that marker to either exact service identity: `microsoft.graph.openTypeExtension.com.tasksTodoSync.move` or the legacy `Microsoft.OutlookServices.OpenTypeExtension.com.tasksTodoSync.move`. Only unresolved target lists request the documented `$expand=extensions($filter=id eq 'com.tasksTodoSync.move')` short-name filter; the response is then checked locally against that two-value ID allowlist plus the exact extension name, a valid matching UUID, unmapped identity, target list, and synchronized-field fingerprint. Bare names, suffix matches, and other prefixes are rejected. A same-content task without that marker is never adopted. Multiple markers, edited content, or an incomplete extension inventory stop safely. Pre-rc.6 unresolved journals have no UUID and therefore cannot auto-adopt or recreate a destination.
+
+A Microsoft-origin move normally appears as a new Microsoft task ID and a missing old ID. With `SYNC_ALLOW_DELETIONS=false`, the new Google counterpart is created but the old Google counterpart is intentionally retained, so two tasks can remain indefinitely. With `SYNC_ALLOW_DELETIONS=true`, the new counterpart is created in one complete round and the old one is normally removed after a later complete confirmation round, producing a temporary duplicate before convergence. A provider observation that keeps the same Microsoft ID while changing lists remains `MOVE_MICROSOFT_SAME_ID_LIST_CHANGED` and fails closed.
+
+Both paths rebuild only the bridge's common fields—title, plain-text notes, date-only due date, and completion state—so the provider task ID changes and Microsoft-only metadata such as reminders, importance, categories, recurrence, start dates, creation date, and completion history is not preserved. `dryRunReport()` exposes structured `pendingMoves[]` entries with point-in-time metadata-loss information. Its normal inventory does not expand attachment, checklist, linked-resource, or extension relationships; only an unresolved correlated recovery target receives the selective extension expansion during `syncAll()`.
 
 Additional guardrails:
 
@@ -114,6 +122,7 @@ Additional guardrails:
 - Auto-discovery ignores shared, non-owned, unknown, excluded, and special Microsoft lists.
 - `dryRunReport()` is read-only and now previews detected Google-origin cross-list moves through both human-readable messages and structured `pendingMoves[]` entries. Metadata reporting is point-in-time and inventory-bounded—not a promise about every later mutation or unexpanded relationship.
 - Missing or ambiguous identities stop safely instead of being paired by guesswork.
+- `healthCheck()` reports blocked and legacy move-journal counts as issues. `inspectTaskMoveJournals()` provides opaque references; guarded `previewTaskMoveJournalOperation()` / `applyTaskMoveJournalOperation()` workflows can resume, cancel, or reconcile one journal without directly mutating either provider. A preview token is bound to the exact action, journal revision, candidate reference, confirmation, and live evidence; changing any effect-bearing field requires another preview.
 
 `pendingMoves[]` reports `hasAttachments=true` when that scalar is present in the Microsoft task snapshot. It does not fetch or inspect attachment relationship contents; `checklistItems`, `linkedResources`, and `extensions` remain unexpanded and must not be interpreted as absent.
 
@@ -145,4 +154,4 @@ npm run check
 npm test
 ```
 
-GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.5), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.
+GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.6), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.
