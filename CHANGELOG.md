@@ -2,7 +2,16 @@
 
 All notable changes to this project are documented here.
 
-## Unreleased
+## 0.1.0-rc.7 — 2026-08-26
+
+### Deployment productization
+
+- Documented the intended first-run command, `npx tasks-todo-sync init`. The CLI uses `clasp` to create a private standalone Apps Script project, defaults to this computer's resolved IANA time zone, accepts `--timezone <IANA>` as an override, pushes the exact `Code.gs` and `appsscript.json` sources, and prints the editor URL with post-deploy steps.
+- Clarified that the CLI only deploys source and prints guidance; after opening the editor, the operator must run `initializeSafeDefaults()` to fill missing Script Properties. The CLI does not execute Apps Script functions or write Script Properties.
+- Kept Microsoft Entra app registration, client-secret creation, Script Properties, redirect URI setup, and Microsoft authorization manual and private. The CLI never accepts or stores Microsoft credentials or OAuth tokens.
+- Documented fresh-project defaults filled by `initializeSafeDefaults()` as automatic list discovery, `SYNC_ALLOW_DELETIONS=true`, `SYNC_ALLOW_LIST_DELETIONS=true`, and `SYNC_ALLOW_TASK_MOVES=false`. Existing explicit Script Properties are preserved, including the maintainer's private all-true deployment.
+- Recorded bounded maintainer-private recoverable smoke evidence for task and list deletion in both directions. These features remain destructive; cross-list task moves remain default-off, low priority, and unverified on a real account.
+- Added a manual Apps Script fallback for environments that cannot resolve the package or for operators who want to inspect each deployment step.
 
 ## 0.1.0-rc.6 — 2026-08-23
 
@@ -53,7 +62,7 @@ Public prerelease tag: `v0.1.0-rc.3`. This is a release candidate, not a stable 
 Public prerelease tag: `v0.1.0-rc.2`. This is a release candidate, not a stable or production-ready release.
 
 - Added safe setup helpers: `initializeSafeDefaults()` sets the four setup defaults without overwriting unrelated Script Properties, and `setupStatus()` reports configuration and trigger readiness without revealing credentials.
-- Added schema 3 handling for the two-sided custom-list deletion lifecycle and the separate `SYNC_ALLOW_LIST_DELETIONS=false` safety switch. It requires auto-mode provenance, complete two-round evidence, exact task mappings/fingerprints, a pre-delete reread, and a durable per-pair journal.
+- Added schema 3 handling for the two-sided custom-list deletion lifecycle and the separate `SYNC_ALLOW_LIST_DELETIONS` safety switch. It requires auto-mode provenance, complete two-round evidence, exact task mappings/fingerprints, a pre-delete reread, and a durable per-pair journal.
 - Kept task deletion, list deletion, and task moves independently disabled by default. Task and list deletion code exists but neither has completed a real destructive-account smoke test; task moves remain safely unavailable because no recoverable move journal exists.
 - Tightened auto list discovery: existing ID mappings take precedence; default lists pair by platform identity; only unique same-name custom lists pair automatically; excluded, shared, non-owned, unknown, and Flagged Emails lists are not candidates.
 - Added public-RC documentation, MIT licensing, release metadata, and a pinned CI matrix for Node.js 22 and 24.

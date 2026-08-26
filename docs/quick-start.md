@@ -1,18 +1,33 @@
-# Quick start (personal staging only)
+# Quick start (personal deployment)
 
-This is the shortest safe path for one person. It creates a personal staging sync, not a production deployment.
+This is the shortest path for one person. The synchronization service runs in your private Google Apps Script project; it is not a hosted multi-user service.
 
-There is **no public one-click Apps Script template** and no login-only setup yet. Every user must create their own Microsoft Entra app registration, use their own client secret, and sign in to both Google Apps Script and Microsoft OAuth.
+## 1. Create the private Apps Script project
 
-## 1. Create a private Apps Script project
+The rc7 productized flow is:
 
-1. Create a new standalone project at [script.google.com](https://script.google.com/), open the editor, and enable the `appsscript.json` manifest in Project Settings.
-2. Copy this repository's `Code.gs` and `appsscript.json` into that project. Before saving the manifest, replace its `timeZone` with your own IANA time zone, such as `Europe/London` or `America/Toronto`; do not copy `Asia/Taipei` unless it is actually yours.
-3. Run `initializeSafeDefaults()` and complete the Google Apps Script authorization prompt. This sets the safe defaults: auto discovery plus all three dangerous-feature switches set to `false`.
+```bash
+npx tasks-todo-sync init
+```
+
+The CLI defaults to this computer's resolved IANA time zone. Pass `--timezone <IANA>` to override it. It uses `clasp` to create a private standalone Apps Script project, applies the selected time zone to the manifest, pushes the exact `Code.gs` and `appsscript.json` sources, and prints the editor URL with the remaining post-deploy steps. For noninteractive use, `npx tasks-todo-sync init --timezone Asia/Taipei --yes` supplies the time zone and confirmation explicitly.
+
+The CLI only deploys source and prints guidance; it does not open the editor, execute Apps Script functions, or write Script Properties. Open the printed editor URL and run `initializeSafeDefaults()` there. The CLI never accepts or stores `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or any other Microsoft credential. If `npx` cannot resolve the package, use the [manual fallback](deployment.md#manual-apps-script-fallback). This prerelease documentation is not a production-readiness claim.
+
+After `initializeSafeDefaults()` runs, fresh projects receive these values:
+
+```properties
+SYNC_LIST_DISCOVERY_MODE=auto
+SYNC_ALLOW_DELETIONS=true
+SYNC_ALLOW_LIST_DELETIONS=true
+SYNC_ALLOW_TASK_MOVES=false
+```
+
+Existing explicit Script Properties are preserved. In particular, `init` does not rewrite a maintainer's private deployment whose three switches are already all `true`.
 
 Google Tasks due dates are date-only. The Microsoft due-time component is not preserved, so choose the project time zone deliberately and do not expect a time-of-day round trip.
 
-## 2. Create your own Microsoft sign-in app
+## 2. Register Microsoft OAuth manually
 
 In Microsoft Entra admin center, register an application for your own account:
 
@@ -29,31 +44,19 @@ In Apps Script **Project Settings → Script Properties**, add:
 | `MS_TENANT_ID` | Optional; leave unset to use `common`, or use your intended tenant setting |
 | `ALERT_EMAIL` | Optional private alert address |
 
-Then run `showRedirectUri()`. Copy the displayed address to Entra **Authentication → Add a platform → Web → Redirect URI**.
+Then run `showRedirectUri()`. Copy the displayed address to Entra **Authentication → Add a platform → Web → Redirect URI**. Run `startAuthorization()`, open its URL, and sign in to your Microsoft account.
 
-## 3. Authorize and test before scheduling
+## 3. Inspect, then schedule
 
-1. Run `startAuthorization()`, open its URL, and sign in to your Microsoft account.
-2. Run `setupStatus()` and resolve every unexpected warning. It reports whether safety defaults, credentials, time zone, and trigger state are configured without showing secret values.
-3. Run `dryRunReport()`. It reads the configuration and lists and previews detected Google-origin cross-list moves. Review its structured `pendingMoves[]` entries, including blocked/recovery states and metadata that cannot be rebuilt. It remains a point-in-time report, not a guarantee about later mutations; `hasAttachments=true` may be observed, while attachment contents and other unexpanded relationships are reported as uninspected.
+1. In the Apps Script editor, run `initializeSafeDefaults()` and complete any Google authorization prompt. Then run `setupStatus()` and resolve every unexpected warning. It reports configuration, authorization, time zone, and trigger readiness without showing secret values.
+2. Run `dryRunReport()`. Review its warnings, exclusions, faults, list information, and structured `pendingMoves[]` entries. The report is read-only and point-in-time; unexpanded Graph relationships are reported as uninspected, not absent.
+3. Use disposable tasks and lists for the first two manual `syncAll()` runs. Task and list deletion are enabled for fresh projects based on bounded maintainer-private recoverable smoke evidence in both directions, but they are not universally safe: they remain destructive and use two-round confirmation plus tombstones.
+4. Run `createTrigger()` only after the first two rounds are understood, then use `healthCheck()` to confirm the 10-minute schedule.
 
-### Read this before the first automatic sync
-
-With auto discovery, the project can contact **every eligible list in both accounts**, not just a list you recently created. A separate Apps Script project is not a data sandbox: if it uses the same accounts and credentials, it can still touch the same real lists. Tasks with the same content on both sides are not merged by content, so the first sync can leave two tasks.
-
-For a low-risk trial, use a separate test account. If that is not possible, limit the scope first with `SYNC_EXCLUDED_LIST_NAMES` or explicit ID-based pairing. Read and understand every first-sync union warning in `dryRunReport()` before running `syncAll()`; do not treat the report as permission to proceed blindly.
-
-4. Use disposable tasks within the deliberately limited scope and run `syncAll()` twice. Check the second run does not create unexpected duplicates.
-5. Only after that, run `createTrigger()` and later `healthCheck()` to confirm the 10-minute schedule is healthy. Existing rc.5 deployments must rerun `createTrigger()` to replace the old schedule.
-
-Keep `SYNC_ALLOW_DELETIONS=false`, `SYNC_ALLOW_LIST_DELETIONS=false`, and `SYNC_ALLOW_TASK_MOVES=false` until disposable-data testing is complete. A Google-origin cross-list move is independently enabled by `SYNC_ALLOW_TASK_MOVES=true`: the script first durably records a UUID, creates the Microsoft destination with the matching open extension in the same POST, then retires the old counterpart only after fresh source and destination checks. Recovery uses the documented short-name extension filter only for unresolved target lists and performs no per-task extension reads. Graph To Do may return either the `microsoft.graph.openTypeExtension.` identity or legacy `Microsoft.OutlookServices.OpenTypeExtension.` identity for the exact extension name; local recovery accepts only those two exact IDs plus the exact name, valid matching UUID, unmapped identity, target list, and fingerprint. Bare names, suffix matches, and other prefixes are rejected.
-
-A Microsoft-origin move normally appears through Graph as a new task plus a missing old task. With `SYNC_ALLOW_DELETIONS=false`, the new Google counterpart is created and the old Google counterpart remains, so the duplicate can persist. With `SYNC_ALLOW_DELETIONS=true`, a later complete confirmation round normally removes the old counterpart after a temporary duplicate.
+Cross-list task moves remain `SYNC_ALLOW_TASK_MOVES=false` by default, are low priority, and have no claimed real-account smoke evidence. Leave them off unless you are deliberately testing disposable data using the deployment guide.
 
 Apps Script allows one execution for at most six minutes. This project budgets 5.25 minutes and schedules every 10 minutes, so ordinary changes normally take 0–10 minutes and two-round cleanup about 10–20 minutes. A time-budget exit starts a full inventory again on the next trigger; there is no saved page cursor, delta token, or shard checkpoint, so consistently oversized inventories need an architectural change rather than a longer trigger interval.
 
-Delete-and-recreate changes the provider task ID. Only title, plain-text notes, date-only due date, and completion state are rebuilt; reminders, importance, categories, recurrence, attachments, creation date, and completion history are not preserved. Test this with a disposable task before enabling it for important lists.
+Delete-and-recreate changes the provider task ID. Only title, plain-text notes, date-only due date, and completion state are rebuilt; reminders, importance, categories, recurrence, attachments, creation date, and completion history are not preserved. Test this with disposable data before relying on it for important lists.
 
-`hasAttachments=true` can be detected from the Microsoft task snapshot, but attachment contents and other Graph relationships are not expanded by this release. Treat those details as uninspected.
-
-For rollback, explicit list pairing, the disposable-list validation sequence, or the optional Node/`clasp` path, use the [deployment guide](deployment.md).
+For explicit list pairing, rollback, the deletion smoke procedure, or the full manual fallback, use the [deployment guide](deployment.md).

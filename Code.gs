@@ -35,14 +35,13 @@ const DEFAULT_ALLOW_LIST_DELETIONS = false;
 const DEFAULT_ALLOW_TASK_MOVES = false;
 const DEFAULT_LIST_DISCOVERY_MODE = 'explicit';
 const DEFAULT_SYNC_TIME_ZONE = 'Asia/Taipei';
-// These onboarding defaults are intentionally explicit and limited to the
-// four non-secret safety switches below.  Keep this separate from runtime
-// defaults so an operator can opt into auto discovery through one auditable
-// helper without changing credentials, IDs, or sync state.
-const SAFE_SETUP_DEFAULTS = {
+// These public-deployment defaults are intentionally explicit and limited to
+// four non-secret settings. Keep them separate from runtime fallbacks: a
+// missing or invalid setting must remain conservative until setup validates it.
+const PUBLIC_SETUP_DEFAULTS = {
   SYNC_LIST_DISCOVERY_MODE: 'auto',
-  SYNC_ALLOW_DELETIONS: 'false',
-  SYNC_ALLOW_LIST_DELETIONS: 'false',
+  SYNC_ALLOW_DELETIONS: 'true',
+  SYNC_ALLOW_LIST_DELETIONS: 'true',
   SYNC_ALLOW_TASK_MOVES: 'false'
 };
 const MICROSOFT_WINDOWS_TIME_ZONES = {
@@ -87,23 +86,32 @@ let RUN_STARTED_AT = 0;
 function initializeSafeDefaults() {
   const properties = PropertiesService.getScriptProperties();
   const defaults = {
-    SYNC_LIST_DISCOVERY_MODE: SAFE_SETUP_DEFAULTS.SYNC_LIST_DISCOVERY_MODE,
-    SYNC_ALLOW_DELETIONS: SAFE_SETUP_DEFAULTS.SYNC_ALLOW_DELETIONS,
-    SYNC_ALLOW_LIST_DELETIONS: SAFE_SETUP_DEFAULTS.SYNC_ALLOW_LIST_DELETIONS,
-    SYNC_ALLOW_TASK_MOVES: SAFE_SETUP_DEFAULTS.SYNC_ALLOW_TASK_MOVES
+    SYNC_LIST_DISCOVERY_MODE: PUBLIC_SETUP_DEFAULTS.SYNC_LIST_DISCOVERY_MODE,
+    SYNC_ALLOW_DELETIONS: PUBLIC_SETUP_DEFAULTS.SYNC_ALLOW_DELETIONS,
+    SYNC_ALLOW_LIST_DELETIONS: PUBLIC_SETUP_DEFAULTS.SYNC_ALLOW_LIST_DELETIONS,
+    SYNC_ALLOW_TASK_MOVES: PUBLIC_SETUP_DEFAULTS.SYNC_ALLOW_TASK_MOVES
   };
+  const missingDefaults = {};
+  Object.keys(defaults).forEach(function(key) {
+    const existing = properties.getProperty(key);
+    // Do not silently correct a configured value. This preserves deliberate
+    // overrides and leaves invalid values visible to setupStatus().
+    if (existing === null || typeof existing === 'undefined') {
+      missingDefaults[key] = defaults[key];
+    }
+  });
   // The second argument is false by design: preserve every unrelated Script
   // Property, including credentials and existing sync configuration.
-  if (typeof properties.setProperties === 'function') {
-    properties.setProperties(defaults, false);
-  } else {
-    Object.keys(defaults).forEach(function(key) {
-      properties.setProperty(key, defaults[key]);
+  if (Object.keys(missingDefaults).length && typeof properties.setProperties === 'function') {
+    properties.setProperties(missingDefaults, false);
+  } else if (Object.keys(missingDefaults).length) {
+    Object.keys(missingDefaults).forEach(function(key) {
+      properties.setProperty(key, missingDefaults[key]);
     });
   }
 
   const report = {
-    updatedProperties: defaults,
+    updatedProperties: missingDefaults,
     nextSteps: [
       {
         code: 'SETUP_STATUS',
@@ -122,15 +130,25 @@ function initializeSafeDefaults() {
 }
 
 function setupSafePropertyStatus_(properties, key, expected) {
-  const raw = String(properties.getProperty(key) || '');
+  const stored = properties.getProperty(key);
+  const missing = stored === null || typeof stored === 'undefined';
+  const raw = missing ? '' : String(stored);
   const normalized = key === 'SYNC_LIST_DISCOVERY_MODE'
     ? raw.trim().toLowerCase()
     : raw.toLowerCase();
-  const correct = normalized === expected;
+  const valid = key === 'SYNC_LIST_DISCOVERY_MODE'
+    ? normalized === 'auto' || normalized === 'explicit'
+    : normalized === 'true' || normalized === 'false';
+  const matchesPublicDefault = valid && normalized === expected;
   return {
-    value: correct ? expected : (normalized ? '設定但不符合安全預設' : '未設定'),
+    value: missing ? '未設定' : (valid ? normalized : '無效設定'),
     expected: expected,
-    correct: correct
+    // Keep correct as the legacy public-default comparison. Consumers that
+    // need to distinguish a valid override can use valid and
+    // matchesPublicDefault.
+    correct: matchesPublicDefault,
+    valid: valid,
+    matchesPublicDefault: matchesPublicDefault
   };
 }
 
@@ -162,11 +180,13 @@ function setupStatus() {
   const properties = PropertiesService.getScriptProperties();
   const safetyDefaults = {};
   let allSafetyDefaultsCorrect = true;
-  Object.keys(SAFE_SETUP_DEFAULTS).forEach(function(key) {
+  let allSafetySettingsValid = true;
+  Object.keys(PUBLIC_SETUP_DEFAULTS).forEach(function(key) {
     safetyDefaults[key] = setupSafePropertyStatus_(
-      properties, key, SAFE_SETUP_DEFAULTS[key]
+      properties, key, PUBLIC_SETUP_DEFAULTS[key]
     );
     if (!safetyDefaults[key].correct) allSafetyDefaultsCorrect = false;
+    if (!safetyDefaults[key].valid) allSafetySettingsValid = false;
   });
 
   let projectTimeZone = DEFAULT_SYNC_TIME_ZONE;
@@ -194,10 +214,10 @@ function setupStatus() {
   const triggerStatus = setupTriggerCount_();
   const nextSteps = [];
 
-  if (!allSafetyDefaultsCorrect) {
+  if (!allSafetySettingsValid) {
     nextSteps.push({
-      code: 'SAFE_DEFAULTS_NOT_INITIALIZED',
-      message: '請執行 initializeSafeDefaults()，將四個安全開關設為預期值。'
+      code: 'SAFETY_SETTINGS_MISSING_OR_INVALID',
+      message: '請確認 SYNC_LIST_DISCOVERY_MODE 為 auto 或 explicit，其餘三個 SYNC_ALLOW_* 開關為 true 或 false；設定後再執行 setupStatus()。'
     });
   }
   if (!clientIdConfigured || !clientSecretConfigured) {
@@ -251,6 +271,7 @@ function setupStatus() {
     projectTimeZone: projectTimeZone,
     safetyDefaults: safetyDefaults,
     allSafetyDefaultsCorrect: allSafetyDefaultsCorrect,
+    allSafetySettingsValid: allSafetySettingsValid,
     credentials: {
       msClientIdPresent: clientIdConfigured,
       msClientSecretPresent: clientSecretConfigured,

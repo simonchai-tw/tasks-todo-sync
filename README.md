@@ -46,9 +46,9 @@ No hosted middleman. No shared client secret. Your accounts, your script, your d
 | Notes | Google ↔ Microsoft | Plain-text round trip |
 | Due dates | Google ↔ Microsoft | Date only; Google Tasks has no time-of-day field |
 | Eligible personal lists | Google ↔ Microsoft | Auto-discovery and counterpart creation |
-| Task deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
-| List deletion | Google ↔ Microsoft | Implemented, **off by default**, destructive account test pending |
-| Cross-list task moves | Google ↔ Microsoft | Google → Microsoft uses guarded create-then-delete; Microsoft → Google converges through new-task plus deletion handling; **off by default** |
+| Task deletion | Google ↔ Microsoft | Implemented, fresh-project default on; bounded maintainer-private recoverable smoke evidence in both directions; still destructive |
+| List deletion | Google ↔ Microsoft | Implemented, fresh-project default on; bounded maintainer-private recoverable smoke evidence in both directions; still destructive |
+| Cross-list task moves | Google ↔ Microsoft | Guarded create-then-delete paths; **off by default**, low-priority, real-account validation pending |
 
 ## How it works
 
@@ -65,19 +65,32 @@ A time-budget exit does **not** preserve a Google or Graph page cursor. The next
 ## Get started
 
 > [!TIP]
-> Start with the [non-technical quick start](docs/quick-start.md). The complete [deployment guide](docs/deployment.md) covers Microsoft Entra setup, rollback, explicit pairing, and optional `clasp` deployment.
+> Start with the [non-technical quick start](docs/quick-start.md). The complete [deployment guide](docs/deployment.md) covers the intended `npx tasks-todo-sync init` flow, the manual fallback, Microsoft Entra setup, rollback, and explicit pairing.
 
-1. Create a private standalone Google Apps Script project and copy in [`Code.gs`](Code.gs) plus [`appsscript.json`](appsscript.json).
-2. Set your own IANA time zone, then run `initializeSafeDefaults()`.
-3. Register your own Microsoft Entra application with delegated `Tasks.ReadWrite` permission and complete Microsoft authorization.
-4. Run `setupStatus()` and `dryRunReport()`. Resolve every unexpected warning.
-5. Test two manual `syncAll()` runs with disposable tasks. Only then run `createTrigger()` for the 10-minute schedule.
+The rc7 productized deployment command is:
+
+```bash
+npx tasks-todo-sync init
+```
+
+The npm `latest` dist-tag keeps this deliberately plain command as the supported entry point. The CLI uses `clasp` to create a private standalone Apps Script project, defaults to this computer's resolved IANA time zone, and accepts `--timezone <IANA>` when you want to override it. It pushes the exact `Code.gs` and `appsscript.json` sources, then prints the Apps Script editor URL plus the remaining post-deploy steps. For noninteractive use, `npx tasks-todo-sync init --timezone Asia/Taipei --yes` supplies both options explicitly. The CLI only deploys source and prints guidance: it does not open the editor, execute Apps Script functions, or write Script Properties. Open the printed editor URL and run `initializeSafeDefaults()` there. The CLI never accepts or stores Microsoft Entra credentials. Register the Entra app, create its client secret, add the values to private Apps Script Script Properties, and authorize Microsoft manually in the editor. If a network policy or resolver prevents `npx` from resolving the package, follow the [manual fallback](docs/deployment.md#manual-apps-script-fallback).
+
+After opening the editor and running `initializeSafeDefaults()`, a fresh project has these defaults:
+
+```properties
+SYNC_LIST_DISCOVERY_MODE=auto
+SYNC_ALLOW_DELETIONS=true
+SYNC_ALLOW_LIST_DELETIONS=true
+SYNC_ALLOW_TASK_MOVES=false
+```
+
+Existing explicit Script Properties are preserved. That includes a maintainer's private deployment with all three switches explicitly set to `true`; the CLI does not rewrite it.
 
 ```javascript
-initializeSafeDefaults(); // safe switches off, automatic list discovery on
+initializeSafeDefaults();  // fill missing setup properties in the editor
 setupStatus();            // configuration and authorization health
 dryRunReport();           // read-only list/configuration report
-syncAll();                // run twice before enabling the schedule
+syncAll();                // run twice with disposable data
 createTrigger();          // install the 10-minute trigger
 ```
 
@@ -85,33 +98,34 @@ createTrigger();          // install the 10-minute trigger
 
 | Check | Verified result |
 |---|---|
-| Local regression suite | **168 / 168 passed** in the rc6 worktree |
+| Local regression suite | **177 / 177 passed** in this rc7 release worktree |
 | GitHub CI | `v0.1.0-rc.6`: **168 / 168 passed** |
 | Real scheduled run | `v0.1.0-rc.6` personal Apps Script completed successfully; 67 mapped tasks, no mutations or conflicts observed |
+| Deletion smoke evidence | Bounded maintainer-private recoverable task and list deletion checks passed in both directions |
 | Deployed health check | `v0.1.0-rc.6` personal Apps Script: Healthy, **0 reported issues** |
 | CodeQL | `v0.1.0-rc.6`: **0 alerts** |
 | Dependabot | `v0.1.0-rc.4` baseline: **0 alerts** |
 | Secret scanning | `v0.1.0-rc.4` baseline: **No secrets found** |
 
-The rc6 regression, GitHub CI/CodeQL checks, and personal Apps Script sync/health checks were verified on 2026-08-24. The live run observed no creates, moves, deletes, or conflicts; this is a bounded smoke check, not a claim that destructive paths or every account configuration have been production-tested. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
+The rc7 local regression, published rc6 GitHub CI/CodeQL checks, personal Apps Script sync/health checks, and bounded maintainer-private deletion smoke evidence are bounded checks, not a production-readiness claim. Cross-list task moves remain off by default and are low priority; no real-account move smoke test is claimed. The detailed boundary is recorded in the [engineering audit](docs/audit.md).
 
 ## Safety by default
 
-The setup helper explicitly writes these release-candidate defaults:
+The setup helper fills these values in the Apps Script editor for a fresh project:
 
 ```properties
 SYNC_LIST_DISCOVERY_MODE=auto
-SYNC_ALLOW_DELETIONS=false
-SYNC_ALLOW_LIST_DELETIONS=false
+SYNC_ALLOW_DELETIONS=true
+SYNC_ALLOW_LIST_DELETIONS=true
 SYNC_ALLOW_TASK_MOVES=false
 ```
 
 > [!IMPORTANT]
-> Keep all three destructive-feature switches set to `false` for important data until you complete a disposable-task smoke test. Task and list deletion use two-round confirmation and 30-day tombstones. Cross-list movement is independently controlled by `SYNC_ALLOW_TASK_MOVES`; it creates the destination counterpart before retiring the source and keeps a durable recovery journal across interrupted runs.
+> Task and list deletion are enabled for fresh projects based on bounded maintainer-private recoverable smoke evidence in both directions. They remain destructive and are not universally safe: review `dryRunReport()`, use disposable data first, and understand the two-round confirmation and 30-day tombstone behavior. Cross-list movement remains independently controlled by `SYNC_ALLOW_TASK_MOVES=false`; it is low priority and has no claimed real-account smoke evidence.
 
 Cross-list movement uses two deliberately different paths. A Google-origin move is reproduced in Microsoft To Do with a guarded create-before-delete transaction. Before the destination POST, the script durably records a UUID; the same POST writes a `com.tasksTodoSync.move` open type extension. Graph To Do responses may normalize that marker to either exact service identity: `microsoft.graph.openTypeExtension.com.tasksTodoSync.move` or the legacy `Microsoft.OutlookServices.OpenTypeExtension.com.tasksTodoSync.move`. Only unresolved target lists request the documented `$expand=extensions($filter=id eq 'com.tasksTodoSync.move')` short-name filter; the response is then checked locally against that two-value ID allowlist plus the exact extension name, a valid matching UUID, unmapped identity, target list, and synchronized-field fingerprint. Bare names, suffix matches, and other prefixes are rejected. A same-content task without that marker is never adopted. Multiple markers, edited content, or an incomplete extension inventory stop safely. Pre-rc.6 unresolved journals have no UUID and therefore cannot auto-adopt or recreate a destination.
 
-A Microsoft-origin move normally appears as a new Microsoft task ID and a missing old ID. With `SYNC_ALLOW_DELETIONS=false`, the new Google counterpart is created but the old Google counterpart is intentionally retained, so two tasks can remain indefinitely. With `SYNC_ALLOW_DELETIONS=true`, the new counterpart is created in one complete round and the old one is normally removed after a later complete confirmation round, producing a temporary duplicate before convergence. A provider observation that keeps the same Microsoft ID while changing lists remains `MOVE_MICROSOFT_SAME_ID_LIST_CHANGED` and fails closed.
+A Microsoft-origin move normally appears as a new Microsoft task ID and a missing old ID. If an existing deployment explicitly has `SYNC_ALLOW_DELETIONS=false`, the new Google counterpart is created but the old Google counterpart is retained, so two tasks can remain indefinitely. With the fresh-project default `SYNC_ALLOW_DELETIONS=true`, the new counterpart is created in one complete round and the old one is normally removed after a later complete confirmation round, producing a temporary duplicate before convergence. A provider observation that keeps the same Microsoft ID while changing lists remains `MOVE_MICROSOFT_SAME_ID_LIST_CHANGED` and fails closed.
 
 Both paths rebuild only the bridge's common fields—title, plain-text notes, date-only due date, and completion state—so the provider task ID changes and Microsoft-only metadata such as reminders, importance, categories, recurrence, start dates, creation date, and completion history is not preserved. `dryRunReport()` exposes structured `pendingMoves[]` entries with point-in-time metadata-loss information. Its normal inventory does not expand attachment, checklist, linked-resource, or extension relationships; only an unresolved correlated recovery target receives the selective extension expansion during `syncAll()`.
 
@@ -132,7 +146,7 @@ Additional guardrails:
 |---|---|
 | You use Google Tasks and Microsoft To Do every day | You need a hosted multi-user SaaS |
 | You want the same task changes reflected on both sides | You need a one-click login-only setup |
-| You are comfortable owning a private Apps Script project | You need zero-configuration deployment |
+| You are comfortable owning a private Apps Script project | You need a hosted multi-user service or zero-configuration OAuth |
 | You want transparent, auditable synchronization | You need destructive features enabled without first testing disposable data |
 
 ## Documentation
@@ -147,11 +161,11 @@ Additional guardrails:
 
 ## Local verification
 
-Node.js 22 or later is required only for repository checks and the optional `clasp` workflow:
+Node.js 22 or later is required for repository checks and the intended `npx tasks-todo-sync init` workflow:
 
 ```bash
 npm run check
 npm test
 ```
 
-GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. Start with the current [prerelease](https://github.com/simonchai-tw/tasks-todo-sync/releases/tag/v0.1.0-rc.6), use disposable tasks first, and keep the safety switches off until destructive testing is explicitly completed.
+GitHub stores the source and release history; the actual synchronization runs in **your private Google Apps Script project**. This rc7 prerelease delivers the productized deployment CLI but is not a production-readiness claim. Use disposable tasks and lists first, even though fresh projects enable task and list deletion, and leave cross-list moves off.

@@ -1,0 +1,9 @@
+.clasp.json
+.clasprc.json
+.tasks-todo-sync-init.json
+Code.js
+.env
+.env.*
+*.secret.json
+*sync-state*.json
+*state-export*.json

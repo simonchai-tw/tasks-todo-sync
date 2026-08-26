@@ -41,8 +41,8 @@ for (const name of requiredFunctions) {
   }
 }
 
-if (packageJson.version !== '0.1.0-rc.6') {
-  throw new Error('package version must be 0.1.0-rc.6');
+if (packageJson.version !== '0.1.0-rc.7') {
+  throw new Error('package version must be 0.1.0-rc.7');
 }
 
 for (const expected of [
@@ -69,7 +69,7 @@ for (const expected of [
   "TIME_BUDGET_MOVE_DELETE_REMOTE",
   '下輪會重新執行完整 inventory，沒有持久化 page cursor'
 ]) {
-  if (!code.includes(expected)) throw new Error(`Missing rc.6 invariant: ${expected}`);
+  if (!code.includes(expected)) throw new Error(`Missing sync invariant: ${expected}`);
 }
 
 if (/\$expand=extensions\(\$filter=id[^\n]*(?:microsoft\.graph|Microsoft\.OutlookServices)/.test(code)) {

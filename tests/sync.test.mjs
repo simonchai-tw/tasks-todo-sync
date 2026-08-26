@@ -62,13 +62,9 @@ function httpResponse(status, text = '', headers = {}) {
   };
 }
 
-test('initializeSafeDefaults writes only the four safe switches and preserves other properties', () => {
+test('initializeSafeDefaults installs missing public defaults and preserves unrelated properties', () => {
   const { context, scriptStore, userStore } = loadContext({
     scriptValues: {
-      SYNC_LIST_DISCOVERY_MODE: 'explicit',
-      SYNC_ALLOW_DELETIONS: 'true',
-      SYNC_ALLOW_LIST_DELETIONS: 'true',
-      SYNC_ALLOW_TASK_MOVES: 'true',
       SYNC_GOOGLE_LIST_IDS: 'google-list-sentinel',
       MS_CLIENT_SECRET: 'secret-sentinel',
       ALERT_EMAIL: 'email-sentinel@example.invalid',
@@ -90,14 +86,11 @@ test('initializeSafeDefaults writes only the four safe switches and preserves ot
 
   assert.deepEqual(JSON.parse(JSON.stringify(first.updatedProperties)), {
     SYNC_LIST_DISCOVERY_MODE: 'auto',
-    SYNC_ALLOW_DELETIONS: 'false',
-    SYNC_ALLOW_LIST_DELETIONS: 'false',
+    SYNC_ALLOW_DELETIONS: 'true',
+    SYNC_ALLOW_LIST_DELETIONS: 'true',
     SYNC_ALLOW_TASK_MOVES: 'false'
   });
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(second.updatedProperties)),
-    JSON.parse(JSON.stringify(first.updatedProperties))
-  );
+  assert.deepEqual(JSON.parse(JSON.stringify(second.updatedProperties)), {});
   assert.deepEqual(
     Object.fromEntries(Object.keys(first.updatedProperties).map((key) => [key, afterFirst[key]])),
     JSON.parse(JSON.stringify(first.updatedProperties))
@@ -110,7 +103,35 @@ test('initializeSafeDefaults writes only the four safe switches and preserves ot
   assert.equal(JSON.stringify(first).includes('email-sentinel@example.invalid'), false);
 });
 
-test('setupStatus returns a bounded status without exposing credentials, IDs, email, or state', () => {
+test('initializeSafeDefaults preserves existing all-true settings and is idempotent', () => {
+  const { context, scriptStore } = loadContext({
+    scriptValues: {
+      SYNC_LIST_DISCOVERY_MODE: 'explicit',
+      SYNC_ALLOW_DELETIONS: 'true',
+      SYNC_ALLOW_LIST_DELETIONS: 'true',
+      SYNC_ALLOW_TASK_MOVES: 'true',
+      unrelated: 'preserve-me'
+    }
+  });
+  context.console = { log: () => {} };
+  const before = { ...scriptStore.values };
+  let setPropertiesCalls = 0;
+  const originalSetProperties = scriptStore.setProperties.bind(scriptStore);
+  scriptStore.setProperties = (...args) => {
+    setPropertiesCalls += 1;
+    originalSetProperties(...args);
+  };
+
+  const first = context.initializeSafeDefaults();
+  const second = context.initializeSafeDefaults();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(first.updatedProperties)), {});
+  assert.deepEqual(JSON.parse(JSON.stringify(second.updatedProperties)), {});
+  assert.equal(setPropertiesCalls, 0);
+  assert.deepEqual(scriptStore.values, before);
+});
+
+test('setupStatus returns bounded public-default status without exposing credentials, IDs, email, or state', () => {
   const logs = [];
   const triggers = [
     { getHandlerFunction: () => 'syncAll' },
@@ -121,8 +142,8 @@ test('setupStatus returns a bounded status without exposing credentials, IDs, em
     scriptTimeZone: 'America/Los_Angeles',
     scriptValues: {
       SYNC_LIST_DISCOVERY_MODE: 'auto',
-      SYNC_ALLOW_DELETIONS: 'false',
-      SYNC_ALLOW_LIST_DELETIONS: 'false',
+      SYNC_ALLOW_DELETIONS: 'true',
+      SYNC_ALLOW_LIST_DELETIONS: 'true',
       SYNC_ALLOW_TASK_MOVES: 'false',
       MS_CLIENT_ID: 'client-id-sentinel',
       MS_CLIENT_SECRET: 'secret-sentinel',
@@ -141,6 +162,7 @@ test('setupStatus returns a bounded status without exposing credentials, IDs, em
 
   assert.equal(report.projectTimeZone, 'America/Los_Angeles');
   assert.equal(report.allSafetyDefaultsCorrect, true);
+  assert.equal(report.allSafetySettingsValid, true);
   for (const key of [
     'SYNC_LIST_DISCOVERY_MODE',
     'SYNC_ALLOW_DELETIONS',
@@ -148,6 +170,8 @@ test('setupStatus returns a bounded status without exposing credentials, IDs, em
     'SYNC_ALLOW_TASK_MOVES'
   ]) {
     assert.equal(report.safetyDefaults[key].correct, true, key);
+    assert.equal(report.safetyDefaults[key].valid, true, key);
+    assert.equal(report.safetyDefaults[key].matchesPublicDefault, true, key);
   }
   assert.deepEqual(JSON.parse(JSON.stringify(report.credentials)), {
     msClientIdPresent: true,
@@ -172,9 +196,45 @@ test('setupStatus returns a bounded status without exposing credentials, IDs, em
   assert.deepEqual(userStore.values, beforeUser);
 });
 
-test('setupStatus handles missing properties and restricted Apps Script mocks safely', () => {
+test('setupStatus accepts deliberate valid overrides while showing public-default mismatches', () => {
+  const { context } = loadContext({
+    scriptValues: {
+      SYNC_LIST_DISCOVERY_MODE: 'explicit',
+      SYNC_ALLOW_DELETIONS: 'false',
+      SYNC_ALLOW_LIST_DELETIONS: 'false',
+      SYNC_ALLOW_TASK_MOVES: 'true'
+    },
+    scriptApp: { getProjectTriggers: () => [] }
+  });
+  context.console = { log: () => {} };
+
+  const report = context.setupStatus();
+
+  assert.equal(report.allSafetySettingsValid, true);
+  assert.equal(report.allSafetyDefaultsCorrect, false);
+  for (const key of [
+    'SYNC_LIST_DISCOVERY_MODE',
+    'SYNC_ALLOW_DELETIONS',
+    'SYNC_ALLOW_LIST_DELETIONS',
+    'SYNC_ALLOW_TASK_MOVES'
+  ]) {
+    assert.equal(report.safetyDefaults[key].valid, true, key);
+    assert.equal(report.safetyDefaults[key].matchesPublicDefault, false, key);
+  }
+  assert.equal(
+    report.nextSteps.some((item) => item.code === 'SAFETY_SETTINGS_MISSING_OR_INVALID'),
+    false
+  );
+});
+
+test('setupStatus reports missing and invalid safety settings without exposing stored values', () => {
   const { context } = loadContext({
     scriptTimeZone: undefined,
+    scriptValues: {
+      SYNC_LIST_DISCOVERY_MODE: 'invalid-discovery-sentinel',
+      SYNC_ALLOW_DELETIONS: 'invalid-deletions-sentinel',
+      SYNC_ALLOW_LIST_DELETIONS: 'false'
+    },
     scriptApp: { getProjectTriggers: () => { throw new Error('restricted'); } }
   });
   context.console = { log: () => {} };
@@ -183,13 +243,22 @@ test('setupStatus handles missing properties and restricted Apps Script mocks sa
 
   assert.equal(report.projectTimeZone, 'Asia/Taipei');
   assert.equal(report.allSafetyDefaultsCorrect, false);
+  assert.equal(report.allSafetySettingsValid, false);
+  assert.equal(report.safetyDefaults.SYNC_LIST_DISCOVERY_MODE.value, '無效設定');
+  assert.equal(report.safetyDefaults.SYNC_ALLOW_DELETIONS.value, '無效設定');
+  assert.equal(report.safetyDefaults.SYNC_ALLOW_LIST_DELETIONS.valid, true);
+  assert.equal(report.safetyDefaults.SYNC_ALLOW_TASK_MOVES.value, '未設定');
   assert.equal(report.credentials.msClientIdPresent, false);
   assert.equal(report.credentials.msClientSecretPresent, false);
   assert.equal(report.credentials.msTenantIdPresent, false);
   assert.equal(report.credentials.usesCommonTenant, true);
   assert.equal(report.credentials.alertEmailPresent, false);
   assert.equal(report.syncAllTriggerCount, 0);
+  assert.ok(report.nextSteps.some((item) => item.code === 'SAFETY_SETTINGS_MISSING_OR_INVALID'));
   assert.ok(report.nextSteps.some((item) => item.code === 'SYNC_TRIGGER_STATUS_UNAVAILABLE'));
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes('invalid-discovery-sentinel'), false);
+  assert.equal(serialized.includes('invalid-deletions-sentinel'), false);
 });
 
 function mappedTaskState(context, {
