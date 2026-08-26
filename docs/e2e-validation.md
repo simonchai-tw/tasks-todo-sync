@@ -1,6 +1,6 @@
 # Cross-list move E2E validation
 
-This runbook validates the release candidate against disposable data. It is deliberately separate from normal personal use: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
+This runbook validates the default-off cross-list move feature against disposable data. It is deliberately separate from normal personal use: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
 
 ## Safety boundary
 
@@ -17,8 +17,8 @@ Only the Google-origin move scenario below enables `SYNC_ALLOW_TASK_MOVES=true`,
 ## Prepare disposable lists
 
 1. Create two uniquely named lists on each service, for example:
-   - `RC6-E2E-20260823-Move-Source`
-   - `RC6-E2E-20260823-Move-Target`
+   - `E2E-20260826-Move-Source`
+   - `E2E-20260826-Move-Target`
 2. Pair only those lists through the normal explicit-pairing procedure, or confirm that auto discovery selected exactly those lists.
 3. Run `setupStatus()` and `dryRunReport()`. The report must contain no unexpected lists, faults, or credentials. Record the disposable list IDs privately; do not put them in GitHub issues, screenshots, or this repository.
 
@@ -89,6 +89,6 @@ confirmed deletion apply, and completed-move deletion stop before the destructiv
 reserve with no remote delete and with durable journals retained. It does not
 simulate a real provider throttle, Apps Script termination, or network timing;
 verify those boundaries with the disposable-list procedure above and record the
-outcome as RC evidence.
+outcome as private validation evidence.
 
 After the run, export the state privately and remove test data manually if desired. Restore the deployment's chosen switch values after reviewing the evidence.

@@ -37,7 +37,7 @@ function createFakeRuntime({ cwd = resolve('cli-test-workspace'), files = {}, on
   const runtime = {
     cwd,
     timeZone: 'Asia/Taipei',
-    version: '0.1.0-rc.7',
+    version: '0.1.0',
     isTTY: false,
     assets: ASSETS,
     now: () => '2026-08-25T00:00:00.000Z',
@@ -96,7 +96,7 @@ test('node runtime resolves the installed clasp entry point without a network or
   const runtime = createNodeRuntime();
 
   assert.equal(typeof runtime.runClasp, 'function');
-  assert.equal(runtime.version, '0.1.0-rc.7');
+  assert.equal(runtime.version, '0.1.0');
 });
 
 test('init --dry-run validates its plan without writing files or invoking clasp', async () => {

@@ -66,6 +66,9 @@ Each run has a guarded time budget and a global lock to stay within Apps Script'
 > [!TIP]
 > Start with the [non-technical quick start](docs/quick-start.md). The complete [deployment guide](docs/deployment.md) covers Microsoft Entra setup, the manual fallback, rollback, and explicit pairing.
 
+> [!IMPORTANT]
+> **Accounts required:** Set up with one Google account and one Microsoft account. You authorize both during setup. Depending on existing sign-in sessions and each provider's consent flow, you may see more than one sign-in or permission page; do not expect exactly two prompts.
+
 Create your private Apps Script project with:
 
 ```bash
@@ -97,12 +100,12 @@ createTrigger();          // install the 10-minute trigger
 
 | Check | Verified result |
 |---|---|
-| Local regression suite | **177 / 177 passed** in this rc7 release worktree |
-| GitHub CI | `v0.1.0-rc.7`: **177 / 177 passed** on Node.js 22 and 24 |
+| Local regression suite | **177 / 177 passed** in the `v0.1.0` release worktree |
+| GitHub CI | **177 / 177 passed** on Node.js 22 and 24 |
 | Real scheduled run | `v0.1.0-rc.6` personal Apps Script completed successfully; 67 mapped tasks, no mutations or conflicts observed |
 | Deletion smoke evidence | Bounded maintainer-private recoverable task and list deletion checks passed in both directions |
 | Deployed health check | `v0.1.0-rc.6` personal Apps Script: Healthy, **0 reported issues** |
-| CodeQL | `v0.1.0-rc.7`: **passed** for Actions and JavaScript/TypeScript |
+| CodeQL | **Passed** for Actions and JavaScript/TypeScript |
 | Dependabot | `v0.1.0-rc.4` baseline: **0 alerts** |
 | Secret scanning | `v0.1.0-rc.4` baseline: **No secrets found** |
 
@@ -137,14 +140,6 @@ Tasks–To Do Sync is for one person connecting their own Google Tasks and Micro
 | [Security policy](SECURITY.md) | Reporting a vulnerability privately |
 | [Changelog](CHANGELOG.md) | Release history and scope |
 
-## Install
-
-Node.js 22 or later is required. Start the guided deployment with:
-
-```bash
-npx tasks-todo-sync init
-```
-
 Questions, ideas, or something not working? Use the [GitHub issue forms](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose) so the project can improve from real-world use.
 
-GitHub hosts the source and release history; synchronization runs in **your private Google Apps Script project**. rc7 includes the guided deployment CLI, verified two-way task and list deletion, and conservative defaults for features still being validated.
+GitHub hosts the source and release history; synchronization runs in **your private Google Apps Script project**. `v0.1.0` includes the guided deployment CLI, verified two-way task and list deletion, and conservative defaults for features still being validated.

@@ -2,9 +2,11 @@
 
 This is the shortest path for one person. The synchronization service runs in your private Google Apps Script project; it is not a hosted multi-user service.
 
+> **Accounts required:** Use one Google account and one Microsoft account. You authorize both during setup. Google `clasp`/Apps Script authorization and Microsoft OAuth can each show their own sign-in or consent pages, so the exact number of prompts depends on your existing sessions.
+
 ## 1. Create the private Apps Script project
 
-The rc7 productized flow is:
+The `v0.1.0` productized flow is:
 
 ```bash
 npx tasks-todo-sync init
@@ -48,7 +50,7 @@ Then run `showRedirectUri()`. Copy the displayed address to Entra **Authenticati
 
 ## 3. Inspect, then schedule
 
-1. In the Apps Script editor, run `initializeSafeDefaults()` and complete any Google authorization prompt. Then run `setupStatus()` and resolve every unexpected warning. It reports configuration, authorization, time zone, and trigger readiness without showing secret values.
+1. In the Apps Script editor, run `initializeSafeDefaults()` and complete any remaining Google authorization prompt. Then run `setupStatus()` and resolve every unexpected warning. It reports configuration, authorization, time zone, and trigger readiness without showing secret values.
 2. Run `dryRunReport()`. Review its warnings, exclusions, faults, list information, and structured `pendingMoves[]` entries. The report is read-only and point-in-time; unexpanded Graph relationships are reported as uninspected, not absent.
 3. Create a small test list you can inspect, then run `syncAll()` twice. Task and list deletion are enabled for fresh projects and have been verified in both directions; two-round confirmation, live revalidation, journals, and tombstones protect the deletion paths.
 4. Run `createTrigger()` only after the first two rounds are understood, then use `healthCheck()` to confirm the 10-minute schedule.

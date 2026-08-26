@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.0 — 2026-08-26
+
+### First stable release
+
+- Promoted the package, CLI, validation metadata, setup guides, audit, and security policy from `0.1.0-rc.7` to the first stable `0.1.0` release. The synchronizer and private Apps Script source are unchanged by this release preparation.
+- Made the two-account setup requirement explicit at the start of the public guides: each operator authorizes one Google account and one Microsoft account during setup, while the number of sign-in and consent pages depends on existing sessions and provider flows.
+- Retained fresh-project defaults of automatic list discovery, `SYNC_ALLOW_DELETIONS=true`, `SYNC_ALLOW_LIST_DELETIONS=true`, and `SYNC_ALLOW_TASK_MOVES=false`. Cross-list task moves remain default-off and outside the stable scope pending real-account validation.
+- Consolidated the public README so the guided `Get started` command appears once, while retaining the GitHub Issues entry point.
+
 ## 0.1.0-rc.7 — 2026-08-26
 
 ### Deployment productization

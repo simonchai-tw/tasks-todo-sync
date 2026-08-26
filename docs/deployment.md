@@ -1,8 +1,8 @@
-# Deployment guide — 0.1.0-rc.7
+# Deployment guide — 0.1.0
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history.
+This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.1.0` is the first stable release for the documented core synchronization and task/list deletion behavior; cross-list task moves remain default-off while real-account validation continues.
 
 Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been verified in both directions and are protected by confirmation, revalidation, journals, and tombstones. Cross-list task movement remains off by default while real-account validation continues.
 
@@ -15,9 +15,9 @@ The productized entry point is `npx tasks-todo-sync init`. The manual Apps Scrip
 - No Azure pay-as-you-go subscription, VM, database, or other Azure runtime resource. Entra's account-type choice is a sign-in audience, not a chargeable hosting choice.
 - Node.js **22 or later** for the `npx` flow, local checks, and `clasp` operations.
 
-Google Apps Script authorization and Microsoft OAuth are separate sign-ins. The CLI handles only the private Apps Script project and source deployment; Microsoft Entra registration, client-secret creation, and Microsoft authorization remain manual and private.
+Google Apps Script authorization and Microsoft OAuth are separate sign-ins. Authorize one Google account and one Microsoft account during setup. The exact number of pages depends on current sign-in sessions and provider consent prompts, so do not expect exactly two prompts. The CLI handles only the private Apps Script project and source deployment; Microsoft Entra registration, client-secret creation, and Microsoft authorization remain manual and private.
 
-## Productized `init` flow (rc7 path)
+## Productized `init` flow (`v0.1.0`)
 
 Run:
 
@@ -29,7 +29,7 @@ The command uses `clasp` to:
 
 1. Create a new private standalone Apps Script project.
 2. Default to this computer's resolved IANA time zone, or accept `--timezone <IANA>` to override it, then apply that value in `appsscript.json`.
-3. Push the exact `Code.gs` and `appsscript.json` sources from this candidate.
+3. Push the exact `Code.gs` and `appsscript.json` sources from this release.
 4. Print the Apps Script editor URL and the post-deploy steps for Entra setup, Script Properties, authorization, validation, and trigger creation.
 
 5. Open the printed editor URL and run `initializeSafeDefaults()` in the Apps Script editor. The CLI does not open the editor, execute Apps Script functions, or write Script Properties.
@@ -168,7 +168,7 @@ The productized command wraps this sequence. Use it only when inspecting or reco
    npx --yes @google/clasp@3.4.0 push
    ```
 
-   `pull` can overwrite local source. Use a private backup or separate checkout for comparison, and do not use a delete-unused-files option during this RC.
+   `pull` can overwrite local source. Use a private backup or separate checkout for comparison, and do not use a delete-unused-files option during a recovery.
 
 ## Explicit list pairing (advanced)
 
@@ -189,7 +189,7 @@ Do not depend on a Git tag that may not exist. Keep private source/version recor
 
 Source rollback does not roll back mappings, tombstones, move/deletion journals, or OAuth state. First export and retain state privately with `inspectSyncState()` and `exportRawSyncState()`. `restorePreviousSyncState()` refuses an active sync-round fence, active task move/deletion/list-deletion journals, and loss of tombstone evidence. Never clear properties or force-import state merely to bypass those safeguards. After any state restore, run `dryRunReport()` and manually review before resuming.
 
-## RC release gate
+## Stable-release readiness check
 
 - [ ] `npm run check` and `npm test` pass locally.
 - [ ] CI passes on Node.js 22 and 24.
@@ -204,4 +204,4 @@ Source rollback does not roll back mappings, tombstones, move/deletion journals,
 - [ ] Source and state rollback procedures are documented separately, and the operator understands the risks and limits of each.
 - [ ] Private vulnerability reporting is enabled before public use.
 
-Passing this list permits only an RC-quality deployment review. It does not establish stability or production readiness, and it does not publish a package or release.
+Passing this list establishes release readiness for the documented `v0.1.0` scope. Publishing a package, tag, or GitHub release remains a separate step.

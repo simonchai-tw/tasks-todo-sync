@@ -4,8 +4,8 @@
 
 | Version | Status |
 | --- | --- |
-| `0.1.0-rc.7` | Current supported release candidate |
-| Earlier candidates | Upgrade before reporting a new issue |
+| `0.1.0` | Current supported stable release |
+| Earlier releases | Upgrade before reporting a new issue |
 
 ## Security model
 
@@ -13,7 +13,7 @@ Tasks–To Do Sync is designed for one person connecting their own Google and Mi
 
 Store the Microsoft client-secret **value** and all runtime configuration only in Apps Script Script Properties. Never publish credentials, OAuth tokens, `.clasp.json`, `.clasprc.json`, state exports, move-correlation values, before-image receipts, provider IDs, personal email addresses, private Apps Script URLs, or task content.
 
-Fresh rc7 projects use these defaults:
+Fresh `v0.1.0` projects use these defaults:
 
 ```properties
 SYNC_LIST_DISCOVERY_MODE=auto

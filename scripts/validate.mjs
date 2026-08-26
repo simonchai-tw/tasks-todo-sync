@@ -41,8 +41,8 @@ for (const name of requiredFunctions) {
   }
 }
 
-if (packageJson.version !== '0.1.0-rc.7') {
-  throw new Error('package version must be 0.1.0-rc.7');
+if (packageJson.version !== '0.1.0') {
+  throw new Error('package version must be 0.1.0');
 }
 
 for (const expected of [

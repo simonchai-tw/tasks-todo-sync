@@ -1,10 +1,10 @@
-# Release-candidate audit
+# Stable-release audit
 
-Audit scope: 0.1.0-rc.7 — 2026-08-26
+Audit scope: 0.1.0 — 2026-08-26
 
-## RC decision
+## Release decision
 
-This release candidate is ready for personal evaluation as a single-operator Google Apps Script bridge between Google Tasks and Microsoft To Do. A stable designation remains gated by the validation work listed below.
+`v0.1.0` is the first stable release for personal, single-operator synchronization between Google Tasks and Microsoft To Do, including the documented two-way task and list deletion paths. The stable scope excludes cross-list task moves: that feature remains default-off while its real-account validation continues.
 
 Fresh-project setup uses these values:
 
@@ -31,13 +31,13 @@ Microsoft Entra app registration, client-secret creation, Script Properties, red
 
 ## Evidence reviewed
 
-- Static validation and the rc7 local automated suite passed 177/177 tests in the release worktree.
-- The published `tasks-todo-sync@0.1.0-rc.7` npm package completed a clean guided-deployment smoke test, including a zero-write `init --dry-run` check.
+- Static validation and the local automated suite passed 177/177 tests in the `v0.1.0` release worktree.
+- The `v0.1.0` package layout completed a clean `npm pack --dry-run` check. The pre-`v0.1.0` `tasks-todo-sync@0.1.0-rc.7` package also completed a guided-deployment smoke test, including a zero-write `init --dry-run` check.
 - Prior Apps Script, CI, and release evidence is bounded; deployment and publication are separate release steps and are not inferred from source inspection.
 - Bounded maintainer-private recoverable task-deletion and list-deletion smoke checks covered both directions.
 - The ordinary scheduled sync/health evidence observed no unexpected creates, moves, deletes, or conflicts in its bounded run; it is not a complete account-configuration test.
 
-These observations deliberately omit private mappings, task/list counts, timestamps, project identifiers, credentials, and Apps Script version numbers. They establish the verified private baseline for this release candidate.
+These observations deliberately omit private mappings, task/list counts, timestamps, project identifiers, credentials, and Apps Script version numbers. They establish the verified private baseline for this stable release scope.
 
 ## Corrections and safeguards included
 
@@ -65,7 +65,7 @@ The supported trigger cadence is 10 minutes. Apps Script's single-execution ceil
 
 There is no persistent Google page cursor, Graph next-link/delta token, or sharded inventory checkpoint. A time-budget exit saves durable state but the next invocation starts a complete inventory. If a complete inventory always exceeds the internal budget, neither a 10- nor 15-minute trigger can make that inventory complete.
 
-## Validation remaining before a stable release
+## Validation backlog after `v0.1.0`
 
 - Real-account cross-list smoke tests in both directions, including interrupted recovery, Microsoft-only metadata loss, and a concurrent Microsoft edit.
 - A complete field matrix for title, notes/content, date-only due dates, and completion state.
@@ -76,4 +76,4 @@ There is no persistent Google page cursor, Graph next-link/delta token, or shard
 - Persistent cursor/delta or sharding design for an account whose complete inventory cannot finish within 5.25 minutes.
 - A complete per-task mutation plan if a future dry-run safety guarantee beyond the current move preview is needed.
 
-Until those items are closed, releases remain RCs and cross-list moves remain default-off.
+These items remain important follow-up validation, but they do not expand the `v0.1.0` stable scope. Cross-list moves remain default-off until their real-account checks are complete.
