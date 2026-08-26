@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible synchronization or deployment problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Tasks–To Do Sync. Remove task content, provider IDs, OAuth tokens, and credentials before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release or npm version you deployed.
+      placeholder: v0.1.0-rc.7
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - npx tasks-todo-sync init
+        - Manual Apps Script deployment
+        - Existing deployment upgraded manually
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe what you did, what happened, and which side you changed first.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Share relevant setupStatus(), healthCheck(), or execution output after removing private task text, IDs, URLs, tokens, and credentials.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, OAuth tokens, provider IDs, task content, and private Apps Script URLs.
+          required: true

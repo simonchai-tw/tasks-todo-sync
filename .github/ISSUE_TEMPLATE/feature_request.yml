@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest an improvement to setup, synchronization, or documentation
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like to improve?
+      description: Describe the workflow or problem, not just the proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would a good outcome look like?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include examples or alternatives you considered. Do not include credentials, tokens, provider IDs, task content, or private Apps Script URLs.

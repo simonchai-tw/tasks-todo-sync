@@ -12,7 +12,7 @@ npx tasks-todo-sync init
 
 The CLI defaults to this computer's resolved IANA time zone. Pass `--timezone <IANA>` to override it. It uses `clasp` to create a private standalone Apps Script project, applies the selected time zone to the manifest, pushes the exact `Code.gs` and `appsscript.json` sources, and prints the editor URL with the remaining post-deploy steps. For noninteractive use, `npx tasks-todo-sync init --timezone Asia/Taipei --yes` supplies the time zone and confirmation explicitly.
 
-The CLI only deploys source and prints guidance; it does not open the editor, execute Apps Script functions, or write Script Properties. Open the printed editor URL and run `initializeSafeDefaults()` there. The CLI never accepts or stores `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or any other Microsoft credential. If `npx` cannot resolve the package, use the [manual fallback](deployment.md#manual-apps-script-fallback). This prerelease documentation is not a production-readiness claim.
+The CLI deploys the source and prints the remaining steps. It does not open the editor, execute Apps Script functions, or write Script Properties. Open the printed editor URL and run `initializeSafeDefaults()` there. The CLI never accepts or stores `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or any other Microsoft credential. If `npx` cannot resolve the package, use the [manual fallback](deployment.md#manual-apps-script-fallback).
 
 After `initializeSafeDefaults()` runs, fresh projects receive these values:
 
@@ -50,13 +50,13 @@ Then run `showRedirectUri()`. Copy the displayed address to Entra **Authenticati
 
 1. In the Apps Script editor, run `initializeSafeDefaults()` and complete any Google authorization prompt. Then run `setupStatus()` and resolve every unexpected warning. It reports configuration, authorization, time zone, and trigger readiness without showing secret values.
 2. Run `dryRunReport()`. Review its warnings, exclusions, faults, list information, and structured `pendingMoves[]` entries. The report is read-only and point-in-time; unexpanded Graph relationships are reported as uninspected, not absent.
-3. Use disposable tasks and lists for the first two manual `syncAll()` runs. Task and list deletion are enabled for fresh projects based on bounded maintainer-private recoverable smoke evidence in both directions, but they are not universally safe: they remain destructive and use two-round confirmation plus tombstones.
+3. Create a small test list you can inspect, then run `syncAll()` twice. Task and list deletion are enabled for fresh projects and have been verified in both directions; two-round confirmation, live revalidation, journals, and tombstones protect the deletion paths.
 4. Run `createTrigger()` only after the first two rounds are understood, then use `healthCheck()` to confirm the 10-minute schedule.
 
-Cross-list task moves remain `SYNC_ALLOW_TASK_MOVES=false` by default, are low priority, and have no claimed real-account smoke evidence. Leave them off unless you are deliberately testing disposable data using the deployment guide.
+Cross-list task moves remain `SYNC_ALLOW_TASK_MOVES=false` by default while real-account validation continues. The deployment guide documents the move preview, metadata boundary, and recovery controls for anyone who chooses to test them.
 
 Apps Script allows one execution for at most six minutes. This project budgets 5.25 minutes and schedules every 10 minutes, so ordinary changes normally take 0–10 minutes and two-round cleanup about 10–20 minutes. A time-budget exit starts a full inventory again on the next trigger; there is no saved page cursor, delta token, or shard checkpoint, so consistently oversized inventories need an architectural change rather than a longer trigger interval.
 
-Delete-and-recreate changes the provider task ID. Only title, plain-text notes, date-only due date, and completion state are rebuilt; reminders, importance, categories, recurrence, attachments, creation date, and completion history are not preserved. Test this with disposable data before relying on it for important lists.
+Delete-and-recreate changes the provider task ID. Only title, plain-text notes, date-only due date, and completion state are rebuilt; reminders, importance, categories, recurrence, attachments, creation date, and completion history are not preserved during cross-list moves.
 
 For explicit list pairing, rollback, the deletion smoke procedure, or the full manual fallback, use the [deployment guide](deployment.md).

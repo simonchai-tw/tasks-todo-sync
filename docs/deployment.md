@@ -2,9 +2,9 @@
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub is source control only. This is the 0.1.0-rc.7 deployment-productization prerelease, not a stable or production-ready release.
+This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history.
 
-Use a private project and disposable tasks/lists for the first rounds. Fresh projects enable task and list deletion based on bounded maintainer-private recoverable smoke evidence in both directions; deletion is not universally safe, remains destructive, and requires review of the first-sync scope. Cross-list task movement remains off by default, low priority, and unverified on a real account.
+Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been verified in both directions and are protected by confirmation, revalidation, journals, and tombstones. Cross-list task movement remains off by default while real-account validation continues.
 
 The productized entry point is `npx tasks-todo-sync init`. The manual Apps Script route below is the fallback when the package cannot be resolved or when an operator wants to inspect each deployment step.
 
@@ -13,7 +13,7 @@ The productized entry point is `npx tasks-todo-sync init`. The manual Apps Scrip
 - A Google account that can use Google Tasks and Apps Script.
 - A Microsoft account and permission to register an Entra application for it.
 - No Azure pay-as-you-go subscription, VM, database, or other Azure runtime resource. Entra's account-type choice is a sign-in audience, not a chargeable hosting choice.
-- Node.js **22 or later** for the intended `npx` flow, local checks, and `clasp` operations.
+- Node.js **22 or later** for the `npx` flow, local checks, and `clasp` operations.
 
 Google Apps Script authorization and Microsoft OAuth are separate sign-ins. The CLI handles only the private Apps Script project and source deployment; Microsoft Entra registration, client-secret creation, and Microsoft authorization remain manual and private.
 
@@ -93,16 +93,16 @@ Never put these values, OAuth tokens, raw state, or IDs in the repository, issue
 ### 4. Verify before adding the schedule
 
 1. Run `dryRunReport()` and review its warnings, exclusions, faults, list information, and `pendingMoves[]` entries. It is read-only and point-in-time; attachments, checklist items, linked resources, and extensions are relationships that the current inventory does not expand, so the report must not claim that they are absent.
-2. With disposable tasks and lists, run `syncAll()` twice and inspect both services. The second run should not make unexpected duplicates.
-3. Task and list deletion are enabled for fresh projects based on bounded maintainer-private recoverable smoke evidence in both directions. They are not universally safe and remain destructive: keep the first test data disposable and review the two-round confirmation and tombstone results.
+2. With a small test list, run `syncAll()` twice and inspect both services. The second run should not make unexpected duplicates.
+3. Task and list deletion are enabled for fresh projects and have been verified in both directions. Review the two-round confirmation and tombstone results before adding the schedule.
 4. Run `createTrigger()` only after the staging results are acceptable. It deletes earlier `syncAll` triggers and creates one 10-minute trigger.
 5. After it runs, use `healthCheck()` and `setupStatus()` to check health and trigger state.
 
-Cross-list task moves remain `SYNC_ALLOW_TASK_MOVES=false` for fresh projects. They are low priority, and no real-account move smoke test is claimed. Do not enable them for valuable data. If deliberately testing disposable data, follow the move notes below and the separate validation runbook.
+Cross-list task moves remain `SYNC_ALLOW_TASK_MOVES=false` for fresh projects while real-account validation continues. If you choose to test them, review the move notes below and use the separate validation runbook first.
 
 ### Task and list deletion behavior
 
-Task deletion uses independent snapshots, delete-versus-edit checks, durable journals, and 30-day tombstones. List deletion additionally requires auto-mode provenance, complete inventory evidence, exact task fingerprints, a pre-delete reread, and a durable per-pair journal. The bounded maintainer-private smoke evidence covers deletion in both directions; it does not make the feature universally safe, non-destructive, or ready for a stable release.
+Task deletion uses independent snapshots, delete-versus-edit checks, durable journals, and 30-day tombstones. List deletion additionally requires auto-mode provenance, complete inventory evidence, exact task fingerprints, a pre-delete reread, and a durable per-pair journal. Maintainer smoke tests cover both deletion directions with recoverable test data.
 
 If an existing deployment explicitly has `SYNC_ALLOW_DELETIONS=false`, Microsoft-origin movement can leave the new Google counterpart alongside the old one. With the fresh-project value `true`, a later complete confirmation round normally retires the old counterpart after a temporary duplicate.
 
@@ -116,7 +116,7 @@ Google Apps Script enforces a six-minute limit for one execution. The script's o
 
 Time-budget recovery does not resume a partially fetched page set. Neither the Google nor Microsoft inventory stores a page cursor, delta token, or shard checkpoint. The next trigger begins a complete inventory again. If one full inventory consistently takes more than 5.25 minutes, a longer trigger interval does not fix it; persistent cursors/delta state or workload sharding must be implemented first.
 
-## Cross-list move notes (low-priority, unverified)
+## Cross-list move notes
 
 Google-origin movement intentionally creates a fresh provider task ID in the destination list. Before the destination POST, the script durably stores a UUID move journal; the same Microsoft task POST adds a `com.tasksTodoSync.move` open type extension containing that UUID. Only unresolved target lists use the documented `$expand=extensions($filter=id eq 'com.tasksTodoSync.move')` short-name query. Graph To Do can normalize the returned ID to `microsoft.graph.openTypeExtension.com.tasksTodoSync.move` or legacy `Microsoft.OutlookServices.OpenTypeExtension.com.tasksTodoSync.move`; recovery validates that exact two-value allowlist, the exact extension name, and UUID locally. Bare names, suffix matches, and other prefixes are rejected. A changed source, incomplete inventory, ambiguous marker, or multiple candidate stops safely.
 

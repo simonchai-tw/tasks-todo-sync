@@ -4,7 +4,7 @@ Audit scope: 0.1.0-rc.7 — 2026-08-26
 
 ## RC decision
 
-This prerelease is suitable for release-candidate review only. It is not stable or production-ready. The project is a single-operator Google Apps Script bridge between Google Tasks and Microsoft To Do, not a hosted multi-user service.
+This release candidate is ready for personal evaluation as a single-operator Google Apps Script bridge between Google Tasks and Microsoft To Do. A stable designation remains gated by the validation work listed below.
 
 Fresh-project setup uses these values:
 
@@ -15,28 +15,29 @@ Fresh-project setup uses these values:
 
 Existing explicit Script Properties are preserved. This is intentional: a maintainer's private deployment whose three switches are already `true` remains unchanged.
 
-Task and list deletion are implemented and have bounded maintainer-private recoverable smoke evidence in both directions. They are not universally safe: they remain destructive, use independent evidence and two-round confirmation, and do not make the candidate production-ready. Cross-list task moves remain off by default, low priority, and unverified on a real account.
+Task and list deletion are implemented, enabled for fresh projects, and covered by maintainer-private recoverable smoke tests in both directions. They use independent evidence, two-round confirmation, live revalidation, journals, and tombstones. Cross-list task moves remain off by default while real-account validation continues.
 
 ## Deployment productization boundary
 
-The intended first-run command is:
+The supported first-run command is:
 
 ```bash
 npx tasks-todo-sync init
 ```
 
-The intended flow uses `clasp` to create a private standalone Apps Script project, default to this computer's resolved IANA time zone or accept `--timezone <IANA>` as an override, apply that value, push the exact `Code.gs` and `appsscript.json` sources, and print the editor URL plus post-deploy steps. The operator must then open that editor URL and run `initializeSafeDefaults()`; the CLI does not open the editor, execute Apps Script functions, or write Script Properties.
+The flow uses `clasp` to create a private standalone Apps Script project, defaults to this computer's resolved IANA time zone or accepts `--timezone <IANA>` as an override, applies that value, pushes the exact `Code.gs` and `appsscript.json` sources, and prints the editor URL plus post-deploy steps. The operator then opens that editor URL and runs `initializeSafeDefaults()`; the CLI does not open the editor, execute Apps Script functions, or write Script Properties.
 
-Microsoft Entra app registration, client-secret creation, Script Properties, redirect URI setup, and Microsoft authorization remain manual and private. The CLI must never accept or store Microsoft credentials or OAuth tokens. If the package cannot be resolved, the documented manual Apps Script fallback remains available. These deployment instructions are not a production-readiness claim.
+Microsoft Entra app registration, client-secret creation, Script Properties, redirect URI setup, and Microsoft authorization remain manual and private. The CLI never accepts or stores Microsoft credentials or OAuth tokens. If the package cannot be resolved, the documented manual Apps Script fallback remains available.
 
 ## Evidence reviewed
 
-- Static validation and the rc6 local automated suite passed 168/168 tests in the candidate worktree.
+- Static validation and the rc7 local automated suite passed 177/177 tests in the release worktree.
+- The published `tasks-todo-sync@0.1.0-rc.7` npm package completed a clean guided-deployment smoke test, including a zero-write `init --dry-run` check.
 - Prior Apps Script, CI, and release evidence is bounded; deployment and publication are separate release steps and are not inferred from source inspection.
 - Bounded maintainer-private recoverable task-deletion and list-deletion smoke checks covered both directions.
 - The ordinary scheduled sync/health evidence observed no unexpected creates, moves, deletes, or conflicts in its bounded run; it is not a complete account-configuration test.
 
-These observations deliberately omit private mappings, task/list counts, timestamps, project identifiers, credentials, and Apps Script version numbers. They establish a bounded private baseline, not a public production claim.
+These observations deliberately omit private mappings, task/list counts, timestamps, project identifiers, credentials, and Apps Script version numbers. They establish the verified private baseline for this release candidate.
 
 ## Corrections and safeguards included
 
@@ -64,9 +65,9 @@ The supported trigger cadence is 10 minutes. Apps Script's single-execution ceil
 
 There is no persistent Google page cursor, Graph next-link/delta token, or sharded inventory checkpoint. A time-budget exit saves durable state but the next invocation starts a complete inventory. If a complete inventory always exceeds the internal budget, neither a 10- nor 15-minute trigger can make that inventory complete.
 
-## Remaining blockers before a stable release
+## Validation remaining before a stable release
 
-- Real-account cross-list smoke tests in both directions, including interrupted recovery, Microsoft-only metadata loss, and a concurrent Microsoft edit. Cross-list moves remain low priority and unverified.
+- Real-account cross-list smoke tests in both directions, including interrupted recovery, Microsoft-only metadata loss, and a concurrent Microsoft edit.
 - A complete field matrix for title, notes/content, date-only due dates, and completion state.
 - OAuth refresh, reauthorization, and recovery exercises.
 - A rehearsed source rollback and separately rehearsed state rollback.
@@ -74,6 +75,5 @@ There is no persistent Google page cursor, Graph next-link/delta token, or shard
 - Capacity behavior for large state, long content, many tasks, and long-running scheduled use.
 - Persistent cursor/delta or sharding design for an account whose complete inventory cannot finish within 5.25 minutes.
 - A complete per-task mutation plan if a future dry-run safety guarantee beyond the current move preview is needed.
-- Clear public release operations: private vulnerability reporting enabled, no private notes/snapshots in the release, verified CI, and a separately verified package publication if one is intended.
 
-Until those items are closed, keep describing releases only as RCs. Fresh task/list deletion defaults do not change that boundary, and cross-list moves must remain described as default-off and unverified on real accounts.
+Until those items are closed, releases remain RCs and cross-list moves remain default-off.

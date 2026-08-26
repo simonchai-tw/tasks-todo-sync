@@ -1,4 +1,4 @@
-# RC6 disposable-list validation
+# Cross-list move E2E validation
 
 This runbook validates the release candidate against disposable data. It is deliberately separate from normal personal use: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
 
@@ -91,4 +91,4 @@ simulate a real provider throttle, Apps Script termination, or network timing;
 verify those boundaries with the disposable-list procedure above and record the
 outcome as RC evidence.
 
-After the run, export the state privately, remove disposable data manually if desired, and leave all three destructive switches `false` until the evidence has been reviewed. Passing this runbook is RC evidence, not a stable-release claim.
+After the run, export the state privately and remove test data manually if desired. Restore the deployment's chosen switch values after reviewing the evidence.
