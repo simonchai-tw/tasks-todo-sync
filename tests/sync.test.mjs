@@ -3,6 +3,259 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
+test('healthCheck and dryRunReport fail closed on invalid safety settings without disclosure or mutation', () => {
+  const logs = [];
+  const invalid = 'private-invalid-safety-value';
+  const { context, scriptStore, userStore } = loadContext({
+    scriptValues: { SYNC_LIST_DISCOVERY_MODE: invalid },
+    userValues: { unrelated: 'preserve-me' }
+  });
+  context.console = { log: (value) => logs.push(String(value)), warn: () => {}, error: () => {} };
+  context.withGlobalLock_ = (fn) => fn();
+  context.getGLists_ = () => { throw new Error('inventory must not run'); };
+  const beforeScript = { ...scriptStore.values };
+  const beforeUser = { ...userStore.values };
+  const dry = context.dryRunReport();
+  const health = context.healthCheck();
+  assert.equal(dry.warnings[0], 'SAFETY_CONFIGURATION_INVALID:SYNC_DISCOVERY_MODE_INVALID');
+  assert.equal(health.issues[0], 'SAFETY_CONFIGURATION_INVALID:SYNC_DISCOVERY_MODE_INVALID');
+  const serialized = JSON.stringify([dry, health, logs]);
+  assert.equal(serialized.includes(invalid), false);
+  assert.deepEqual(scriptStore.values, beforeScript);
+  assert.deepEqual(userStore.values, beforeUser);
+});
+
+test('Google-to-Microsoft update PATCHes only semantic changes and preserves matching rich HTML', () => {
+  const { context } = loadContext();
+  const msTask = {
+    title: 'Original',
+    dueDateTime: { dateTime: '2026-08-21T00:00:00', timeZone: 'Asia/Taipei' },
+    status: 'notStarted',
+    body: { contentType: 'html', content: '<p>Rich<br>body</p>' }
+  };
+  const googleTask = {
+    title: 'Original', due: '2026-08-21T00:00:00.000Z', status: 'needsAction', notes: 'Rich\nbody'
+  };
+  const payloadFor = (changes) => JSON.parse(JSON.stringify(context.msUpdatePayloadFromGoogle_(
+    { ...googleTask, ...changes }, msTask
+  )));
+  assert.deepEqual(payloadFor({ title: 'Renamed' }), { title: 'Renamed' });
+  assert.deepEqual(payloadFor({ due: '2026-08-22T00:00:00.000Z' }), {
+    dueDateTime: { dateTime: '2026-08-22T00:00:00', timeZone: 'Asia/Taipei' }
+  });
+  assert.deepEqual(payloadFor({ status: 'completed' }), { status: 'completed' });
+  assert.deepEqual(payloadFor({ notes: 'Changed notes' }), {
+    body: { contentType: 'html', content: 'Changed notes' }
+  });
+});
+
+test('unknown Microsoft due zone omits due from Google PATCH data instead of clearing it', () => {
+  const { context } = loadContext();
+  const payload = context.googlePayloadFromMs_({
+    title: 'Task', status: 'notStarted',
+    dueDateTime: { dateTime: '2026-08-21T00:00:00', timeZone: 'Private Unknown Zone' }
+  });
+  assert.equal(Object.hasOwn(payload, 'due'), false);
+  assert.equal(context.googleDue_({
+    dateTime: '2026-08-21T00:00:00', timeZone: 'Private Unknown Zone'
+  }), null);
+});
+
+test('configureSync rejects secret input without writing Script Properties', () => {
+  const { context, scriptStore } = loadContext({ scriptValues: { unrelated: 'preserve-me' } });
+  const before = { ...scriptStore.values };
+  assert.throws(() => context.configureSync({
+    clientId: 'client-secret-sentinel', clientSecret: 'secret-sentinel'
+  }), /CONFIGURE_SYNC_DEPRECATED/);
+  assert.deepEqual(scriptStore.values, before);
+});
+
+test('Microsoft 401 refreshes exactly once before retrying POST PATCH and DELETE', () => {
+  for (const method of ['post', 'patch', 'delete']) {
+    const fetches = [];
+    const responses = [httpResponse(401, 'provider-body-must-not-escape'), httpResponse(200, JSON.stringify({ ok: true }))];
+    let refreshes = 0;
+    let resets = 0;
+    const { context } = loadContext({
+      urlFetchApp: { fetch(url, options) { fetches.push({ url, options }); return responses.shift(); } }
+    });
+    const service = {
+      hasAccess: () => true,
+      getAccessToken: () => refreshes ? 'fresh-token' : 'old-token',
+      refresh: () => { refreshes += 1; },
+      reset: () => { resets += 1; }
+    };
+    context.microsoftService_ = () => service;
+    context.sendReauthorizationAlert_ = () => { throw new Error('should not alert'); };
+    assert.deepEqual(JSON.parse(JSON.stringify(context.graphFetch_('https://example.invalid/resource', { method }))), { ok: true });
+    assert.equal(refreshes, 1, method);
+    assert.equal(resets, 0, method);
+    assert.equal(fetches.length, 2, method);
+    assert.equal(fetches[0].options.headers.Authorization, 'Bearer old-token', method);
+    assert.equal(fetches[1].options.headers.Authorization, 'Bearer fresh-token', method);
+  }
+});
+
+test('second Microsoft 401 resets and alerts after one forced refresh without exposing provider text', () => {
+  const responses = [httpResponse(401, 'private provider body'), httpResponse(401, 'private provider body')];
+  let refreshes = 0;
+  let resets = 0;
+  let alerts = 0;
+  const { context } = loadContext({ urlFetchApp: { fetch: () => responses.shift() } });
+  context.microsoftService_ = () => ({
+    hasAccess: () => true, getAccessToken: () => 'token', refresh: () => { refreshes += 1; }, reset: () => { resets += 1; }
+  });
+  context.sendReauthorizationAlert_ = () => { alerts += 1; };
+  assert.throws(() => context.graphFetch_('https://example.invalid/private', { method: 'post' }), /HTTP 401/);
+  assert.equal(refreshes, 1);
+  assert.equal(resets, 1);
+  assert.equal(alerts, 1);
+});
+
+test('fatal alerts are bounded and raw state export explicitly warns about sensitivity', () => {
+  const { context, userStore } = loadContext({ userValues: {
+    sync_state_main_manifest: 'raw-state-sentinel', unrelated: 'not-exported'
+  } });
+  const redacted = context.redactFatalAlert_(
+    'HTTP 500: https://private.invalid/lists/list-secret/tasks/task-secret token=token-secret request-id: req-123456'
+  );
+  for (const secret of ['private.invalid', 'list-secret', 'task-secret', 'token-secret']) {
+    assert.equal(redacted.includes(secret), false);
+  }
+  assert.match(redacted, /HTTP code: 500/);
+  assert.match(redacted, /Correlation code: req-123456/);
+  const warnings = [];
+  context.console = { log: () => {}, warn: (value) => warnings.push(String(value)), error: () => {} };
+  const bundle = context.exportRawSyncState();
+  assert.match(bundle.warning, /SENSITIVE_STATE_EXPORT/);
+  assert.equal(bundle.properties.sync_state_main_manifest, 'raw-state-sentinel');
+  assert.equal(warnings.some((value) => value.includes('WARNING')), true);
+  assert.equal(Object.hasOwn(bundle.properties, 'unrelated'), false);
+  assert.equal(Object.hasOwn(userStore.values, 'unrelated'), true);
+});
+
+test('network public entrypoints initialize a fresh execution budget', () => {
+  const { context } = loadContext();
+  context.getSafetyConfig_ = () => ({ listDiscoveryMode: 'auto', googleListIds: [], excludedListNames: [] });
+  context.getGLists_ = () => [];
+  context.console = { log: () => {}, warn: () => {}, error: () => {} };
+  assert.equal(vm.runInContext('RUN_STARTED_AT', context), 0);
+  context.listGoogleTaskLists();
+  assert.ok(vm.runInContext('RUN_STARTED_AT', context) > 0);
+});
+
+test('Google and Graph pagination fail closed for repeated cursors, page caps, and exhausted time budgets', () => {
+  const { context } = loadContext();
+  for (const mode of ['google', 'graph']) {
+    let calls = 0;
+    assert.throws(() => context.getAllPages_('https://example.invalid/first', () => {
+      calls += 1;
+      return mode === 'google' ? { items: [], nextPageToken: 'again' } : { value: [], '@odata.nextLink': 'https://example.invalid/again' };
+    }, mode === 'google' ? 'items' : 'value', mode), /PAGINATION_LOOP/);
+    assert.equal(calls, 2, mode + ' repeated cursor');
+    let pageCalls = 0;
+    assert.throws(() => context.getAllPages_('https://example.invalid/cap', () => {
+      pageCalls += 1;
+      return mode === 'google' ? { items: [], nextPageToken: String(pageCalls) } :
+        { value: [], '@odata.nextLink': 'https://example.invalid/cap/' + pageCalls };
+    }, mode === 'google' ? 'items' : 'value', mode), /PAGINATION_PAGE_CAP/);
+    assert.equal(pageCalls, 100, mode + ' page cap');
+    vm.runInContext('RUN_STARTED_AT = Date.now() - (RUN_LIMIT_MS - PAGINATION_RESERVE_MS)', context);
+    let timedFetches = 0;
+    assert.throws(() => context.getAllPages_('https://example.invalid/time', () => {
+      timedFetches += 1;
+      return {};
+    }, mode === 'google' ? 'items' : 'value', mode), /TIME_BUDGET_PAGINATION/);
+    assert.equal(timedFetches, 0, mode + ' time budget');
+    vm.runInContext('RUN_STARTED_AT = 0', context);
+  }
+});
+
+test('state-save preflight counts the full property store and never writes partial generations', () => {
+  const nearLimitValues = {};
+  for (let i = 0; i < 54; i += 1) nearLimitValues['other_' + i] = 'x'.repeat(8000);
+  const normal = loadContext();
+  normal.context.saveState_(normal.context.newState_());
+  assert.ok(normal.userStore.values.sync_state_main_manifest);
+  const near = loadContext({ userValues: nearLimitValues });
+  near.context.saveState_(near.context.newState_());
+  assert.ok(near.userStore.values.sync_state_main_manifest);
+  const overLimitValues = { ...nearLimitValues };
+  for (let i = 54; i < 59; i += 1) overLimitValues['other_' + i] = 'x'.repeat(8000);
+  const over = loadContext({ userValues: overLimitValues });
+  const before = { ...over.userStore.values };
+  let setPropertiesCalls = 0;
+  const originalSetProperties = over.userStore.setProperties.bind(over.userStore);
+  over.userStore.setProperties = (...args) => { setPropertiesCalls += 1; originalSetProperties(...args); };
+  assert.throws(() => over.context.saveState_(over.context.newState_()), /STATE_STORE_LIMIT/);
+  assert.equal(setPropertiesCalls, 0);
+  assert.deepEqual(over.userStore.values, before);
+});
+
+test('sync summaries expose only bounded success, failure, and time-budget metrics', () => {
+  function run(outcome) {
+    const logs = [];
+    const privateUrl = 'https://example.invalid/private-list/private-task';
+    const { context } = loadContext({
+      urlFetchApp: { fetch: () => httpResponse(200, JSON.stringify({ providerPayload: 'private-response-body' })) }
+    });
+    const state = context.newState_();
+    context.console = { log: (value) => logs.push(String(value)), warn: () => {}, error: () => {} };
+    context.withGlobalLock_ = (fn) => fn();
+    context.loadStateForSync_ = () => state;
+    context.sanitizePreexistingSyncRoundFence_ = (value) => value;
+    context.openSyncRoundFence_ = () => {};
+    context.beginSyncRoundProofProjection_ = () => {};
+    context.clearSyncRoundFence_ = () => {};
+    context.getSafetyConfig_ = () => ({ allowDeletions: true, allowListDeletions: true, allowTaskMoves: false });
+    context.pauseTaskDeletions_ = () => {};
+    context.pausePreparedDeletionJournals_ = () => {};
+    context.pauseListDeletionIntentBeforeInventory_ = () => {};
+    context.cleanupTombstones_ = () => {};
+    context.cleanupListTombstones_ = () => {};
+    context.buildSnapshot_ = () => {
+      context.graphFetch_(privateUrl, { method: 'get' });
+      if (outcome === 'time_budget') throw new Error('TIME_BUDGET_TEST');
+      return { safety: { allowDeletions: true, allowListDeletions: true, allowTaskMoves: false } };
+    };
+    context.reconcileMapped_ = () => {
+      if (outcome === 'failure') throw new Error('PRIVATE_PROVIDER_RESPONSE_BODY');
+    };
+    context.createUnmapped_ = () => {};
+    context.captureTaskDeletionState_ = () => ({});
+    context.applyConfirmedTaskDeletions_ = () => {};
+    context.applyConfirmedListDeletions_ = () => {};
+    context.persistSyncState_ = (value) => context.saveState_(value);
+    context.recordSuccessfulSyncRound_ = () => {};
+    context.sendFatalAlert_ = () => {};
+    context.normalizeState_ = (value) => value;
+    context.microsoftService_ = () => ({ hasAccess: () => true, getAccessToken: () => 'private-token' });
+
+    if (outcome === 'failure') {
+      assert.throws(() => context.syncAll(), /PRIVATE_PROVIDER_RESPONSE_BODY/);
+    } else {
+      assert.equal(context.syncAll(), undefined);
+    }
+    const summary = logs.map((value) => {
+      try { return JSON.parse(value); } catch (e) { return null; }
+    }).find((value) => value && value.event === 'sync_summary');
+    assert.ok(summary, outcome);
+    assert.equal(summary.outcome, outcome);
+    assert.equal(Number.isInteger(summary.durationMs), true);
+    assert.ok(summary.durationMs >= 0);
+    assert.equal(summary.urlFetchCalls, 1);
+    assert.equal(summary.stateSaveCalls, 1);
+    const serialized = JSON.stringify(summary);
+    for (const privateValue of [privateUrl, 'private-list', 'private-task', 'private-response-body', 'private-token']) {
+      assert.equal(serialized.includes(privateValue), false, outcome + ' summary must not disclose private data');
+    }
+  }
+
+  run('success');
+  run('failure');
+  run('time_budget');
+});
+
 const code = readFileSync(new URL('../Code.gs', import.meta.url), 'utf8');
 
 function propertyStore(initial = {}) {
@@ -1469,13 +1722,13 @@ test('auto snapshot creates Google lists for Microsoft-only lists and never read
   assert.equal(saveCalls, 3);
 });
 
-test('auto discovery retains deletion capability behind the safe task state machine', () => {
-  const { context } = loadContext({
+test('auto discovery bypasses the explicit list allowlist while explicit mode remains guarded', () => {
+  const { context: auto } = loadContext({
     scriptValues: { SYNC_LIST_DISCOVERY_MODE: 'auto', SYNC_ALLOW_DELETIONS: 'true' }
   });
-  const safety = context.requireSafeAutoDiscovery_(context.getSafetyConfig_());
-  assert.equal(safety.allowDeletions, true);
-  assert.equal(safety.allowTaskMoves, false);
+  assert.doesNotThrow(() => auto.requireSyncAllowlist_(auto.getSafetyConfig_()));
+  const { context: explicit } = loadContext();
+  assert.throws(() => explicit.requireSyncAllowlist_(explicit.getSafetyConfig_()), /SYNC_ALLOWLIST_REQUIRED/);
 });
 
 test('auto snapshot aborts before list creation when Google default identity cannot be resolved', () => {
@@ -1682,9 +1935,9 @@ test('a failed non-delete sync does not persist a first or second deletion confi
   context.sendFatalAlert_ = () => {};
 
   assert.throws(() => context.syncAll(), /simulated create failure/);
-  // An active round fence projects every intermediate/catch save without any
-  // volatile candidate, so a crash cannot reuse this prior 1/2 proof.
-  assert.equal(saved.pendingTaskDeletions['g-task'], undefined);
+  // An active round fence retains only the completed-round baseline, never
+  // this round's attempted 2/2 promotion.
+  assert.equal(saved.pendingTaskDeletions['g-task'].confirmations, 1);
   assert.equal(saved.deletionJournal['g-task'], undefined);
 });
 
@@ -1704,11 +1957,11 @@ test('a persisted delete journal recovers after remote success and final state-s
   first.context.deleteMsTask_ = () => { remoteDeletes += 1; };
   first.context.saveState_ = (value) => {
     saveCalls += 1;
-    if (saveCalls === 1) {
+    if (value.deletionJournal['g-task'] && !durableBeforeDelete) {
       durableBeforeDelete = JSON.parse(JSON.stringify(value));
       return;
     }
-    throw new Error('simulated state save failure');
+    if (remoteDeletes > 0) throw new Error('simulated state save failure');
   };
 
   assert.throws(() => first.context.syncAll(), /simulated state save failure/);
@@ -1721,6 +1974,7 @@ test('a persisted delete journal recovers after remote success and final state-s
   const recoveredSnap = mappedTaskSnapshot({ gTask: null, msTask: null });
   let recoveryDeletes = 0;
   second.context.withGlobalLock_ = (fn) => fn();
+  second.context.recordSuccessfulSyncRound_ = () => true;
   second.context.loadStateForSync_ = () => recoveryState;
   second.context.buildSnapshot_ = () => recoveredSnap;
   second.context.createUnmapped_ = () => {};
@@ -2824,7 +3078,8 @@ test('a pre-delete journal save never persists another task\'s failed-round firs
   };
   context.saveState_ = (value) => {
     saves += 1;
-    if (saves === 1) {
+    if (!value.deletionJournal['g-task']) return;
+    if (value.deletionJournal['g-task'] && !persistedJournalSave) {
       persistedJournalSave = JSON.parse(JSON.stringify(value));
       return;
     }
@@ -2953,7 +3208,7 @@ test('a durable journal retry failure does not persist another task\'s second co
   context.saveState_ = (value) => { saved = JSON.parse(JSON.stringify(value)); };
 
   assert.throws(() => context.syncAll(), /journal retry failed/);
-  assert.equal(saved.pendingTaskDeletions['g-task-b'], undefined);
+  assert.equal(saved.pendingTaskDeletions['g-task-b'].confirmations, 1);
   assert.ok(saved.deletionJournal['g-task']);
 });
 
@@ -3256,6 +3511,7 @@ test('schema 2 migration rejects poison before import or restore save while reta
 
     const restored = loadContext({ userValues: {
       sync_state_main_manifest: JSON.stringify({ generation: 'current', count: 1, previousGeneration: 'previous' }),
+      sync_state_main_successful_round_manifest: JSON.stringify({ version: 1, current: { generation: 'previous', roundId: 'legacy-test-success' }, previous: null }),
       sync_state_main_gen_previous_count: '1',
       sync_state_main_gen_previous_0: encodeURIComponent(JSON.stringify(malformed))
     } });
@@ -3361,6 +3617,7 @@ test('list tombstone cleanup is inert while pending, journal, and conflict evide
     let inventories = 0;
     let recoveries = 0;
     context.withGlobalLock_ = (fn) => fn();
+    context.recordSuccessfulSyncRound_ = () => true;
     context.loadStateForSync_ = () => state;
     context.buildSnapshot_ = () => {
       inventories += 1;
@@ -3409,6 +3666,7 @@ test('syncAll persists a schema-safe first list miss and deletes only on the nex
   let deletes = 0;
   let round = 0;
   context.withGlobalLock_ = (fn) => fn();
+  context.recordSuccessfulSyncRound_ = () => true;
   context.sendFatalAlert_ = () => {};
   context.deletionRoundId_ = () => 'list-e2e-round-' + (++round);
   context.loadStateForSync_ = () => context.normalizeState_(JSON.parse(JSON.stringify(durable)));
@@ -3475,6 +3733,7 @@ test('syncAll treats a proven Microsoft-missing auto pair as lifecycle evidence,
     id: 'ms-default', displayName: 'Tasks', isOwner: true, isShared: false, wellknownListName: 'defaultList'
   };
   context.withGlobalLock_ = (fn) => fn();
+  context.recordSuccessfulSyncRound_ = () => true;
   context.sendFatalAlert_ = () => {};
   context.sendListFaultAlert_ = () => {};
   context.deletionRoundId_ = () => 'ms-missing-e2e-round-' + (++round);
@@ -3544,6 +3803,7 @@ test('auto default list keeps ordinary task create and both update directions wi
     id: 'ms-task', title: 'Default task', body: { content: '' }, status: 'notStarted', lastModifiedDateTime: updated
   });
   context.withGlobalLock_ = (fn) => fn();
+  context.recordSuccessfulSyncRound_ = () => true;
   context.sendFatalAlert_ = () => {};
   context.sendListFaultAlert_ = () => {};
   context.loadStateForSync_ = () => context.normalizeState_(JSON.parse(JSON.stringify(durable)));
@@ -3586,7 +3846,7 @@ test('auto default list keeps ordinary task create and both update directions wi
   assert.equal(finalState.listMap['g-default'], 'ms-default');
   assert.equal(finalState.g2m['g-task'].msId, 'ms-task');
   assert.equal(created, 1);
-  assert.equal(googleToMicrosoftUpdates, 1);
+  assert.equal(googleToMicrosoftUpdates, 0);
   assert.equal(microsoftToGoogleUpdates, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(finalState.pendingListDeletions)), {});
   assert.deepEqual(JSON.parse(JSON.stringify(finalState.listDeletionJournal)), {});
@@ -4077,9 +4337,11 @@ test('list proof revocation checkpoint failure aborts before planner, task inven
   assert.equal(remote, 0);
 });
 
-test('a final-commit fence-clear failure leaves stale proof fenced until the next run starts fresh', () => {
+test('a final-commit fence-clear failure retains the committed proof for the next complete round', () => {
   const { context, userStore } = loadContext({ scriptValues: { SYNC_ALLOW_DELETIONS: 'true' } });
   const state = mappedTaskState(context);
+  let deterministicRound = 0;
+  context.deletionRoundId_ = () => 'fence-clear-' + (++deterministicRound);
   const originalDelete = userStore.deleteProperty.bind(userStore);
   userStore.deleteProperty = (key) => {
     if (key === 'sync_state_main_round_fence') throw new Error('clear unavailable');
@@ -4100,8 +4362,8 @@ test('a final-commit fence-clear failure leaves stale proof fenced until the nex
   const durable = context.loadBlobAtomic_('sync_state_main');
   context.loadStateForSync_ = () => durable;
   context.syncAll();
-  assert.equal(deletes, 0);
-  assert.equal(context.loadBlobAtomic_('sync_state_main').pendingTaskDeletions['g-task'].confirmations, 1);
+  assert.equal(deletes, 1);
+  assert.equal(context.loadBlobAtomic_('sync_state_main').g2m['g-task'], undefined);
 });
 
 test('duplicate Microsoft listMap targets fail closed before list journal recovery or import', () => {
@@ -4244,6 +4506,7 @@ test('import and restore refuse to remove current unexpired task or list tombsto
   const previous = imported.context.newState_();
   const userValues = {
     sync_state_main_manifest: JSON.stringify({ generation: 'current', count: 1, previousGeneration: 'previous' }),
+    sync_state_main_successful_round_manifest: JSON.stringify({ version: 1, current: { generation: 'previous', roundId: 'legacy-test-success' }, previous: null }),
     sync_state_main_gen_previous_count: '1',
     sync_state_main_gen_previous_0: encodeURIComponent(JSON.stringify(previous))
   };
@@ -4313,6 +4576,9 @@ test('import and restore preserve each exact list tombstone pair while accepting
   function setPrevious(userStore, state) {
     userStore.setProperty('sync_state_main_manifest', JSON.stringify({
       generation: 'current', count: 1, previousGeneration: 'previous'
+    }));
+    userStore.setProperty('sync_state_main_successful_round_manifest', JSON.stringify({
+      version: 1, current: { generation: 'previous', roundId: 'legacy-test-success' }, previous: null
     }));
     userStore.setProperty('sync_state_main_gen_previous_count', '1');
     userStore.setProperty('sync_state_main_gen_previous_0', encodeURIComponent(JSON.stringify(state)));
@@ -4428,6 +4694,9 @@ test('import and restore preserve active task/list anti-recreate reservations in
   function setPreviousState(userStore, state) {
     userStore.setProperty('sync_state_main_manifest', JSON.stringify({
       generation: 'current', count: 1, previousGeneration: 'previous'
+    }));
+    userStore.setProperty('sync_state_main_successful_round_manifest', JSON.stringify({
+      version: 1, current: { generation: 'previous', roundId: 'legacy-test-success' }, previous: null
     }));
     userStore.setProperty('sync_state_main_gen_previous_count', '1');
     userStore.setProperty('sync_state_main_gen_previous_0', encodeURIComponent(JSON.stringify(state)));
@@ -5013,6 +5282,7 @@ test('malformed list tombstones reject import and restore without save, while he
   malformedPrevious.listTombstones.unexpected = {};
   const restore = loadContext({ userValues: {
     sync_state_main_manifest: JSON.stringify({ generation: 'current', count: 1, previousGeneration: 'previous' }),
+    sync_state_main_successful_round_manifest: JSON.stringify({ version: 1, current: { generation: 'previous', roundId: 'legacy-test-success' }, previous: null }),
     sync_state_main_gen_previous_count: '1',
     sync_state_main_gen_previous_0: encodeURIComponent(JSON.stringify(malformedPrevious))
   } });
@@ -5752,7 +6022,6 @@ test('createTrigger replaces sync triggers with the exact 10-minute cadence and 
   const { context } = loadContext();
   context.getSafetyConfig_ = () => ({ listDiscoveryMode: 'auto', googleListIds: [] });
   context.requireSyncAllowlist_ = () => {};
-  context.requireSafeAutoDiscovery_ = () => {};
   context.loadStateForSync_ = () => context.newState_();
   context.requireConfiguredListPairsApplied_ = () => {};
   const triggers = [
@@ -5880,8 +6149,6 @@ test('destructive task and list delete paths stop at the reserve with journals i
   round.context.withGlobalLock_ = (fn) => fn();
   round.context.loadStateForSync_ = () => roundState;
   round.context.sanitizePreexistingSyncRoundFence_ = (value) => value;
-  round.context.openSyncRoundFence_ = () => {};
-  round.context.clearSyncRoundFence_ = () => {};
   round.context.getSafetyConfig_ = () => ({
     allowDeletions: true, allowListDeletions: false, allowTaskMoves: false
   });
@@ -5964,4 +6231,223 @@ test('Microsoft task inventory expands only the requested move extension list', 
   );
   assert.equal(urls[1].includes('microsoft.graph.openTypeExtension.'), false);
   assert.equal(urls[1].includes('Microsoft.OutlookServices.OpenTypeExtension.'), false);
+});
+
+test('real fenced task rounds retain completed baseline through a time-budget failure', () => {
+  const { context, userStore } = loadContext({ scriptValues: {
+    SYNC_LIST_DISCOVERY_MODE: 'auto', SYNC_ALLOW_DELETIONS: 'true',
+    SYNC_ALLOW_LIST_DELETIONS: 'true', SYNC_ALLOW_TASK_MOVES: 'false'
+  } });
+  const state = mappedTaskState(context);
+  context.saveState_(state);
+  context.withGlobalLock_ = (fn) => fn();
+  let deterministicRound = 0;
+  context.deletionRoundId_ = () => 'task-time-budget-' + (++deterministicRound);
+  context.sendFatalAlert_ = () => {};
+  context.pauseListDeletionIntentBeforeInventory_ = () => {};
+  context.cleanupTombstones_ = () => {};
+  context.cleanupListTombstones_ = () => {};
+  context.buildSnapshot_ = () => mappedTaskSnapshot({ gTask: null });
+  context.createUnmapped_ = () => {};
+  let microsoftDeletes = 0;
+  context.deleteMsTask_ = () => { microsoftDeletes += 1; };
+
+  context.syncAll();
+  let after = context.loadStateForSync_();
+  assert.equal(after.pendingTaskDeletions['g-task'].confirmations, 1);
+  assert.equal(userStore.getProperty('sync_state_main_round_fence'), null);
+
+  context.assertDestructiveTimeBudget_ = (code) => { throw new Error(code || 'TIME_BUDGET_TASK_DELETE_REVALIDATION'); };
+  assert.equal(context.syncAll(), undefined);
+  after = context.loadStateForSync_();
+  assert.equal(after.pendingTaskDeletions['g-task'].confirmations, 1);
+  assert.equal(userStore.getProperty('sync_state_main_round_fence'), null);
+
+  context.assertDestructiveTimeBudget_ = () => {};
+  context.syncAll();
+  after = context.loadStateForSync_();
+  assert.equal(microsoftDeletes, 1);
+  assert.equal(after.g2m['g-task'], undefined);
+  assert.equal(after.pendingTaskDeletions['g-task'], undefined);
+});
+
+test('real fenced list rounds retain completed baseline through a time-budget failure', () => {
+  const { context, userStore } = loadContext({ scriptValues: {
+    SYNC_LIST_DISCOVERY_MODE: 'auto', SYNC_ALLOW_DELETIONS: 'true',
+    SYNC_ALLOW_LIST_DELETIONS: 'true', SYNC_ALLOW_TASK_MOVES: 'false'
+  } });
+  const state = listDeletionState(context);
+  const pair = listDeletionPair(context);
+  pair.provenance = state.listPairMeta[pair.key];
+  context.saveState_(state);
+  context.withGlobalLock_ = (fn) => fn();
+  let deterministicRound = 0;
+  context.deletionRoundId_ = () => 'list-time-budget-' + (++deterministicRound);
+  context.sendFatalAlert_ = () => {};
+  context.cleanupTombstones_ = () => {};
+  context.cleanupListTombstones_ = () => {};
+  context.createUnmapped_ = () => {};
+  context.buildSnapshot_ = () => listDeletionSnapshot(pair);
+
+  context.syncAll();
+  let after = context.loadStateForSync_();
+  assert.equal(after.pendingListDeletions[pair.key].confirmations, 1);
+  assert.equal(userStore.getProperty('sync_state_main_round_fence'), null);
+
+  context.assertDestructiveTimeBudget_ = (code) => { throw new Error(code || 'TIME_BUDGET_LIST_DELETE_REVALIDATION'); };
+  assert.equal(context.syncAll(), undefined);
+  after = context.loadStateForSync_();
+  assert.equal(after.pendingListDeletions[pair.key].confirmations, 1);
+  assert.equal(after.pendingListDeletions[pair.key].missingSide, 'google');
+  assert.equal(userStore.getProperty('sync_state_main_round_fence'), null);
+
+  context.assertDestructiveTimeBudget_ = () => {};
+  context.buildListDeletionRevalidation_ = (liveState, record) => ({
+    ok: true,
+    input: { ...record }
+  });
+  context.deleteMsList_ = () => {};
+  context.syncAll();
+  after = context.loadStateForSync_();
+  assert.equal(after.listMap['g-list'], undefined);
+  assert.equal(after.pendingListDeletions[pair.key], undefined);
+});
+
+test('round fence accepts only arming or active, and stale arming preserves completed state', () => {
+  const { context, userStore } = loadContext({ scriptValues: { SYNC_ALLOW_DELETIONS: 'true' } });
+  const state = mappedTaskState(context);
+  readyDeletionCandidate(state, 'google', 'completed-round');
+  state.pendingTaskDeletions['g-task'].confirmations = 1;
+  context.saveState_(state);
+  userStore.setProperty('sync_state_main_round_fence', JSON.stringify({
+    roundId: 'arming-round', startedAt: '2026-08-28T00:00:00.000Z', phase: 'arming'
+  }));
+  assert.equal(context.syncRoundFenceStatus_().valid, true);
+  const preserved = context.sanitizePreexistingSyncRoundFence_(context.loadStateForSync_());
+  assert.equal(preserved.pendingTaskDeletions['g-task'].confirmations, 1);
+  assert.equal(context.syncRoundFenceStatus_().active, false);
+
+  userStore.setProperty('sync_state_main_round_fence', JSON.stringify({
+    roundId: 'invalid-round', startedAt: '2026-08-28T00:00:00.000Z', phase: 'unknown'
+  }));
+  assert.equal(context.syncRoundFenceStatus_().valid, false);
+});
+
+function saveSuccessfulRoundForRestore_(context, state, roundId) {
+  state.health.lastSuccessfulRoundId = roundId;
+  state.health.roundFenceProjectionId = null;
+  const generation = context.saveState_(state);
+  context.recordSuccessfulSyncRound_(roundId, generation);
+  return generation;
+}
+
+test('successful-round pointer rejects a missing final generation', () => {
+  const { context } = loadContext();
+  assert.throws(() => context.recordSuccessfulSyncRound_('missing-generation', undefined),
+    /STATE_SUCCESSFUL_ROUND_GENERATION_REQUIRED/);
+});
+
+test('restore rejects legacy checkpoint history with no successful-round pointer', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  context.saveState_(state);
+  context.withGlobalLock_ = (fn) => fn();
+  assert.throws(() => context.restorePreviousSyncState(), /STATE_RESTORE_UNAVAILABLE/);
+});
+
+test('restore selects last successful round after multiple fenced checkpoints', () => {
+  const { context, userStore } = loadContext();
+  context.withGlobalLock_ = (fn) => fn();
+  const first = mappedTaskState(context);
+  first.g2m['g-task'].gUpdated = '2026-08-01T00:00:00Z';
+  saveSuccessfulRoundForRestore_(context, first, 'successful-1');
+  const second = mappedTaskState(context);
+  second.g2m['g-task'].gUpdated = '2026-08-02T00:00:00Z';
+  const secondGeneration = saveSuccessfulRoundForRestore_(context, second, 'successful-2');
+  const checkpoint = mappedTaskState(context);
+  checkpoint.g2m['g-task'].gUpdated = 'failed-checkpoint-1';
+  checkpoint.health.lastSuccessfulRoundId = 'successful-2';
+  checkpoint.health.roundFenceProjectionId = 'failed-round';
+  context.saveState_(checkpoint);
+  checkpoint.g2m['g-task'].gUpdated = 'failed-checkpoint-2';
+  context.saveState_(checkpoint);
+
+  assert.notEqual(JSON.parse(userStore.getProperty('sync_state_main_manifest')).generation, secondGeneration);
+  context.restorePreviousSyncState();
+  assert.equal(context.loadStateForSync_().g2m['g-task'].gUpdated, '2026-08-02T00:00:00Z');
+});
+
+test('restore selects prior successful round when current generation is itself successful', () => {
+  const { context } = loadContext();
+  context.withGlobalLock_ = (fn) => fn();
+  const first = mappedTaskState(context);
+  first.g2m['g-task'].gUpdated = '2026-08-01T00:00:00Z';
+  saveSuccessfulRoundForRestore_(context, first, 'successful-1');
+  const second = mappedTaskState(context);
+  second.g2m['g-task'].gUpdated = '2026-08-02T00:00:00Z';
+  saveSuccessfulRoundForRestore_(context, second, 'successful-2');
+
+  context.restorePreviousSyncState();
+  assert.equal(context.loadStateForSync_().g2m['g-task'].gUpdated, '2026-08-01T00:00:00Z');
+});
+
+test('task and list deletion journal checkpoints retain fence marker and prior proof baseline', () => {
+  const task = loadContext();
+  const taskState = mappedTaskState(task.context);
+  readyDeletionCandidate(taskState, 'google', 'prior-task-round');
+  taskState.g2m['g-task-b'] = {
+    msId: 'ms-task-b', gListId: 'g-list', msListId: 'ms-list',
+    gUpdated: '2026-08-14T00:00:00Z', msUpdated: '2026-08-14T00:00:00Z'
+  };
+  taskState.m2g['ms-task-b'] = 'g-task-b';
+  taskState.pendingTaskDeletions['g-task-b'] = {
+    ...taskState.pendingTaskDeletions['g-task'], gId: 'g-task-b', msId: 'ms-task-b',
+    confirmations: 1, lastRoundId: 'prior-task-round'
+  };
+  const taskBaseline = JSON.parse(JSON.stringify(taskState.pendingTaskDeletions));
+  task.context.openSyncRoundFence_('task-journal-round');
+  task.context.beginSyncRoundProofProjection_(taskState, 'task-journal-round', taskBaseline, {});
+  assert.equal(task.context.roundBaselineTaskCandidates_(taskState, {
+    pendingTaskDeletions: taskBaseline
+  })['g-task-b'].confirmations, 1);
+  taskState.deletionJournal['g-task'] = task.context.preparedDeletionJournal_(taskState.pendingTaskDeletions['g-task']);
+  task.context.saveDeletionJournalDurably_(taskState, {
+    pendingBeforeRound: taskBaseline,
+    durableJournalTaskIds: {}, invalidatedCandidateTaskIds: {}, discardCandidateTaskIds: {}
+  });
+  const durableTask = task.context.loadStateForSync_();
+  assert.equal(durableTask.health.roundFenceProjectionId, 'task-journal-round');
+  assert.equal(durableTask.pendingTaskDeletions['g-task'], undefined);
+  assert.equal(durableTask.pendingTaskDeletions['g-task-b'].confirmations, 1);
+  assert.equal(durableTask.deletionJournal['g-task'].phase, 'prepared');
+
+  const list = loadContext();
+  const listState = listDeletionState(list.context);
+  const pair = listDeletionPair(list.context);
+  const candidate = listDeletionCandidateRecord(pair);
+  listState.pendingListDeletions[pair.key] = candidate;
+  const otherPair = {
+    ...pair,
+    key: list.context.listPairKey_('g-list-b', 'ms-list-b'),
+    gListId: 'g-list-b', msListId: 'ms-list-b', gTitle: 'Other', msTitle: 'Other'
+  };
+  listState.listMap[otherPair.gListId] = otherPair.msListId;
+  listState.listPairMeta[otherPair.key] = {
+    ...listState.listPairMeta[pair.key],
+    gListId: otherPair.gListId, msListId: otherPair.msListId, gTitle: otherPair.gTitle, msTitle: otherPair.msTitle
+  };
+  listState.pendingListDeletions[otherPair.key] = listDeletionCandidateRecord(otherPair);
+  const listBaseline = JSON.parse(JSON.stringify(listState.pendingListDeletions));
+  list.context.openSyncRoundFence_('list-journal-round');
+  list.context.beginSyncRoundProofProjection_(listState, 'list-journal-round', {}, listBaseline);
+  listState.listDeletionJournal[pair.key] = list.context.preparedListDeletionJournal_(candidate);
+  list.context.saveListDeletionJournalDurably_(listState, {
+    pendingListBeforeRound: listBaseline,
+    durableListJournalKeys: {}, invalidatedListCandidateKeys: {}
+  }, { pendingBeforeRound: {}, durableJournalTaskIds: {}, invalidatedCandidateTaskIds: {}, discardCandidateTaskIds: {} });
+  const durableList = list.context.loadStateForSync_();
+  assert.equal(durableList.health.roundFenceProjectionId, 'list-journal-round');
+  assert.equal(durableList.pendingListDeletions[pair.key].confirmations, 1);
+  assert.equal(durableList.pendingListDeletions[otherPair.key].confirmations, 1);
+  assert.equal(durableList.listDeletionJournal[pair.key].phase, 'prepared');
 });

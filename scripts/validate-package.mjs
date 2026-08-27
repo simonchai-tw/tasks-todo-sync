@@ -29,7 +29,7 @@ for (const filename of required) {
   }
 }
 
-const forbidden = /(^|\/)(?:\.clasp(?:rc)?\.json|\.env(?:\.|$)|[^/]*(?:secret|state)[^/]*)(?:$|\/)/i;
+const forbidden = /(^|\/)(?:\.clasp(?:rc)?(?:\.json)?|\.env(?:\.|$)|[^/]*(?:secret|state)[^/]*)(?:$|\/)/i;
 const unsafe = files.filter((filename) => forbidden.test(filename));
 if (unsafe.length > 0) {
   throw new Error(`npm pack --dry-run includes unsafe local configuration or state: ${unsafe.join(', ')}`);

@@ -38,13 +38,24 @@ Google Tasks and Microsoft To Do are both useful inside their own ecosystems, bu
 
 No hosted middleman. No shared client secret. Your accounts, your script, your data.
 
+## v0.1.1 highlights
+
+The `v0.1.1` release tightens the recovery and deployment path for a private, single-operator installation:
+
+- The CLI applies any requested IANA time zone to the Apps Script manifest, including manifests with pretty-printed JSON.
+- A round fence preserves the last successful task/list-deletion baseline when a run stops before its final projection.
+- Successful-round restore uses a separately recorded successful generation. After an upgrade, complete and verify at least one successful sync before using restore; it does not restore arbitrary checkpoints.
+- Google title, date, and completion changes preserve the Microsoft rich-text body. The body is rewritten only when the notes text projection changes.
+- Authorization recovery and fatal errors remain bounded; fatal alert email content is redacted.
+- Pagination, User Properties storage headroom, and per-round metrics have explicit, verified guardrails. The local release checks are recorded in the [v0.1.1 release checklist](docs/release-v0.1.1.md#verification).
+
 ## What syncs
 
 | Capability | Direction | Status |
 |---|:---:|---|
 | Task creation and edits | Google ↔ Microsoft | Ready for personal use |
 | Complete and reopen | Google ↔ Microsoft | Ready for personal use |
-| Notes | Google ↔ Microsoft | Plain-text round trip |
+| Notes | Google ↔ Microsoft | Plain-text projection; rich body preserved when the projection is unchanged |
 | Due dates | Google ↔ Microsoft | Date only; Google Tasks has no time-of-day field |
 | Eligible personal lists | Google ↔ Microsoft | Auto-discovery and counterpart creation |
 | Task deletion | Google ↔ Microsoft | **Enabled by default**; verified in both directions with two-round confirmation and 30-day tombstones |
@@ -72,7 +83,7 @@ Each run has a guarded time budget and a global lock to stay within Apps Script'
 Create your private Apps Script project with:
 
 ```bash
-npx tasks-todo-sync init
+npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init
 ```
 
 The CLI creates a private standalone Apps Script project, applies your IANA time zone, deploys the exact sync sources, and prints the editor link with the remaining steps. It never asks for or stores Microsoft credentials. In the editor, run `initializeSafeDefaults()`, add your own Microsoft Entra credentials to private Script Properties, authorize both accounts, and complete the guided checks. For noninteractive use, add `--timezone Asia/Taipei --yes`. If `npx` is unavailable in your environment, follow the [manual fallback](docs/deployment.md#manual-apps-script-fallback).
@@ -100,8 +111,9 @@ createTrigger();          // install the 10-minute trigger
 
 | Check | Verified result |
 |---|---|
-| Local regression suite | **177 / 177 passed** in the `v0.1.0` release worktree |
-| GitHub CI | **177 / 177 passed** on Node.js 22 and 24 |
+| Local regression suite | **196 / 196 passed** in the `v0.1.1` release worktree |
+| Local release checks | `npm run check`, `npm run smoke:package`, and `git diff --check` passed locally |
+| GitHub CI | Historical `v0.1.0` baseline: **177 / 177 passed** on Node.js 22 and 24; no `v0.1.1` CI result is claimed here |
 | Real scheduled run | `v0.1.0-rc.6` personal Apps Script completed successfully; 67 mapped tasks, no mutations or conflicts observed |
 | Deletion smoke evidence | Bounded maintainer-private recoverable task and list deletion checks passed in both directions |
 | Deployed health check | `v0.1.0-rc.6` personal Apps Script: Healthy, **0 reported issues** |
@@ -137,9 +149,10 @@ Tasks–To Do Sync is for one person connecting their own Google Tasks and Micro
 | [Quick start](docs/quick-start.md) | The shortest safe personal setup path |
 | [Deployment guide](docs/deployment.md) | Entra registration, Apps Script, OAuth, validation, rollback |
 | [Engineering audit](docs/audit.md) | Verified behavior, limitations, and deferred risks |
+| [v0.1.1 release notes](docs/release-v0.1.1.md) | Release highlights, upgrade notes, and verification boundary |
 | [Security policy](SECURITY.md) | Reporting a vulnerability privately |
 | [Changelog](CHANGELOG.md) | Release history and scope |
 
 Questions, ideas, or something not working? Use the [GitHub issue forms](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose) so the project can improve from real-world use.
 
-GitHub hosts the source and release history; synchronization runs in **your private Google Apps Script project**. `v0.1.0` includes the guided deployment CLI, verified two-way task and list deletion, and conservative defaults for features still being validated.
+GitHub hosts the source and release history; synchronization runs in **your private Google Apps Script project**. `v0.1.1` includes the guided deployment CLI hotfix, guarded recovery semantics, verified two-way task and list deletion, and conservative defaults for features still being validated.

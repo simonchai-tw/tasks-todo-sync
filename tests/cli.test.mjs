@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { createNodeRuntime, main } from '../lib/cli.mjs';
 
+const PACKAGE = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+
+const PACKAGED_MANIFEST = readFileSync(new URL('../appsscript.json', import.meta.url), 'utf8');
 const ASSETS = {
   code: 'function syncAll() {}\n',
-  manifest: '{"timeZone":"Asia/Taipei","runtimeVersion":"V8"}',
+  manifest: PACKAGED_MANIFEST,
   claspignore: '**/**\n!Code.gs\n!appsscript.json\n',
   gitignore: '.clasp.json\n.clasprc.json\n.tasks-todo-sync-init.json\nCode.js\n.env\n.env.*\n*.secret.json\n*sync-state*.json\n*state-export*.json\n'
 };
@@ -37,7 +41,7 @@ function createFakeRuntime({ cwd = resolve('cli-test-workspace'), files = {}, on
   const runtime = {
     cwd,
     timeZone: 'Asia/Taipei',
-    version: '0.1.0',
+    version: PACKAGE.version,
     isTTY: false,
     assets: ASSETS,
     now: () => '2026-08-25T00:00:00.000Z',
@@ -96,7 +100,7 @@ test('node runtime resolves the installed clasp entry point without a network or
   const runtime = createNodeRuntime();
 
   assert.equal(typeof runtime.runClasp, 'function');
-  assert.equal(runtime.version, '0.1.0');
+  assert.equal(runtime.version, PACKAGE.version);
 });
 
 test('init --dry-run validates its plan without writing files or invoking clasp', async () => {
@@ -145,7 +149,12 @@ test('init pins every clasp invocation to its own target instead of inheriting a
   assert.equal(fake.fileMap.get(join(target, 'Code.gs')), ASSETS.code);
   assert.equal(fake.fileMap.get(join(target, '.claspignore')), ASSETS.claspignore);
   assert.equal(fake.fileMap.get(join(target, '.gitignore')), ASSETS.gitignore);
-  assert.equal(JSON.parse(fake.fileMap.get(join(target, 'appsscript.json'))).timeZone, 'America/New_York');
+  const installedManifest = fake.fileMap.get(join(target, 'appsscript.json'));
+  assert.equal(JSON.parse(installedManifest).timeZone, 'America/New_York');
+  const expectedManifest = JSON.parse(PACKAGED_MANIFEST);
+  expectedManifest.timeZone = 'America/New_York';
+  assert.equal(installedManifest, `${JSON.stringify(expectedManifest, null, 2)}\n`);
+  assert.match(installedManifest, /\n  "timeZone": "America\/New_York",\n/);
   const marker = JSON.parse(fake.fileMap.get(join(target, '.tasks-todo-sync-init.json')));
   assert.deepEqual(Object.keys(marker).sort(), ['createdAt', 'phase', 'schemaVersion', 'scriptId', 'tool']);
   assert.equal(marker.phase, 'pushed');

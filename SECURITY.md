@@ -4,7 +4,7 @@
 
 | Version | Status |
 | --- | --- |
-| `0.1.0` | Current supported stable release |
+| `0.1.1` | Current supported stable release |
 | Earlier releases | Upgrade before reporting a new issue |
 
 ## Security model
@@ -13,7 +13,7 @@ Tasks–To Do Sync is designed for one person connecting their own Google and Mi
 
 Store the Microsoft client-secret **value** and all runtime configuration only in Apps Script Script Properties. Never publish credentials, OAuth tokens, `.clasp.json`, `.clasprc.json`, state exports, move-correlation values, before-image receipts, provider IDs, personal email addresses, private Apps Script URLs, or task content.
 
-Fresh `v0.1.0` projects use these defaults:
+Fresh `v0.1.1` projects use these defaults:
 
 ```properties
 SYNC_LIST_DISCOVERY_MODE=auto
@@ -22,7 +22,7 @@ SYNC_ALLOW_LIST_DELETIONS=true
 SYNC_ALLOW_TASK_MOVES=false
 ```
 
-Task and list deletion have been verified in both directions and use confirmation rounds, live revalidation, durable journals, and tombstones. Cross-list moves remain independently opt-in while real-account validation continues.
+Task and list deletion have been verified in both directions and use confirmation rounds, live revalidation, durable journals, and tombstones. Cross-list moves remain independently opt-in while real-account validation continues. The round fence keeps a prior successful deletion baseline when a run stops before final projection; restore uses only a separately committed successful generation and fails closed for legacy state without verifiable success.
 
 ## Report a vulnerability
 
@@ -34,6 +34,6 @@ If a possible destructive-sync issue is active, run `deleteSyncTriggers()` first
 
 ## Runtime safeguards and limits
 
-The 10-minute trigger does not change Apps Script's six-minute execution ceiling. The synchronizer uses a 5.25-minute run budget, an additional reserve before destructive mutations, a global lock, durable journals, and full-inventory retries. An account whose complete inventory cannot finish within the budget needs persistent pagination/delta state or workload sharding; see the [engineering audit](docs/audit.md) for the current validation boundary.
+The 10-minute trigger does not change Apps Script's six-minute execution ceiling. The synchronizer uses a 5.25-minute run budget, an additional reserve before destructive mutations, a global lock, durable journals, bounded pagination guards, and full-inventory retries. An account whose complete inventory cannot finish within the budget needs persistent pagination/delta state or workload sharding; see the [engineering audit](docs/audit.md) for the current validation boundary. Per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics are bounded and do not contain task/list content; storage-headroom and metrics checks are verified in the [v0.1.1 release notes](docs/release-v0.1.1.md#verification).
 
-Move-journal reports use opaque references and bounded reason codes, but raw state, `SYNC_TASK_MOVE_OPERATION_JSON`, preview tokens, and before-image receipts are still private operational data. The recovery helpers protect concurrency and evidence; they do not replace Apps Script access control.
+Fatal alert emails are bounded and redacted: they retain the error class/code and correlation information needed for investigation, but omit task/list content, provider IDs, secrets, and full provider responses. Raw state exports, `SYNC_TASK_MOVE_OPERATION_JSON`, preview tokens, and before-image receipts remain sensitive private operational data even when reports use opaque references and bounded reason codes. Store Microsoft secrets only in Apps Script Script Properties; never put them in source, issues, logs, or exports. The recovery helpers protect concurrency and evidence; they do not replace Apps Script access control.

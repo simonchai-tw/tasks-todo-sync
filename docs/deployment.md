@@ -1,12 +1,12 @@
-# Deployment guide — 0.1.0
+# Deployment guide — 0.1.1
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.1.0` is the first stable release for the documented core synchronization and task/list deletion behavior; cross-list task moves remain default-off while real-account validation continues.
+This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.1.1` extends the stable core with deployment and recovery safeguards while preserving the documented task/list deletion behavior; cross-list task moves remain default-off while real-account validation continues. See the [v0.1.1 release notes](release-v0.1.1.md) for the change summary and verification boundary.
 
 Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been verified in both directions and are protected by confirmation, revalidation, journals, and tombstones. Cross-list task movement remains off by default while real-account validation continues.
 
-The productized entry point is `npx tasks-todo-sync init`. The manual Apps Script route below is the fallback when the package cannot be resolved or when an operator wants to inspect each deployment step.
+The productized entry point is `npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init`. The manual Apps Script route below is the fallback when the pinned GitHub release cannot be resolved or when an operator wants to inspect each deployment step.
 
 ## What you need
 
@@ -17,12 +17,12 @@ The productized entry point is `npx tasks-todo-sync init`. The manual Apps Scrip
 
 Google Apps Script authorization and Microsoft OAuth are separate sign-ins. Authorize one Google account and one Microsoft account during setup. The exact number of pages depends on current sign-in sessions and provider consent prompts, so do not expect exactly two prompts. The CLI handles only the private Apps Script project and source deployment; Microsoft Entra registration, client-secret creation, and Microsoft authorization remain manual and private.
 
-## Productized `init` flow (`v0.1.0`)
+## Productized `init` flow (`v0.1.1`)
 
 Run:
 
 ```bash
-npx tasks-todo-sync init
+npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init
 ```
 
 The command uses `clasp` to:
@@ -34,7 +34,7 @@ The command uses `clasp` to:
 
 5. Open the printed editor URL and run `initializeSafeDefaults()` in the Apps Script editor. The CLI does not open the editor, execute Apps Script functions, or write Script Properties.
 
-The CLI never accepts, stores, prints, or transmits `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or other Microsoft credentials. Complete Entra registration and secret creation yourself in Microsoft Entra, then enter the values only in the private Apps Script editor. If `npx` cannot resolve the package, use the manual fallback below.
+The CLI never accepts, stores, prints, or transmits `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or other Microsoft credentials. Complete Entra registration and secret creation yourself in Microsoft Entra, then enter the values only in the private Apps Script editor. If `npx` cannot resolve the pinned GitHub release, use the manual fallback below.
 
 After you open the editor and run `initializeSafeDefaults()`, the helper fills missing properties for a fresh project with:
 
@@ -46,6 +46,19 @@ After you open the editor and run `initializeSafeDefaults()`, the helper fills m
 | `SYNC_ALLOW_TASK_MOVES` | `false` |
 
 `initializeSafeDefaults()` preserves existing explicit Script Properties. In particular, an existing private maintainer deployment with all three switches set to `true` is not changed.
+
+## v0.1.1 release behavior
+
+The release keeps the user-visible setup defaults stable and adds bounded recovery behavior:
+
+| Area | Behavior | Release status |
+| --- | --- | --- |
+| CLI time zone | Applies the requested IANA time zone to the manifest after parsing JSON, independent of whitespace formatting. | Included and verified by the packed-package smoke check. |
+| Round fence | Keeps the previous successful task/list-deletion baseline when a run exits before its final projection; only the incomplete round's proof is discarded. | Included and verified by the final source tests. |
+| Successful-round restore | Restores from a separately committed successful generation, never from an intra-round checkpoint. An upgraded deployment needs one verifiable successful sync first; legacy state without that evidence fails closed. | Included and verified by the final source tests; see [state rollback](#sync-state-rollback). |
+| Rich body | A Google title, date, or completion-only change does not rewrite an existing Microsoft rich-text body. A changed notes text projection does update the body. | Included and verified by provider payload tests. |
+| Authorization and errors | Authorization refresh/retry and fatal alerts have bounded behavior. Fatal alert email is redacted and excludes task/list content, provider IDs, and full responses. | Included and verified by the final 401 and alert assertions. |
+| Pagination, storage, and metrics | Page-token/page-count and execution-budget guards fail closed. User Properties headroom and per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` are tracked without storing task/list content. | Included and verified by the final local release checks. |
 
 ## Manual Apps Script fallback
 
@@ -114,7 +127,7 @@ Google Apps Script enforces a six-minute limit for one execution. The script's o
 - A two-complete-round deletion or Microsoft-origin old-task cleanup normally converges in 10–20 minutes.
 - Throttling, authorization failure, an incomplete inventory, or a skipped overlapping trigger can make either longer.
 
-Time-budget recovery does not resume a partially fetched page set. Neither the Google nor Microsoft inventory stores a page cursor, delta token, or shard checkpoint. The next trigger begins a complete inventory again. If one full inventory consistently takes more than 5.25 minutes, a longer trigger interval does not fix it; persistent cursors/delta state or workload sharding must be implemented first.
+Pagination has a bounded page-token/page-count guard and stops safely on repeated tokens, unreasonable page counts, or insufficient execution time. Time-budget recovery does not resume a partially fetched page set. Neither the Google nor Microsoft inventory stores a page cursor, delta token, or shard checkpoint. The next trigger begins a complete inventory again. If one full inventory consistently takes more than 5.25 minutes, a longer trigger interval does not fix it; persistent cursors/delta state or workload sharding must be implemented first. User Properties writes check estimated aggregate headroom, including retained generations and other user properties, before saving a new generation. Each round records bounded, content-free `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The final local release checks verified these guards; see the [v0.1.1 release checklist](release-v0.1.1.md#verification).
 
 ## Cross-list move notes
 
@@ -187,13 +200,13 @@ Do not depend on a Git tag that may not exist. Keep private source/version recor
 
 ### Sync-state rollback
 
-Source rollback does not roll back mappings, tombstones, move/deletion journals, or OAuth state. First export and retain state privately with `inspectSyncState()` and `exportRawSyncState()`. `restorePreviousSyncState()` refuses an active sync-round fence, active task move/deletion/list-deletion journals, and loss of tombstone evidence. Never clear properties or force-import state merely to bypass those safeguards. After any state restore, run `dryRunReport()` and manually review before resuming.
+Source rollback does not roll back mappings, tombstones, move/deletion journals, or OAuth state. First export and retain state privately with `inspectSyncState()` and `exportRawSyncState()`. `restorePreviousSyncState()` refuses an active sync-round fence, active task move/deletion/list-deletion journals, and loss of tombstone evidence. It restores only a separately committed successful generation, never an intra-round checkpoint. After upgrading, complete and verify at least one successful sync before relying on restore; legacy state without a verifiable successful generation fails closed. Never clear properties or force-import state merely to bypass those safeguards. After any state restore, run `dryRunReport()` and manually review before resuming.
 
-## Stable-release readiness check
+## v0.1.1 release readiness check
 
-- [ ] `npm run check` and `npm test` pass locally.
+- [ ] `npm run check` and `npm test` pass locally, including the round-fence, restore, rich-body, bounded-auth/error, pagination, storage, and metrics coverage.
 - [ ] CI passes on Node.js 22 and 24.
-- [ ] `npx tasks-todo-sync init` has been exercised in a disposable private project, the printed editor URL was opened, and `initializeSafeDefaults()` was run in the editor; or the manual fallback has been followed and checked.
+- [ ] The pinned `v0.1.1` `npx` command has been exercised from the packed package in a disposable private project, the printed editor URL was opened, and `initializeSafeDefaults()` was run in the editor; or the manual fallback has been followed and checked.
 - [ ] The project time zone is the operator's intended IANA value, and the CLI output includes the editor URL and post-deploy steps.
 - [ ] `setupStatus()` shows `auto`, task/list deletion `true`, and task moves `false` for a fresh project; existing explicit properties are recorded and preserved.
 - [ ] Microsoft Entra registration, client secret, redirect URI, and OAuth authorization were completed manually and remain private.
@@ -201,7 +214,7 @@ Source rollback does not roll back mappings, tombstones, move/deletion journals,
 - [ ] `dryRunReport()` warnings, exclusions, faults, and list information are understood; it has not been mistaken for a mutation plan.
 - [ ] Bounded maintainer-private recoverable task and list deletion smoke evidence is retained for both directions; it is not treated as universal safety evidence.
 - [ ] Cross-list moves remain off by default and are not described as real-account validated.
-- [ ] Source and state rollback procedures are documented separately, and the operator understands the risks and limits of each.
+- [ ] Source and state rollback procedures are documented separately, including the successful-generation restore boundary, and the operator understands the risks and limits of each.
 - [ ] Private vulnerability reporting is enabled before public use.
 
-Passing this list establishes release readiness for the documented `v0.1.0` scope. Publishing a package, tag, or GitHub release remains a separate step.
+Passing this list establishes release readiness for the documented `v0.1.1` scope. Publishing the package, tag, and GitHub release remains a separate step.

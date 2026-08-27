@@ -1,11 +1,11 @@
 {
   "name": "tasks-todo-sync",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Google Tasks and Microsoft To Do sync engine for Google Apps Script",
   "author": "Simon",
   "contributors": [
-    "ChatGPT"
+    "Codex"
   ],
   "license": "MIT",
   "repository": {
@@ -32,6 +32,7 @@
   "scripts": {
     "check": "node scripts/validate.mjs && node scripts/validate-package.mjs",
     "check:package": "node scripts/validate-package.mjs",
+    "smoke:package": "node scripts/smoke-package.mjs",
     "test": "node --test"
   },
   "dependencies": {

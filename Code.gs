@@ -2,6 +2,10 @@ const GTASKS_BASE = 'https://tasks.googleapis.com/tasks/v1';
 const MS_TODO_BASE = 'https://graph.microsoft.com/v1.0/me/todo/lists';
 const STATE_KEY = 'sync_state_main';
 const ROUND_FENCE_KEY = STATE_KEY + '_round_fence';
+// This small manifest points at complete main-state generations only.  It is
+// deliberately separate from the ordinary previousGeneration checkpoint,
+// which can be an in-progress sync save.
+const SUCCESSFUL_ROUND_MANIFEST_KEY = STATE_KEY + '_successful_round_manifest';
 const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MOVE_CREATE_RECOVERY_WINDOW_MS = 10 * 60 * 1000;
 const RUN_LIMIT_MS = 5.25 * 60 * 1000;
@@ -24,7 +28,13 @@ const HTTP_MAX_RETRIES = 4;
 // makes every sync-path checkpoint write a stripped safety projection until a
 // final state commit has succeeded.
 let SYNC_ROUND_FENCE_ACTIVE_ = false;
+let SYNC_ROUND_FENCE_ROUND_ID_ = null;
+let SYNC_ROUND_PROOF_BASELINE_ = null;
 const CHUNK_SIZE = 7000;
+const PROPERTY_VALUE_SAFE_LIMIT_BYTES = 8 * 1024;
+const PROPERTY_STORE_SAFE_LIMIT_BYTES = 450 * 1024;
+const PAGINATION_MAX_PAGES = 100;
+const PAGINATION_RESERVE_MS = 20000;
 const ALLOW_NAME_PAIRING = false;
 const REQUIRE_LIST_ALLOWLIST = true;
 const DEFAULT_ALLOW_DELETIONS = false;
@@ -82,6 +92,43 @@ const ALERT_KEYS = {
   listFault: 'alert_listfault_last_at'
 };
 let RUN_STARTED_AT = 0;
+let SYNC_OBSERVABILITY_ = null;
+
+function initializeExecutionBudget_() {
+  RUN_STARTED_AT = Date.now();
+  return RUN_STARTED_AT;
+}
+
+function beginSyncObservability_(startedAt) {
+  SYNC_OBSERVABILITY_ = {
+    startedAt: startedAt,
+    urlFetchCalls: 0,
+    stateSaveCalls: 0
+  };
+}
+
+function recordUrlFetchCall_() {
+  if (SYNC_OBSERVABILITY_) SYNC_OBSERVABILITY_.urlFetchCalls += 1;
+}
+
+function recordStateSaveCall_(baseKey) {
+  if (SYNC_OBSERVABILITY_ && baseKey === STATE_KEY) {
+    SYNC_OBSERVABILITY_.stateSaveCalls += 1;
+  }
+}
+
+function logSyncSummary_(outcome) {
+  if (!SYNC_OBSERVABILITY_) return;
+  const summary = {
+    event: 'sync_summary',
+    outcome: outcome,
+    durationMs: Math.max(0, Date.now() - SYNC_OBSERVABILITY_.startedAt),
+    urlFetchCalls: SYNC_OBSERVABILITY_.urlFetchCalls,
+    stateSaveCalls: SYNC_OBSERVABILITY_.stateSaveCalls
+  };
+  console.log(JSON.stringify(summary));
+  SYNC_OBSERVABILITY_ = null;
+}
 
 function initializeSafeDefaults() {
   const properties = PropertiesService.getScriptProperties();
@@ -115,11 +162,11 @@ function initializeSafeDefaults() {
     nextSteps: [
       {
         code: 'SETUP_STATUS',
-        message: '請執行 setupStatus() 檢查安全設定與觸發器摘要。'
+        message: 'Run setupStatus() to check safety settings and trigger summary.'
       },
       {
         code: 'CONFIGURE_MICROSOFT_PROPERTIES',
-        message: '請在 Script Properties 設定 Microsoft OAuth 連線資料；摘要不會顯示 credential、email 或 ID 內容。'
+        message: 'Set Microsoft OAuth properties in Script Properties; the summary never shows credential, email, or ID values.'
       }
     ]
   };
@@ -217,53 +264,53 @@ function setupStatus() {
   if (!allSafetySettingsValid) {
     nextSteps.push({
       code: 'SAFETY_SETTINGS_MISSING_OR_INVALID',
-      message: '請確認 SYNC_LIST_DISCOVERY_MODE 為 auto 或 explicit，其餘三個 SYNC_ALLOW_* 開關為 true 或 false；設定後再執行 setupStatus()。'
+      message: 'Set SYNC_LIST_DISCOVERY_MODE to auto or explicit and every SYNC_ALLOW_* switch to true or false, then run setupStatus() again.'
     });
   }
   if (!clientIdConfigured || !clientSecretConfigured) {
     nextSteps.push({
       code: 'MICROSOFT_CREDENTIALS_MISSING',
-      message: '請在 Script Properties 設定 MS_CLIENT_ID 與 MS_CLIENT_SECRET；本摘要不會顯示其內容。'
+      message: 'Set MS_CLIENT_ID and MS_CLIENT_SECRET in Script Properties; this summary never shows their values.'
     });
   }
   if (!tenantIdConfigured) {
     nextSteps.push({
       code: 'MS_TENANT_DEFAULT_COMMON',
-      message: '未設定 MS_TENANT_ID，目前會使用 common。'
+      message: 'MS_TENANT_ID is not set; common will be used.'
     });
   }
   if (!alertEmailConfigured) {
     nextSteps.push({
       code: 'ALERT_EMAIL_NOT_CONFIGURED',
-      message: '如需錯誤通知，請設定 ALERT_EMAIL。'
+      message: 'Set ALERT_EMAIL to receive error notifications.'
     });
   }
   if (!triggerStatus.available) {
     nextSteps.push({
       code: 'SYNC_TRIGGER_STATUS_UNAVAILABLE',
-      message: '目前無法讀取 syncAll 觸發器數量；請在 Apps Script 專案中重新執行 setupStatus()。'
+      message: 'The syncAll trigger count is unavailable; run setupStatus() again from the Apps Script project.'
     });
   } else if (triggerStatus.count === 0) {
     nextSteps.push({
       code: 'SYNC_TRIGGER_MISSING',
-      message: '尚未找到 syncAll 觸發器；確認設定後再執行 createTrigger()。'
+      message: 'No syncAll trigger was found; verify settings, then run createTrigger().'
     });
   } else if (triggerStatus.count > 1) {
     nextSteps.push({
       code: 'SYNC_TRIGGER_DUPLICATE',
-      message: '找到多個 syncAll 觸發器；請檢查並保留預期的觸發器數量。'
+      message: 'Multiple syncAll triggers were found; keep only the intended number.'
     });
   }
   if (!projectTimeZoneAvailable) {
     nextSteps.push({
       code: 'PROJECT_TIMEZONE_FALLBACK',
-      message: '無法讀取專案時區，摘要使用 Asia/Taipei fallback。'
+      message: 'The project time zone is unavailable; this summary uses the Asia/Taipei fallback.'
     });
   }
   if (!nextSteps.length) {
     nextSteps.push({
       code: 'SETUP_SUMMARY_READY',
-      message: '安全設定摘要已就緒；如尚未授權 Microsoft，請執行 startAuthorization()。'
+      message: 'The safety summary is ready; if Microsoft is not authorized, run startAuthorization().'
     });
   }
 
@@ -289,17 +336,10 @@ function setupStatus() {
 }
 
 function configureSync(config) {
-  if (!config || !config.clientId || !config.clientSecret) {
-    throw new Error('clientId 與 clientSecret 必填。');
-  }
-  const values = {
-    MS_CLIENT_ID: String(config.clientId),
-    MS_CLIENT_SECRET: String(config.clientSecret),
-    MS_TENANT_ID: String(config.tenantId || 'common'),
-    ALERT_EMAIL: String(config.alertEmail || '')
-  };
-  PropertiesService.getScriptProperties().setProperties(values, false);
-  console.log('[Config] 設定已寫入 Script Properties。');
+  throw new Error(
+    'CONFIGURE_SYNC_DEPRECATED: configureSync() no longer accepts secrets. ' +
+    'Set MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, and ALERT_EMAIL directly in Script Properties.'
+  );
 }
 
 function getConfig_() {
@@ -325,11 +365,11 @@ function getSafetyConfig_() {
     .split(/[\s,]+/)
     .map(function(id) { return id.trim(); })
     .filter(Boolean);
-  const allowDeletionsRaw = String(p.getProperty('SYNC_ALLOW_DELETIONS') || '').toLowerCase();
+  const allowDeletionsRaw = String(p.getProperty('SYNC_ALLOW_DELETIONS') || '').trim().toLowerCase();
   const allowListDeletionsRaw = String(
     p.getProperty('SYNC_ALLOW_LIST_DELETIONS') || ''
-  ).toLowerCase();
-  const allowTaskMovesRaw = String(p.getProperty('SYNC_ALLOW_TASK_MOVES') || '').toLowerCase();
+  ).trim().toLowerCase();
+  const allowTaskMovesRaw = String(p.getProperty('SYNC_ALLOW_TASK_MOVES') || '').trim().toLowerCase();
   const discoveryMode = String(
     p.getProperty('SYNC_LIST_DISCOVERY_MODE') || DEFAULT_LIST_DISCOVERY_MODE
   ).trim().toLowerCase();
@@ -337,6 +377,19 @@ function getSafetyConfig_() {
     throw new Error(
       'SYNC_DISCOVERY_MODE_INVALID：SYNC_LIST_DISCOVERY_MODE 只能是 explicit 或 auto。'
     );
+  }
+  const invalidSafetyKeys = [];
+  [
+    ['SYNC_ALLOW_DELETIONS', allowDeletionsRaw],
+    ['SYNC_ALLOW_LIST_DELETIONS', allowListDeletionsRaw],
+    ['SYNC_ALLOW_TASK_MOVES', allowTaskMovesRaw]
+  ].forEach(function(entry) {
+    if (entry[1] && entry[1] !== 'true' && entry[1] !== 'false') {
+      invalidSafetyKeys.push(entry[0]);
+    }
+  });
+  if (invalidSafetyKeys.length) {
+    throw new Error('SYNC_SAFETY_CONFIG_INVALID:' + invalidSafetyKeys.join(','));
   }
   const excludedNames = String(p.getProperty('SYNC_EXCLUDED_LIST_NAMES') || '')
     .split(/[\r\n,]+/)
@@ -358,6 +411,13 @@ function getSafetyConfig_() {
   };
 }
 
+function boundedSafetyConfigIssue_(error) {
+  const code = String(error && error.message || error || '').match(
+    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID)\b/
+  );
+  return 'SAFETY_CONFIGURATION_INVALID:' + (code ? code[1] : 'UNCLASSIFIED');
+}
+
 function isAutoDiscoveryMode_(safety) {
   return !!safety && safety.listDiscoveryMode === 'auto';
 }
@@ -370,12 +430,6 @@ function requireSyncAllowlist_(safety) {
       'SYNC_GOOGLE_LIST_IDS。多個 ID 以逗號分隔。'
     );
   }
-}
-
-function requireSafeAutoDiscovery_(safety) {
-  // Auto discovery is safe to use with deletion propagation only after list mappings
-  // have been resolved. Task deletion itself is guarded by the two-round state machine.
-  return safety;
 }
 
 function requireExplicitListPairMode_(safety) {
@@ -442,6 +496,7 @@ function allowedGoogleLists_(lists, safety) {
 }
 
 function listGoogleTaskLists() {
+  initializeExecutionBudget_();
   const safety = getSafetyConfig_();
   const configured = {};
   safety.googleListIds.forEach(function(id) { configured[id] = true; });
@@ -700,6 +755,7 @@ function requireConfiguredListPairsApplied_(state, safety) {
 }
 
 function listMicrosoftTaskLists() {
+  initializeExecutionBudget_();
   const safety = getSafetyConfig_();
   const lists = getMsLists_().map(function(list) {
     return {
@@ -722,6 +778,7 @@ function listMicrosoftTaskLists() {
 }
 
 function validateConfiguredListPairs() {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     const safety = getSafetyConfig_();
     requireExplicitListPairMode_(safety);
@@ -751,6 +808,7 @@ function validateConfiguredListPairs() {
 }
 
 function applyConfiguredListPairs() {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('SYNC_PAIR_APPLY');
     const safety = getSafetyConfig_();
@@ -787,6 +845,7 @@ function applyConfiguredListPairs() {
 }
 
 function adoptExistingListMappingsAsConfiguredPairs() {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('SYNC_PAIR_ADOPT');
     const safety = getSafetyConfig_();
@@ -865,10 +924,12 @@ function microsoftService_() {
 }
 
 function showRedirectUri() {
+  initializeExecutionBudget_();
   console.log(microsoftService_().getRedirectUri());
 }
 
 function startAuthorization() {
+  initializeExecutionBudget_();
   const service = microsoftService_();
   if (service.hasAccess()) {
     console.log('[Auth] 已有有效授權。');
@@ -878,6 +939,7 @@ function startAuthorization() {
 }
 
 function authCallback(request) {
+  initializeExecutionBudget_();
   const ok = microsoftService_().handleCallback(request);
   return HtmlService.createHtmlOutput(ok
     ? '<h2 style="color:green;font-family:sans-serif">授權成功，可關閉此頁。</h2>'
@@ -885,6 +947,7 @@ function authCallback(request) {
 }
 
 function resetMicrosoftAuthorization() {
+  initializeExecutionBudget_();
   microsoftService_().reset();
   console.log('[Auth] Microsoft OAuth token 已清除。');
 }
@@ -925,7 +988,11 @@ function newState_() {
       lastSuccessfulSyncAt: null,
       lastFailedSyncAt: null,
       lastErrorMessage: null,
-      consecutiveFailures: 0
+      consecutiveFailures: 0,
+      // Round IDs distinguish a fenced checkpoint from a final successful
+      // commit after an Apps Script interruption.
+      lastSuccessfulRoundId: null,
+      roundFenceProjectionId: null
     },
     updatedAt: null
   };
@@ -1044,7 +1111,8 @@ function assertStrictSchema2StateShape_(state, errorCode) {
     throw new Error((errorCode || 'STATE_MALFORMED') + '：schema=2 health 必須是物件。');
   }
   assertKnownObjectKeys_(state.health,
-    ['lastSuccessfulSyncAt', 'lastFailedSyncAt', 'lastErrorMessage', 'consecutiveFailures'],
+    ['lastSuccessfulSyncAt', 'lastFailedSyncAt', 'lastErrorMessage', 'consecutiveFailures',
+      'lastSuccessfulRoundId', 'roundFenceProjectionId'],
     'schema=2 health', errorCode);
   Object.keys(recordFields).forEach(function(field) {
     const table = state[field];
@@ -1177,6 +1245,8 @@ function normalizeState_(state) {
   state.health.lastFailedSyncAt = state.health.lastFailedSyncAt || null;
   state.health.lastErrorMessage = state.health.lastErrorMessage || null;
   state.health.consecutiveFailures = state.health.consecutiveFailures || 0;
+  state.health.lastSuccessfulRoundId = state.health.lastSuccessfulRoundId || null;
+  state.health.roundFenceProjectionId = state.health.roundFenceProjectionId || null;
   // Do not rebuild reverse mappings during a migration.  Repairing a corrupt
   // state by deleting information can recreate remotely deleted objects.
   Object.keys(state.pendingTaskDeletions).forEach(function(gId) {
@@ -1228,8 +1298,36 @@ function truncateLabel_(value, max) {
   return value.length <= max ? value : value.slice(0, max) + '…';
 }
 
+function conservativePropertyBytes_(key, value) {
+  // Percent encoding is an intentional overestimate for non-ASCII text and
+  // therefore remains conservative without requiring a platform-specific
+  // UTF-8 helper.
+  return encodeURIComponent(String(key)).length + encodeURIComponent(String(value)).length;
+}
+
+function assertPropertyStorePreflight_(props, replacements) {
+  const projected = Object.assign({}, props.getProperties() || {});
+  Object.keys(replacements).forEach(function(key) {
+    const value = String(replacements[key]);
+    const valueBytes = conservativePropertyBytes_('', value);
+    if (valueBytes > PROPERTY_VALUE_SAFE_LIMIT_BYTES) {
+      throw new Error('STATE_PROPERTY_VALUE_LIMIT: a state property would exceed the safe per-value limit.');
+    }
+    projected[key] = value;
+  });
+  const bytes = Object.keys(projected).reduce(function(total, key) {
+    return total + conservativePropertyBytes_(key, projected[key]);
+  }, 0);
+  if (bytes > PROPERTY_STORE_SAFE_LIMIT_BYTES) {
+    throw new Error('STATE_STORE_LIMIT: projected User Properties usage exceeds the safe storage limit.');
+  }
+}
+
 function saveBlobAtomic_(baseKey, value) {
   const props = PropertiesService.getUserProperties();
+  // A successful-round recovery target can be older than the ordinary prior
+  // checkpoint. Read it before any write so cleanup never deletes that target.
+  const retainedGenerations = baseKey === STATE_KEY ? successfulRoundGenerations_(props) : [];
   const oldManifestRaw = props.getProperty(baseKey + '_manifest');
   let previousGeneration = null;
   if (oldManifestRaw) {
@@ -1240,7 +1338,15 @@ function saveBlobAtomic_(baseKey, value) {
     }
   }
   const encoded = encodeURIComponent(JSON.stringify(value));
-  const generation = String(Date.now()) + '_' + Math.floor(Math.random() * 1000000);
+  let generation = String(Date.now()) + '_' + Math.floor(Math.random() * 1000000);
+  let uniquenessAttempts = 0;
+  while (props.getProperty(baseKey + '_gen_' + generation + '_count') !== null) {
+    uniquenessAttempts += 1;
+    if (uniquenessAttempts > 10) {
+      throw new Error('STATE_GENERATION_ID_COLLISION: could not allocate a unique state generation.');
+    }
+    generation = String(Date.now()) + '_' + Math.floor(Math.random() * 1000000);
+  }
   const prefix = baseKey + '_gen_' + generation + '_';
   const batch = {};
   let count = 0;
@@ -1249,13 +1355,22 @@ function saveBlobAtomic_(baseKey, value) {
     count++;
   }
   batch[prefix + 'count'] = String(count);
-  props.setProperties(batch, false);
-  props.setProperty(baseKey + '_manifest', JSON.stringify({
+  const manifestValue = JSON.stringify({
     generation: generation,
     count: count,
     previousGeneration: previousGeneration
-  }));
-  cleanupOldGenerations_(props, baseKey, generation, previousGeneration);
+  });
+  const prospectiveWrites = Object.assign({}, batch);
+  prospectiveWrites[baseKey + '_manifest'] = manifestValue;
+  // Cleanup only happens after a manifest has been durably replaced, so do
+  // not subtract old chunks here. This rejects a write before any new chunk
+  // when its short-lived peak would be unsafe.
+  assertPropertyStorePreflight_(props, prospectiveWrites);
+  recordStateSaveCall_(baseKey);
+  props.setProperties(batch, false);
+  props.setProperty(baseKey + '_manifest', manifestValue);
+  cleanupOldGenerations_(props, baseKey, generation, previousGeneration, retainedGenerations);
+  return generation;
 }
 
 function loadBlobAtomic_(baseKey) {
@@ -1278,11 +1393,14 @@ function loadBlobAtomic_(baseKey) {
   }
 }
 
-function cleanupOldGenerations_(props, baseKey, keepGeneration, previousGeneration) {
+function cleanupOldGenerations_(props, baseKey, keepGeneration, previousGeneration, retainedGenerations) {
   const keepPrefixes = [baseKey + '_gen_' + keepGeneration + '_'];
   if (previousGeneration) {
     keepPrefixes.push(baseKey + '_gen_' + previousGeneration + '_');
   }
+  (retainedGenerations || []).forEach(function(generation) {
+    if (generation) keepPrefixes.push(baseKey + '_gen_' + generation + '_');
+  });
   const deleteKeys = props.getKeys().filter(function(key) {
     if (key.indexOf(baseKey + '_gen_') !== 0) return false;
     return !keepPrefixes.some(function(prefix) {
@@ -1296,7 +1414,101 @@ function cleanupOldGenerations_(props, baseKey, keepGeneration, previousGenerati
 
 function saveState_(state) {
   state.updatedAt = new Date().toISOString();
-  saveBlobAtomic_(STATE_KEY, state);
+  return saveBlobAtomic_(STATE_KEY, state);
+}
+
+function validSuccessfulRoundEntry_(entry) {
+  return !!entry && typeof entry === 'object' &&
+    typeof entry.generation === 'string' && !!entry.generation &&
+    typeof entry.roundId === 'string' && !!entry.roundId;
+}
+
+function successfulRoundManifest_(props) {
+  const raw = props.getProperty(SUCCESSFUL_ROUND_MANIFEST_KEY);
+  if (!raw) return null;
+  let manifest;
+  try {
+    manifest = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT：成功輪次復原指標無法解析。');
+  }
+  if (!manifest || manifest.version !== 1 || !validSuccessfulRoundEntry_(manifest.current) ||
+      (manifest.previous !== null && manifest.previous !== undefined && !validSuccessfulRoundEntry_(manifest.previous))) {
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT：成功輪次復原指標格式無效。');
+  }
+  return manifest;
+}
+
+function successfulRoundGenerations_(props) {
+  const manifest = successfulRoundManifest_(props);
+  if (!manifest) return [];
+  return [manifest.current.generation, manifest.previous && manifest.previous.generation].filter(Boolean);
+}
+
+function loadStateGeneration_(props, generation, errorCode) {
+  const prefix = STATE_KEY + '_gen_' + generation + '_';
+  const count = Number(props.getProperty(prefix + 'count'));
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + '：目標世代缺少有效 count。');
+  }
+  const parts = [];
+  for (let i = 0; i < count; i++) {
+    const piece = props.getProperty(prefix + i);
+    if (piece === null) throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + '：目標世代缺少 chunk ' + i + '。');
+    parts.push(piece);
+  }
+  try {
+    return normalizeState_(JSON.parse(decodeURIComponent(parts.join(''))));
+  } catch (e) {
+    if (String(e.message || '').indexOf(errorCode || 'STATE_RESTORE_CORRUPT') === 0) throw e;
+    throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + '：目標世代無法讀取。' + String(e && e.message ? e.message : e));
+  }
+}
+
+function currentStateGeneration_(props) {
+  const raw = props.getProperty(STATE_KEY + '_manifest');
+  if (!raw) throw new Error('STATE_RESTORE_UNAVAILABLE：找不到目前狀態 manifest。');
+  let manifest;
+  try {
+    manifest = JSON.parse(raw);
+  } catch (e) {
+    throw new Error('STATE_RESTORE_CORRUPT：目前狀態 manifest 無法解析。');
+  }
+  if (!manifest || typeof manifest.generation !== 'string' || !manifest.generation) {
+    throw new Error('STATE_RESTORE_CORRUPT：目前狀態 manifest 缺少世代。');
+  }
+  return manifest.generation;
+}
+
+function recordSuccessfulSyncRound_(roundId, generation) {
+  const props = PropertiesService.getUserProperties();
+  if (typeof generation !== 'string' || !generation) {
+    throw new Error('STATE_SUCCESSFUL_ROUND_GENERATION_REQUIRED：成功同步輪次必須引用已驗證的 final state generation。');
+  }
+  const existing = successfulRoundManifest_(props);
+  if (existing && existing.current.generation === generation && existing.current.roundId === roundId) return true;
+  if (existing && existing.current.generation === generation) {
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT：同一狀態世代對應不同成功輪次。');
+  }
+  const next = {
+    version: 1,
+    current: { generation: generation, roundId: roundId, committedAt: new Date().toISOString() },
+    previous: existing ? existing.current : null
+  };
+  props.setProperty(SUCCESSFUL_ROUND_MANIFEST_KEY, JSON.stringify(next));
+  const written = successfulRoundManifest_(props);
+  if (!written || written.current.generation !== generation || written.current.roundId !== roundId) {
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED：成功輪次復原指標無法確認。');
+  }
+  // Drop obsolete ordinary checkpoints only after the new durable pointer was
+  // verified. Its current and previous entries remain protected by cleanup.
+  const currentManifest = JSON.parse(props.getProperty(STATE_KEY + '_manifest') || 'null');
+  if (!currentManifest || !currentManifest.generation) {
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED：目前狀態 manifest 遺失。');
+  }
+  cleanupOldGenerations_(props, STATE_KEY, currentManifest.generation,
+    currentManifest.previousGeneration || null, successfulRoundGenerations_(props));
+  return true;
 }
 
 function syncRoundFenceStatus_() {
@@ -1306,12 +1518,14 @@ function syncRoundFenceStatus_() {
     const fence = JSON.parse(raw);
     return {
       active: true,
-      valid: !!fence && typeof fence === 'object' && typeof fence.roundId === 'string' && !!fence.roundId,
+      valid: !!fence && typeof fence === 'object' && typeof fence.roundId === 'string' && !!fence.roundId &&
+        ['arming', 'active'].indexOf(fence.phase) >= 0,
       roundId: fence && fence.roundId || null,
-      startedAt: fence && fence.startedAt || null
+      startedAt: fence && fence.startedAt || null,
+      phase: fence && fence.phase || null
     };
   } catch (e) {
-    return { active: true, valid: false, roundId: null, startedAt: null };
+    return { active: true, valid: false, roundId: null, startedAt: null, phase: null };
   }
 }
 
@@ -1327,14 +1541,18 @@ function openSyncRoundFence_(roundId) {
   const props = PropertiesService.getUserProperties();
   const expectedRoundId = String(roundId || Date.now());
   SYNC_ROUND_FENCE_ACTIVE_ = false;
+  SYNC_ROUND_FENCE_ROUND_ID_ = null;
+  SYNC_ROUND_PROOF_BASELINE_ = null;
   try {
     props.setProperty(ROUND_FENCE_KEY, JSON.stringify({
       roundId: expectedRoundId,
       startedAt: new Date().toISOString(),
-      phase: 'active'
+      // The immediately following durable projection changes this to active.
+      // A crash while arming has made no current-round proof durable.
+      phase: 'arming'
     }));
     const written = JSON.parse(props.getProperty(ROUND_FENCE_KEY) || 'null');
-    if (!written || written.roundId !== expectedRoundId || written.phase !== 'active') {
+    if (!written || written.roundId !== expectedRoundId || written.phase !== 'arming') {
       throw new Error('round fence read-back mismatch');
     }
   } catch (e) {
@@ -1342,6 +1560,28 @@ function openSyncRoundFence_(roundId) {
     throw new Error('SYNC_ROUND_FENCE_SET_FAILED：無法建立同步 safety fence；已在 inventory 前停止。' + e.message);
   }
   SYNC_ROUND_FENCE_ACTIVE_ = true;
+  SYNC_ROUND_FENCE_ROUND_ID_ = expectedRoundId;
+}
+
+function activateSyncRoundFence_(roundId) {
+  const props = PropertiesService.getUserProperties();
+  const expectedRoundId = String(roundId || SYNC_ROUND_FENCE_ROUND_ID_ || '');
+  const raw = props.getProperty(ROUND_FENCE_KEY);
+  let fence;
+  try {
+    fence = JSON.parse(raw || 'null');
+  } catch (e) {
+    fence = null;
+  }
+  if (!fence || fence.roundId !== expectedRoundId || fence.phase !== 'arming') {
+    throw new Error('SYNC_ROUND_FENCE_ACTIVATE_FAILED：同步 fence 無法由 arming 轉為 active。');
+  }
+  fence.phase = 'active';
+  props.setProperty(ROUND_FENCE_KEY, JSON.stringify(fence));
+  const written = syncRoundFenceStatus_();
+  if (!written.active || !written.valid || written.roundId !== expectedRoundId || written.phase !== 'active') {
+    throw new Error('SYNC_ROUND_FENCE_ACTIVATE_FAILED：同步 fence active read-back 不符。');
+  }
 }
 
 function clearSyncRoundFence_() {
@@ -1352,11 +1592,13 @@ function clearSyncRoundFence_() {
       throw new Error('round fence property still exists');
     }
   } catch (e) {
-    // Keep the execution-local flag true as well.  The next sync will see the
-    // durable fence, strip volatile proof, and retry the safe baseline.
-    throw new Error('SYNC_ROUND_FENCE_CLEAR_FAILED：final state 已保存但無法清除 safety fence；下輪將安全捨棄 volatile proof。' + e.message);
+    // Keep the execution-local flag true as well. The next sync verifies the
+    // durable state before selecting final-commit recovery or the safe baseline.
+    throw new Error('SYNC_ROUND_FENCE_CLEAR_FAILED：final state 已保存但無法清除 safety fence；下輪將先驗證 durable state 再安全恢復。' + e.message);
   }
   SYNC_ROUND_FENCE_ACTIVE_ = false;
+  SYNC_ROUND_FENCE_ROUND_ID_ = null;
+  SYNC_ROUND_PROOF_BASELINE_ = null;
 }
 
 function exactJournalListPairMeta_(state) {
@@ -1374,7 +1616,44 @@ function exactJournalListPairMeta_(state) {
   return preserved;
 }
 
-function strippedVolatileProofState_(state) {
+function sameTaskDeletionCandidate_(before, current) {
+  if (!before || !current) return false;
+  return ['gId', 'msId', 'missingSide', 'gListId', 'msListId', 'gUpdated', 'msUpdated'].every(function(field) {
+    return before[field] === current[field];
+  });
+}
+
+function roundBaselineTaskCandidates_(state, baseline) {
+  const preserved = {};
+  const pending = state.pendingTaskDeletions || {};
+  Object.keys((baseline && baseline.pendingTaskDeletions) || {}).forEach(function(gId) {
+    const before = baseline.pendingTaskDeletions[gId];
+    const current = pending[gId];
+    // Keep only an unchanged pre-round observation. A reappearance, explicit
+    // pause, conflict, or changed missing-side scenario removes it instead of
+    // resurrecting stale deletion proof.
+    if (sameTaskDeletionCandidate_(before, current) && state.g2m[gId]) {
+      preserved[gId] = cloneTaskDeletionValue_(before);
+    }
+  });
+  return preserved;
+}
+
+function roundBaselineListCandidates_(state, baseline) {
+  const preserved = {};
+  const pending = state.pendingListDeletions || {};
+  Object.keys((baseline && baseline.pendingListDeletions) || {}).forEach(function(key) {
+    const before = baseline.pendingListDeletions[key];
+    const current = pending[key];
+    if (listDeletionScenarioMatches_(before, current) &&
+        state.listMap[before.gListId] === before.msListId) {
+      preserved[key] = cloneTaskDeletionValue_(before);
+    }
+  });
+  return preserved;
+}
+
+function strippedVolatileProofState_(state, baseline, roundId) {
   const projected = cloneTaskDeletionValue_(state);
   ensureTaskDeletionState_(projected);
   ensureListDeletionState_(projected);
@@ -1383,18 +1662,27 @@ function strippedVolatileProofState_(state) {
   // one-sided delete as fresh both-missing, but malformed/rebound journals get
   // no provenance and therefore fail closed.
   projected.listPairMeta = exactJournalListPairMeta_(state);
-  projected.pendingTaskDeletions = {};
-  projected.pendingListDeletions = {};
+  projected.pendingTaskDeletions = roundBaselineTaskCandidates_(state, baseline);
+  projected.pendingListDeletions = roundBaselineListCandidates_(state, baseline);
+  if (roundId) projected.health.roundFenceProjectionId = roundId;
   return projected;
 }
 
 function persistSyncState_(state, options) {
   const finalCommit = !!(options && options.finalCommit);
   if (SYNC_ROUND_FENCE_ACTIVE_ && !finalCommit) {
-    saveState_(strippedVolatileProofState_(state));
-    return;
+    return saveState_(strippedVolatileProofState_(state, SYNC_ROUND_PROOF_BASELINE_, SYNC_ROUND_FENCE_ROUND_ID_));
   }
-  saveState_(state);
+  return saveState_(state);
+}
+
+function beginSyncRoundProofProjection_(state, roundId, pendingTaskDeletions, pendingListDeletions) {
+  SYNC_ROUND_PROOF_BASELINE_ = {
+    pendingTaskDeletions: cloneTaskDeletionValue_(pendingTaskDeletions || {}),
+    pendingListDeletions: cloneTaskDeletionValue_(pendingListDeletions || {})
+  };
+  persistSyncState_(state);
+  activateSyncRoundFence_(roundId);
 }
 
 function sanitizePreexistingSyncRoundFence_(state) {
@@ -1403,6 +1691,38 @@ function sanitizePreexistingSyncRoundFence_(state) {
   // This runs before opening the new fence and before every inventory/remote
   // call. Persist first; clear second. A clear failure leaves the old fence
   // for an idempotent repeat and blocks the new round.
+  if (!fence.valid) {
+    // No verified round identity means no way to distinguish a final commit
+    // from volatile proof. Retain the legacy fail-closed behavior.
+    const sanitized = strippedVolatileProofState_(state);
+    saveState_(sanitized);
+    clearSyncRoundFence_();
+    return sanitized;
+  }
+  if (fence.phase === 'arming') {
+    // Arming precedes the first inventory/API call. If a hard stop lands in
+    // that tiny window, the current state is still the prior completed state.
+    clearSyncRoundFence_();
+    return state;
+  }
+  const health = state.health || {};
+  if (health.lastSuccessfulRoundId === fence.roundId) {
+    // The final main-state commit won the race with the crash. Repair a missed
+    // successful-round pointer before releasing the fence.
+    const props = PropertiesService.getUserProperties();
+    recordSuccessfulSyncRound_(fence.roundId, currentStateGeneration_(props));
+    clearSyncRoundFence_();
+    return state;
+  }
+  if (health.roundFenceProjectionId === fence.roundId) {
+    // This is the durable non-final projection written immediately after the
+    // fence was armed. It contains only the round-start proof baseline.
+    clearSyncRoundFence_();
+    return state;
+  }
+  // State created before the projection protocol has no trustworthy marker.
+  // Keep the old fail-closed migration path rather than treating a checkpoint
+  // as a successful round.
   const sanitized = strippedVolatileProofState_(state);
   saveState_(sanitized);
   clearSyncRoundFence_();
@@ -1741,8 +2061,22 @@ function sendFatalAlert_(message) {
     console.warn('[Alert] 嚴重錯誤警報仍在冷卻期，跳過寄信。');
     return;
   }
-  const sent = sendMailAlert_('[同步引擎] 同步失敗', '同步失敗，請查看 Apps Script 執行紀錄。\n\n' + message);
+  const sent = sendMailAlert_('[同步引擎] 同步失敗', redactFatalAlert_(message));
   if (sent) markAlertSent_(ALERT_KEYS.fatal);
+}
+
+function redactFatalAlert_(error) {
+  const raw = String(error == null ? '' : error);
+  const http = raw.match(/\bHTTP\s+(\d{3})\b/i);
+  const type = raw.match(/\b([A-Z][A-Z0-9_]{2,})\b/);
+  const correlation = raw.match(/\b(?:correlation|request)[ _-]?(?:id|code)?\s*[:=]\s*([A-Za-z0-9-]{6,80})\b/i);
+  const lines = [
+    'Sync failed. Check the Apps Script execution log.',
+    'HTTP code: ' + (http ? http[1] : 'unavailable'),
+    'Error type: ' + (type ? type[1] : 'UNCLASSIFIED')
+  ];
+  if (correlation) lines.push('Correlation code: ' + correlation[1]);
+  return lines.join('\n');
 }
 
 function sendListFaultAlert_(message) {
@@ -1754,24 +2088,45 @@ function sendListFaultAlert_(message) {
   if (sent) markAlertSent_(ALERT_KEYS.listFault);
 }
 
+function forceMicrosoftRefresh_(service) {
+  if (!service || typeof service.refresh !== 'function') {
+    return { ok: false, code: 'OAUTH_REFRESH_UNSUPPORTED' };
+  }
+  try {
+    service.refresh();
+    if (typeof service.hasAccess !== 'function' || !service.hasAccess()) {
+      return { ok: false, code: 'OAUTH_REFRESH_FAILED' };
+    }
+    const token = service.getAccessToken();
+    return typeof token === 'string' && token ? { ok: true, token: token } :
+      { ok: false, code: 'OAUTH_REFRESH_FAILED' };
+  } catch (e) {
+    return { ok: false, code: 'OAUTH_REFRESH_FAILED' };
+  }
+}
+
 function fetchJsonWithRetry_(url, options, authKind) {
   let lastError = null;
+  let msService = null;
+  let refreshedMicrosoftToken = null;
+  let forcedRefreshAttempted = false;
   for (let attempt = 0; attempt <= HTTP_MAX_RETRIES; attempt++) {
     const opts = Object.assign({ muteHttpExceptions: true }, options || {});
     opts.headers = Object.assign({}, opts.headers || {});
     if (authKind === 'ms') {
-      const service = microsoftService_();
-      if (!service.hasAccess()) {
+      msService = msService || microsoftService_();
+      if (!msService.hasAccess()) {
         sendReauthorizationAlert_();
         throw new Error('Microsoft 授權失效，請重新授權。');
       }
-      opts.headers.Authorization = 'Bearer ' + service.getAccessToken();
+      opts.headers.Authorization = 'Bearer ' + (refreshedMicrosoftToken || msService.getAccessToken());
     } else {
       opts.headers.Authorization = 'Bearer ' + ScriptApp.getOAuthToken();
     }
     if (opts.payload !== undefined && !opts.headers['Content-Type']) {
       opts.headers['Content-Type'] = 'application/json';
     }
+    recordUrlFetchCall_();
     const response = UrlFetchApp.fetch(url, opts);
     const code = response.getResponseCode();
     const text = response.getContentText();
@@ -1779,9 +2134,21 @@ function fetchJsonWithRetry_(url, options, authKind) {
       return text ? JSON.parse(text) : null;
     }
     if (authKind === 'ms' && code === 401) {
-      microsoftService_().reset();
+      if (!forcedRefreshAttempted) {
+        forcedRefreshAttempted = true;
+        const refresh = forceMicrosoftRefresh_(msService);
+        if (refresh.ok) {
+          refreshedMicrosoftToken = refresh.token;
+          continue;
+        }
+      }
+      try {
+        msService.reset();
+      } catch (e) {
+        // Reset failure does not make the reauthorization alert safe to skip.
+      }
       sendReauthorizationAlert_();
-      throw new Error('HTTP 401：Microsoft 授權失效。');
+      throw new Error('HTTP 401: Microsoft authorization requires reauthorization.');
     }
     const transient = code === 429 || code === 408 || (code >= 500 && code < 600);
     lastError = new Error('HTTP ' + code + ': ' + text);
@@ -1809,7 +2176,20 @@ function gFetch_(path, options) {
 function getAllPages_(firstUrl, fetcher, itemField, tokenMode) {
   let url = firstUrl;
   let items = [];
+  const seen = {};
+  let pageCount = 0;
   while (url) {
+    if (RUN_STARTED_AT && !remainingTimeOk_(RUN_STARTED_AT, PAGINATION_RESERVE_MS)) {
+      throw new Error('TIME_BUDGET_PAGINATION: insufficient time for another page.');
+    }
+    if (seen[url]) {
+      throw new Error('PAGINATION_LOOP: repeated page token or nextLink.');
+    }
+    if (pageCount >= PAGINATION_MAX_PAGES) {
+      throw new Error('PAGINATION_PAGE_CAP: page cap exceeded.');
+    }
+    seen[url] = true;
+    pageCount += 1;
     const page = fetcher(url) || {};
     items = items.concat(page[itemField] || []);
     if (tokenMode === 'google') {
@@ -1880,14 +2260,14 @@ function getMsTask_(listId, taskId) {
 function createMsList_(displayName) {
   return graphFetch_(MS_TODO_BASE, {
     method: 'post',
-    payload: JSON.stringify({ displayName: displayName || '(無標題清單)' })
+    payload: JSON.stringify({ displayName: displayName || '(Untitled list)' })
   });
 }
 
 function createGList_(title) {
   return gFetch_('/users/@me/lists', {
     method: 'post',
-    payload: JSON.stringify({ title: title || '(無標題清單)' })
+    payload: JSON.stringify({ title: title || '(Untitled list)' })
   });
 }
 
@@ -2156,15 +2536,30 @@ function htmlToText_(html) {
     .trim();
 }
 
-function googlePayloadFromMs_(task) {
+function googlePayloadFromMs_(task, mode) {
   const rawContent = task.body && task.body.content ? task.body.content : '';
   const isHtml = task.body && String(task.body.contentType || '').toLowerCase() === 'html';
-  return {
-    title: task.title || '(無標題)',
+  const payload = {
+    title: task.title || '(Untitled)',
     notes: isHtml ? htmlToText_(rawContent) : rawContent,
-    due: googleDue_(task.dueDateTime),
     status: task.status === 'completed' ? 'completed' : 'needsAction'
   };
+  if (task && Object.prototype.hasOwnProperty.call(task, 'dueDateTime')) {
+    if (task.dueDateTime === null || task.dueDateTime === undefined || task.dueDateTime === '') {
+      payload.due = null;
+    } else {
+      const due = googleDue_(task.dueDateTime);
+      // Graph can return a non-IANA zone even when Prefer was requested. With
+      // no offset that date cannot be proved, so omit due rather than clear a
+      // valid Google value during a PATCH.
+      if (due) payload.due = due;
+    }
+  } else if (mode === 'create') {
+    // Keep Google create payload semantics explicit even when a provider mock
+    // or partial Graph object omitted the optional dueDateTime field.
+    payload.due = null;
+  }
+  return payload;
 }
 
 function googleNotesAreBlank_(notes) {
@@ -2177,7 +2572,7 @@ function msPayloadFromGoogle_(task, mode) {
   }
   const notes = task && task.notes;
   const payload = {
-    title: task.title || '(無標題)'
+    title: task.title || '(Untitled)'
   };
   if (mode === 'update' || !googleNotesAreBlank_(notes)) {
     payload.body = {
@@ -2187,6 +2582,43 @@ function msPayloadFromGoogle_(task, mode) {
   }
   payload.dueDateTime = msDue_(task.due);
   payload.status = task.status === 'completed' ? 'completed' : 'notStarted';
+  return payload;
+}
+
+function googleNotesPlainTextProjection_(notes) {
+  return googleNotesAreBlank_(notes) ? '' : htmlToText_(textToHtml_(String(notes)));
+}
+
+function microsoftNotesPlainTextProjection_(task) {
+  const body = task && task.body;
+  if (!body || !body.content) return '';
+  return String(body.contentType || '').toLowerCase() === 'html'
+    ? htmlToText_(body.content)
+    : String(body.content);
+}
+
+function sameGoogleAndMicrosoftDue_(googleDue, microsoftDue) {
+  const googleDay = googleDueDateOnly_(googleDue);
+  if (!googleDay) return !microsoftDue;
+  return !!microsoftDue && googleDue_(microsoftDue) === googleDay + 'T00:00:00.000Z';
+}
+
+function msUpdatePayloadFromGoogle_(googleTask, microsoftTask) {
+  const payload = msPayloadFromGoogle_(googleTask, 'update');
+  if (String(payload.title) === String((microsoftTask && microsoftTask.title) || '(Untitled)')) {
+    delete payload.title;
+  }
+  if (sameGoogleAndMicrosoftDue_(googleTask && googleTask.due,
+    microsoftTask && microsoftTask.dueDateTime)) {
+    delete payload.dueDateTime;
+  }
+  if (String(payload.status) === String((microsoftTask && microsoftTask.status) || 'notStarted')) {
+    delete payload.status;
+  }
+  if (googleNotesPlainTextProjection_(googleTask && googleTask.notes) ===
+      microsoftNotesPlainTextProjection_(microsoftTask)) {
+    delete payload.body;
+  }
   return payload;
 }
 
@@ -4395,7 +4827,7 @@ function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
         target = msLists.find(function(x) { return x.displayName === gList.title && !mappedMsIds[x.id]; }) || null;
       }
       if (!target) {
-        target = createMsList_(gList.title || '(無標題清單)');
+      target = createMsList_(gList.title || '(Untitled list)');
         msLists.push(target);
         msById[target.id] = target;
         console.log('[List] 建立 MS 清單：' + (VERBOSE_LOG ? (gList.title || '(無標題清單)') : gList.id));
@@ -4708,7 +5140,7 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
   plan.createMicrosoft.forEach(function(google) {
     if (isGListFaulted_(state, google.id) || state.listMap[google.id]) return;
     assertAutoListCreateStillSafe_(state, 'microsoft', google, gLists, allMsLists, gDefaultList, safety);
-    const microsoft = createMsList_(google.title || '(無標題清單)');
+      const microsoft = createMsList_(google.title || '(Untitled list)');
     if (!microsoft || !microsoft.id) throw new Error('AUTO_CREATE_MICROSOFT_LIST_FAILED：未取得新 Microsoft 清單 ID。');
     allMsLists.push(microsoft);
     state.listMap[google.id] = microsoft.id;
@@ -4722,7 +5154,7 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
     });
     if (alreadyMapped) return;
     assertAutoListCreateStillSafe_(state, 'google', microsoft, gLists, allMsLists, gDefaultList, safety);
-    const google = createGList_(microsoft.displayName || '(無標題清單)');
+      const google = createGList_(microsoft.displayName || '(Untitled list)');
     if (!google || !google.id) throw new Error('AUTO_CREATE_GOOGLE_LIST_FAILED：未取得新 Google 清單 ID。');
     gLists.push(google);
     state.listMap[google.id] = microsoft.id;
@@ -4742,7 +5174,6 @@ function ensureListMappings_(state, gLists, allMsLists, activeGListIds, safety, 
 function buildSnapshot_(state, startedAt) {
   const safety = getSafetyConfig_();
   requireSyncAllowlist_(safety);
-  requireSafeAutoDiscovery_(safety);
   requireConfiguredListPairsApplied_(state, safety);
   const allGLists = getGLists_();
   const gLists = allowedGoogleLists_(allGLists, safety);
@@ -5023,14 +5454,20 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
     const gChanged = epoch_(gTask.updated) > epoch_(rec.gUpdated);
     const mChanged = epoch_(msTask.lastModifiedDateTime) > epoch_(rec.msUpdated);
     if (gChanged && !mChanged) {
-      const updatedMs = updateMsTask_(rec.msListId, msId, msPayloadFromGoogle_(gTask, 'update'));
+      const payload = msUpdatePayloadFromGoogle_(gTask, msTask);
+      const updatedMs = Object.keys(payload).length
+        ? updateMsTask_(rec.msListId, msId, payload)
+        : msTask;
       putMapping_(state, gTask, currentGListId, updatedMs, rec.msListId);
     } else if (!gChanged && mChanged) {
       const updatedG = updateGTask_(rec.gListId, gId, googlePayloadFromMs_(msTask));
       putMapping_(state, updatedG, rec.gListId, msTask, rec.msListId);
     } else if (gChanged && mChanged) {
       if (epoch_(gTask.updated) >= epoch_(msTask.lastModifiedDateTime)) {
-        const updatedMs = updateMsTask_(rec.msListId, msId, msPayloadFromGoogle_(gTask, 'update'));
+        const payload = msUpdatePayloadFromGoogle_(gTask, msTask);
+        const updatedMs = Object.keys(payload).length
+          ? updateMsTask_(rec.msListId, msId, payload)
+          : msTask;
         putMapping_(state, gTask, currentGListId, updatedMs, rec.msListId);
         console.warn('[Conflict] LWW 選 Google：' + taskLabel_(gId, gTask.title));
       } else {
@@ -5075,16 +5512,18 @@ function createUnmapped_(state, snap, startedAt) {
     });
     if (!gListId) continue;
     if (isListPairReserved_(snap, gListId, msListId)) continue;
-    const gTask = createGTask_(gListId, googlePayloadFromMs_(msTask));
+    const gTask = createGTask_(gListId, googlePayloadFromMs_(msTask, 'create'));
     putMapping_(state, gTask, gListId, msTask, msListId);
     console.log('[Create] MS → Google：' + taskLabel_(msId, msTask.title));
   }
 }
 
 function syncAll() {
+  const entryStartedAt = initializeExecutionBudget_();
+  beginSyncObservability_(entryStartedAt);
   return withGlobalLock_(function() {
-    const startedAt = Date.now();
-    RUN_STARTED_AT = startedAt;
+    const startedAt = entryStartedAt;
+    const roundId = deletionRoundId_(startedAt);
     let state;
     let snap = null;
     let safetyAtStart = null;
@@ -5101,11 +5540,10 @@ function syncAll() {
       // proof untrusted. Persist the stripped baseline before clearing it; any
       // failure here stops before a single inventory or remote call.
       state = sanitizePreexistingSyncRoundFence_(state);
-      openSyncRoundFence_(String(startedAt) + '-' + Math.random());
-      roundFenceOpened = true;
     } catch (e) {
       console.error('[Sync] 狀態載入失敗：' + e.message);
       sendFatalAlert_('狀態載入失敗：' + e.message);
+      logSyncSummary_('failure');
       throw e;
     }
     try {
@@ -5115,6 +5553,13 @@ function syncAll() {
       pendingListDeletionsBeforeRound = JSON.parse(JSON.stringify(state.pendingListDeletions));
       deletionProgress.pendingBeforeRound = pendingTaskDeletionsBeforeRound;
       listDeletionProgress.pendingListBeforeRound = pendingListDeletionsBeforeRound;
+      // Write a fenced, baseline-only projection before any inventory/API
+      // work. A hard crash can therefore retain completed-round 1/2 proof
+      // without retaining current-round observations.
+      openSyncRoundFence_(roundId);
+      roundFenceOpened = true;
+      beginSyncRoundProofProjection_(state, roundId,
+        pendingTaskDeletionsBeforeRound, pendingListDeletionsBeforeRound);
       safetyAtStart = getSafetyConfig_();
       if (!safetyAtStart.allowDeletions) {
         // Pause durable delete intent before any inventory/API work.  If the
@@ -5131,7 +5576,6 @@ function syncAll() {
       cleanupTombstones_(state);
       cleanupListTombstones_(state);
       snap = buildSnapshot_(state, startedAt);
-      const roundId = deletionRoundId_(startedAt);
       reconcileMapped_(state, snap, startedAt, roundId, deletionProgress);
       createUnmapped_(state, snap, startedAt);
       deletionStateBeforeApply = captureTaskDeletionState_(state);
@@ -5141,17 +5585,21 @@ function syncAll() {
       state.health.lastFailedSyncAt = null;
       state.health.lastErrorMessage = null;
       state.health.consecutiveFailures = 0;
+      state.health.lastSuccessfulRoundId = roundId;
+      state.health.roundFenceProjectionId = null;
       normalizeState_(state);
-      persistSyncState_(state, { finalCommit: true });
+      const finalGeneration = persistSyncState_(state, { finalCommit: true });
       finalStateCommitted = true;
+      recordSuccessfulSyncRound_(roundId, finalGeneration);
       clearSyncRoundFence_();
       console.log('[Sync] 完成。mapping=' + Object.keys(state.g2m).length);
+      logSyncSummary_('success');
     } catch (e) {
       const isTimeBudget = String(e.message).indexOf('TIME_BUDGET_') === 0;
       try {
         // A final state commit followed by a failed fence clear is a special
         // crash-recovery state. Do not overwrite it or clear the fence here:
-        // next load must strip volatile proof before it can be reused.
+        // next load must verify the durable final commit before resuming.
         if (roundFenceOpened && finalStateCommitted) throw e;
         // Only a successful pre-delete journal save may survive a failed round.
         // Restore every other candidate to its prior completed-round value so an
@@ -5191,10 +5639,12 @@ function syncAll() {
       }
       if (isTimeBudget) {
         console.warn('[Sync] 接近時間上限，已安全保存 durable state；下輪會重新執行完整 inventory，沒有持久化 page cursor。');
+        logSyncSummary_('time_budget');
         return;
       }
       sendFatalAlert_(String(e.message || e));
       console.error('[Sync] 失敗：' + e.message + '\n' + (e.stack || ''));
+      logSyncSummary_('failure');
       throw e;
     }
   });
@@ -5413,8 +5863,23 @@ function appendTaskMovePreview_(state, inventory, safety, actions, warnings, pen
 }
 
 function dryRunReport() {
-  RUN_STARTED_AT = Date.now();
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
+    let safety;
+    try {
+      safety = getSafetyConfig_();
+    } catch (e) {
+      const report = {
+        warnings: [boundedSafetyConfigIssue_(e)],
+        actions: [],
+        info: [],
+        pendingMoves: [],
+        pendingMoveSummary: pendingMoveSummary_([]),
+        note: 'Configuration validation stopped this read-only report before provider inventory.'
+      };
+      console.log(JSON.stringify(report, null, 2));
+      return report;
+    }
     const roundFence = syncRoundFenceStatus_();
     const loaded = loadStateForInspection_();
     if (loaded.corrupt) {
@@ -5437,9 +5902,8 @@ function dryRunReport() {
     const info = [];
     const pendingMoves = [];
     if (roundFence.active) {
-      warnings.push('[WARNING] 有未完成的 sync round safety fence；下一次 syncAll 會先清除 volatile deletion proof 再繼續。');
+    warnings.push('[WARNING] 有未完成的 sync round safety fence；下一次 syncAll 會先驗證 final commit 或保留 baseline proof，再繼續。');
     }
-    const safety = getSafetyConfig_();
     const allGLists = getGLists_();
     const gLists = allowedGoogleLists_(allGLists, safety);
     const selectedGListIds = {};
@@ -5464,7 +5928,6 @@ function dryRunReport() {
       let lifecycle;
       let autoError = null;
       try {
-        requireSafeAutoDiscovery_(safety);
         gDefaultList = getGDefaultList_();
         if (!gDefaultList || !gDefaultList.id || !allGLists.some(function(list) {
           return list.id === gDefaultList.id;
@@ -5794,9 +6257,9 @@ function dryRunReport() {
 }
 
 function createTrigger() {
+  initializeExecutionBudget_();
   const safety = getSafetyConfig_();
   requireSyncAllowlist_(safety);
-  requireSafeAutoDiscovery_(safety);
   requireConfiguredListPairsApplied_(loadStateForSync_(), safety);
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
     if (trigger.getHandlerFunction() === 'syncAll') ScriptApp.deleteTrigger(trigger);
@@ -5807,6 +6270,7 @@ function createTrigger() {
 }
 
 function deleteSyncTriggers() {
+  initializeExecutionBudget_();
   ScriptApp.getProjectTriggers().forEach(function(trigger) {
     if (trigger.getHandlerFunction() === 'syncAll') ScriptApp.deleteTrigger(trigger);
   });
@@ -6194,6 +6658,7 @@ function taskMoveOperationPublicResult_(operation, entry, evidence, plan, previe
 }
 
 function previewTaskMoveJournalOperation() {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('MOVE_OPERATION');
     const operation = parseTaskMoveOperation_(false);
@@ -6235,6 +6700,7 @@ function saveTaskMoveOperationReceipt_(operation, entry, state) {
 }
 
 function applyTaskMoveJournalOperation() {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('MOVE_OPERATION');
     const operation = parseTaskMoveOperation_(true);
@@ -6282,9 +6748,27 @@ function applyTaskMoveJournalOperation() {
 }
 
 function healthCheck() {
+  initializeExecutionBudget_();
   const issues = [];
   const roundFence = syncRoundFenceStatus_();
-  const safety = getSafetyConfig_();
+  let safety;
+  try {
+    safety = getSafetyConfig_();
+  } catch (e) {
+    const report = {
+      ok: false,
+      issues: [boundedSafetyConfigIssue_(e)],
+      health: null,
+      taskDeletion: null,
+      taskMoves: null,
+      listDeletion: null,
+      listTombstoneIntegrityIssues: [],
+      listTombstoneIntegrityIssueCount: 0,
+      roundFence: roundFence
+    };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  }
   if (!isAutoDiscoveryMode_(safety) && !safety.googleListIds.length) {
     issues.push('尚未設定 SYNC_GOOGLE_LIST_IDS；同步與觸發器目前被安全鎖住。');
   }
@@ -6354,9 +6838,9 @@ function healthCheck() {
       ' 個 legacy task move journal 沒有 correlation marker；不會自動採納或重建。請執行 inspectTaskMoveJournals()。');
   }
   if (roundFence.active) {
-    issues.push('有未完成的 sync round safety fence；下一次 syncAll 會先清除 volatile deletion proof，再安全恢復。');
+    issues.push('有未完成的 sync round safety fence；下一次 syncAll 會先驗證 final commit 或保留 baseline proof，再安全恢復。');
   }
-  console.log(JSON.stringify({
+  const report = {
     ok: issues.length === 0,
     issues: issues,
     health: state.health,
@@ -6369,7 +6853,9 @@ function healthCheck() {
     listTombstoneIntegrityIssues: listTombstoneIntegrityIssues,
     listTombstoneIntegrityIssueCount: listTombstoneIntegrityIssues.length,
     roundFence: roundFence
-  }, null, 2));
+  };
+  console.log(JSON.stringify(report, null, 2));
+  return report;
 }
 
 function exportSyncState() {
@@ -6391,43 +6877,46 @@ function exportRawSyncState() {
       raw[key] = all[key];
     }
   });
-  const bundle = { exportedAt: new Date().toISOString(), properties: raw };
+  const bundle = {
+    warning: 'SENSITIVE_STATE_EXPORT: handle this raw state as private data and do not share it.',
+    exportedAt: new Date().toISOString(),
+    properties: raw
+  };
+  console.warn('[Export] WARNING: raw state may contain sensitive provider data or OAuth state.');
   console.log(JSON.stringify(bundle, null, 2));
   return bundle;
 }
 
 function restorePreviousSyncState() {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('STATE_RESTORE');
     const current = loadStateForSync_();
     assertNoAnyDeletionJournals_(current, 'STATE_RESTORE');
     const props = PropertiesService.getUserProperties();
-    const manifestRaw = props.getProperty(STATE_KEY + '_manifest');
-    if (!manifestRaw) throw new Error('STATE_RESTORE_UNAVAILABLE：找不到狀態 manifest。');
-    const manifest = JSON.parse(manifestRaw);
-    const generation = manifest.previousGeneration;
-    if (!generation) throw new Error('STATE_RESTORE_UNAVAILABLE：沒有上一個狀態世代。');
-    const prefix = STATE_KEY + '_gen_' + generation + '_';
-    const count = Number(props.getProperty(prefix + 'count'));
-    if (!Number.isInteger(count) || count < 1) {
-      throw new Error('STATE_RESTORE_CORRUPT：上一世代缺少有效 count。');
+    const successful = successfulRoundManifest_(props);
+    if (!successful) {
+      throw new Error('STATE_RESTORE_UNAVAILABLE：尚無可驗證的成功同步輪次快照。');
     }
-    const parts = [];
-    for (let i = 0; i < count; i++) {
-      const piece = props.getProperty(prefix + i);
-      if (piece === null) throw new Error('STATE_RESTORE_CORRUPT：上一世代缺少 chunk ' + i + '。');
-      parts.push(piece);
+    const currentGeneration = currentStateGeneration_(props);
+    // If the main state is the current successful final commit, restore the
+    // prior successful commit. Otherwise it is a failed/catch checkpoint and
+    // recovery returns to the most recent successful commit.
+    const target = currentGeneration === successful.current.generation ? successful.previous : successful.current;
+    if (!target) {
+      throw new Error('STATE_RESTORE_UNAVAILABLE：沒有更早的成功同步輪次可復原。');
     }
-    const previous = normalizeState_(JSON.parse(decodeURIComponent(parts.join(''))));
+    const previous = loadStateGeneration_(props, target.generation, 'STATE_RESTORE_CORRUPT');
     assertNoAnyDeletionJournals_(previous, 'STATE_RESTORE');
     assertTombstoneEvidencePreserved_(current, previous);
     assertActiveDeletionEvidencePreserved_(current, previous);
     saveState_(previous);
-    console.log('[Restore] 已將上一個可讀世代複製為目前狀態。請先執行 dryRunReport()。');
+    console.log('[Restore] 已將目標成功同步輪次複製為目前狀態。請先執行 dryRunReport()。');
   });
 }
 
 function importSyncState(jsonString) {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('IMPORT');
     const current = loadStateForSync_();
@@ -6830,6 +7319,7 @@ function resolveFaultedGoogleListPair_(state, gListId, fault) {
 }
 
 function repairFaultedListByGoogleId(gListId) {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('REPAIR');
     const state = loadStateForSync_();
@@ -6879,6 +7369,7 @@ function repairFaultedListByGoogleId(gListId) {
 }
 
 function repairFaultedListFromProperty() {
+  initializeExecutionBudget_();
   const gListId = PropertiesService.getScriptProperties().getProperty('REPAIR_GOOGLE_LIST_ID');
   if (!gListId) {
     throw new Error('請先在 Script Properties 設定 REPAIR_GOOGLE_LIST_ID。');
@@ -6887,6 +7378,7 @@ function repairFaultedListFromProperty() {
 }
 
 function clearAllListFaultsAndPrepareResync() {
+  initializeExecutionBudget_();
   return withGlobalLock_(function() {
     assertNoActiveSyncRoundFence_('REPAIR');
     const state = loadStateForSync_();

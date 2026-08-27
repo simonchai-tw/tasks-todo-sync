@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.1 — 2026-08-28
+
+### Recovery, integrity, and deployment safeguards
+
+- Fixed `npx tasks-todo-sync init --timezone <IANA>` so non-`Asia/Taipei` time zones are applied by parsing and updating the manifest JSON rather than relying on a particular whitespace layout. The packed-package smoke check remains part of release verification.
+- Added a round fence that preserves the last successful task/list-deletion baseline when an incomplete run exits; only proof from the incomplete round is discarded.
+- Separated successful-round manifests from intra-round checkpoints. `restorePreviousSyncState()` now restores only a verifiable successful generation; after an upgrade, complete one successful sync before relying on restore, and legacy state without that evidence fails closed.
+- Preserved Microsoft rich-text task bodies when a Google-side change affects only title, date, or completion state. A body update is limited to a changed notes text projection.
+- Added bounded authorization refresh/error behavior and redacted fatal alert output. Raw state exports and recovery receipts remain sensitive private data.
+- Added fail-closed pagination guards, aggregate User Properties storage-headroom checks, and privacy-bounded per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The final local release checks verified these guards; details appear in the [v0.1.1 release notes](docs/release-v0.1.1.md#verification).
+- Retained public defaults of automatic list discovery, task deletion enabled, list deletion enabled, and task moves disabled. Ordinary changes normally appear within 0–10 minutes on the 10-minute trigger; two-round deletion confirmation normally settles within 10–20 minutes.
+- Verified the `v0.1.1` local regression suite at **196 / 196 passed**, together with `npm run check`, `npm run smoke:package`, and `git diff --check`.
+
 ## 0.1.0 — 2026-08-26
 
 ### First stable release
