@@ -11,12 +11,12 @@ For the `v0.1.1` changes and release verification boundary, see the [release not
 The `v0.1.1` productized flow is:
 
 ```bash
-npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init
+npx --yes tasks-todo-sync@0.1.1 init
 ```
 
-The CLI defaults to this computer's resolved IANA time zone. Pass `--timezone <IANA>` to override it. It uses `clasp` to create a private standalone Apps Script project, applies the selected time zone to the manifest, pushes the exact `Code.gs` and `appsscript.json` sources, and prints the editor URL with the remaining post-deploy steps. For noninteractive use, `npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init --timezone Asia/Taipei --yes` supplies the time zone and confirmation explicitly.
+The CLI defaults to this computer's resolved IANA time zone. Pass `--timezone <IANA>` to override it. It uses `clasp` to create a private standalone Apps Script project, applies the selected time zone to the manifest, pushes the exact `Code.gs` and `appsscript.json` sources, and prints the editor URL with the remaining post-deploy steps. For noninteractive use, `npx --yes tasks-todo-sync@0.1.1 init --timezone Asia/Taipei --yes` supplies the time zone and confirmation explicitly.
 
-The CLI deploys the source and prints the remaining steps. It does not open the editor, execute Apps Script functions, or write Script Properties. Open the printed editor URL and run `initializeSafeDefaults()` there. The CLI never accepts or stores `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or any other Microsoft credential. If `npx` cannot resolve the pinned GitHub release, use the [manual fallback](deployment.md#manual-apps-script-fallback).
+The CLI deploys the source and prints the remaining steps. It does not open the editor, execute Apps Script functions, or write Script Properties. Open the printed editor URL and run `initializeSafeDefaults()` there. The CLI never accepts or stores `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or any other Microsoft credential. If `npx` cannot resolve the published npm package, use the [manual fallback](deployment.md#manual-apps-script-fallback).
 
 After `initializeSafeDefaults()` runs, fresh projects receive these values:
 

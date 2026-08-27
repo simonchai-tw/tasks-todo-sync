@@ -6,7 +6,7 @@ This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps
 
 Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been verified in both directions and are protected by confirmation, revalidation, journals, and tombstones. Cross-list task movement remains off by default while real-account validation continues.
 
-The productized entry point is `npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init`. The manual Apps Script route below is the fallback when the pinned GitHub release cannot be resolved or when an operator wants to inspect each deployment step.
+The productized entry point is `npx --yes tasks-todo-sync@0.1.1 init`. The manual Apps Script route below is the fallback when the published npm package cannot be resolved or when an operator wants to inspect each deployment step.
 
 ## What you need
 
@@ -22,7 +22,7 @@ Google Apps Script authorization and Microsoft OAuth are separate sign-ins. Auth
 Run:
 
 ```bash
-npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init
+npx --yes tasks-todo-sync@0.1.1 init
 ```
 
 The command uses `clasp` to:
@@ -34,7 +34,7 @@ The command uses `clasp` to:
 
 5. Open the printed editor URL and run `initializeSafeDefaults()` in the Apps Script editor. The CLI does not open the editor, execute Apps Script functions, or write Script Properties.
 
-The CLI never accepts, stores, prints, or transmits `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or other Microsoft credentials. Complete Entra registration and secret creation yourself in Microsoft Entra, then enter the values only in the private Apps Script editor. If `npx` cannot resolve the pinned GitHub release, use the manual fallback below.
+The CLI never accepts, stores, prints, or transmits `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or other Microsoft credentials. Complete Entra registration and secret creation yourself in Microsoft Entra, then enter the values only in the private Apps Script editor. If `npx` cannot resolve the published npm package, use the manual fallback below.
 
 After you open the editor and run `initializeSafeDefaults()`, the helper fills missing properties for a fresh project with:
 

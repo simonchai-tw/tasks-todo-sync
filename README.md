@@ -83,7 +83,7 @@ Each run has a guarded time budget and a global lock to stay within Apps Script'
 Create your private Apps Script project with:
 
 ```bash
-npx --yes github:simonchai-tw/tasks-todo-sync#v0.1.1 init
+npx --yes tasks-todo-sync@0.1.1 init
 ```
 
 The CLI creates a private standalone Apps Script project, applies your IANA time zone, deploys the exact sync sources, and prints the editor link with the remaining steps. It never asks for or stores Microsoft credentials. In the editor, run `initializeSafeDefaults()`, add your own Microsoft Entra credentials to private Script Properties, authorize both accounts, and complete the guided checks. For noninteractive use, add `--timezone Asia/Taipei --yes`. If `npx` is unavailable in your environment, follow the [manual fallback](docs/deployment.md#manual-apps-script-fallback).
