@@ -120,5 +120,3 @@ Questions, ideas, or something not working? [Open an issue](https://github.com/s
 - Apps Script will send a one-time storage-pressure email to the effective Google account by default, with an optional `ALERT_EMAIL` override.
 
 Tasks–To Do Sync is open source under the [MIT License](LICENSE). GitHub hosts the source; synchronization runs in your private Google Apps Script project.
-
-Created by Simon Chai with assistance from ChatGPT and Claude. This is an independent open-source project, not affiliated with or endorsed by Google, Microsoft, or Apple.
