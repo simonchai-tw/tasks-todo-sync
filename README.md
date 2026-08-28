@@ -45,7 +45,7 @@ Tasks–To Do Sync adds that connection. A task captured on one side can follow 
 ## How it works
 
 <p align="center">
-  <img src="docs/assets/how-it-works.svg" width="100%" alt="Google Tasks synchronizes bidirectionally with Microsoft To Do through a private Google Apps Script project">
+  <img src="docs/assets/ecosystem-loop.png" width="100%" alt="Tasks–To Do Sync connects Google Tasks and Microsoft To Do while native integrations extend the workflow across Google, Microsoft 365, and Apple devices">
 </p>
 
 1. **Capture in Google.** Gemini, Gmail, Android, and other Google experiences can place work in Google Tasks.
