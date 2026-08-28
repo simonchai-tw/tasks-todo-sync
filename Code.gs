@@ -52,7 +52,7 @@ const PUBLIC_SETUP_DEFAULTS = {
   SYNC_LIST_DISCOVERY_MODE: 'auto',
   SYNC_ALLOW_DELETIONS: 'true',
   SYNC_ALLOW_LIST_DELETIONS: 'true',
-  SYNC_ALLOW_TASK_MOVES: 'false'
+  SYNC_ALLOW_TASK_MOVES: 'true'
 };
 const MICROSOFT_WINDOWS_TIME_ZONES = {
   'utc': 'UTC',
@@ -1243,7 +1243,10 @@ function normalizeState_(state) {
   validateLoadedListDeletionState_(state);
   state.health.lastSuccessfulSyncAt = state.health.lastSuccessfulSyncAt || null;
   state.health.lastFailedSyncAt = state.health.lastFailedSyncAt || null;
-  state.health.lastErrorMessage = state.health.lastErrorMessage || null;
+  // Rewrite legacy raw error text at the load boundary before any inspection
+  // report can expose it. The stored field remains a string for compatibility.
+  state.health.lastErrorMessage = state.health.lastErrorMessage ?
+    redactHealthErrorMessage_(state.health.lastErrorMessage) : null;
   state.health.consecutiveFailures = state.health.consecutiveFailures || 0;
   state.health.lastSuccessfulRoundId = state.health.lastSuccessfulRoundId || null;
   state.health.roundFenceProjectionId = state.health.roundFenceProjectionId || null;
@@ -2087,17 +2090,53 @@ function sendFatalAlert_(message) {
 }
 
 function redactFatalAlert_(error) {
-  const raw = String(error == null ? '' : error);
-  const http = raw.match(/\bHTTP\s+(\d{3})\b/i);
-  const type = raw.match(/\b([A-Z][A-Z0-9_]{2,})\b/);
-  const correlation = raw.match(/\b(?:correlation|request)[ _-]?(?:id|code)?\s*[:=]\s*([A-Za-z0-9-]{6,80})\b/i);
+  const diagnostic = boundedErrorDiagnostic_(error);
   const lines = [
     'Sync failed. Check the Apps Script execution log.',
-    'HTTP code: ' + (http ? http[1] : 'unavailable'),
-    'Error type: ' + (type ? type[1] : 'UNCLASSIFIED')
+    'HTTP code: ' + diagnostic.httpCode,
+    'Error type: ' + diagnostic.errorType
   ];
-  if (correlation) lines.push('Correlation code: ' + correlation[1]);
+  if (diagnostic.correlationCode) lines.push('Correlation code: ' + diagnostic.correlationCode);
   return lines.join('\n');
+}
+
+// Provider failures can include JSON bodies, URLs, opaque IDs, and occasionally
+// user-entered data. Keep durable health state useful without treating it as a
+// log sink. Only a status, a locally-recognized error code, and an explicitly
+// labelled correlation/request code may survive this boundary.
+function boundedErrorDiagnostic_(error) {
+  const raw = String(error == null ? '' : error);
+  const http = raw.match(/\bHTTP(?:\s+code)?\s*[:=]?\s*(\d{3})\b/i);
+  const correlation = raw.match(/\b(?:correlation(?:[ _-]?(?:id|code))?|request[ _-]?(?:id|code))\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9-]{5,79})\b/i);
+  const leadingCode = raw.match(/^\s*([A-Z][A-Z0-9_]{2,80})(?=\s*(?:[:\uFF1A]|$))/);
+  // The second form is only our own previously-sanitized health string. Do
+  // not scan arbitrary provider bodies for a field named "type".
+  const storedCode = raw.match(/^\s*HTTP code:\s*(?:\d{3}|unavailable);\s*Error type:\s*([A-Z][A-Z0-9_]{2,80})(?:;|$)/);
+  const candidateCode = (storedCode && storedCode[1]) || (leadingCode && leadingCode[1]) || '';
+  const errorType = safeHealthErrorCode_(candidateCode) ? candidateCode :
+    (http ? 'HTTP_ERROR' : 'UNCLASSIFIED');
+  return {
+    httpCode: http ? http[1] : 'unavailable',
+    errorType: errorType,
+    correlationCode: correlation ? correlation[1] : null
+  };
+}
+
+function safeHealthErrorCode_(value) {
+  // Accept only our own stable code namespaces, and only when the code is the
+  // leading error token or our prior canonical health summary. This prevents
+  // provider text or an arbitrary task title from becoming durable output.
+  return /^(?:ALERT|AMBIGUOUS|AUTH|AUTO|CONFIG|DELETE|GOOGLE|HTTP|IMPORT|LIST|MICROSOFT|MOVE|OAUTH|PAGINATION|REPAIR|ROUND|SAFETY|STATE|SYNC|TIME)_[A-Z0-9_]{1,64}$/.test(String(value || ''));
+}
+
+function redactHealthErrorMessage_(error) {
+  const diagnostic = boundedErrorDiagnostic_(error);
+  const parts = [
+    'HTTP code: ' + diagnostic.httpCode,
+    'Error type: ' + diagnostic.errorType
+  ];
+  if (diagnostic.correlationCode) parts.push('Correlation code: ' + diagnostic.correlationCode);
+  return parts.join('; ');
 }
 
 function sendListFaultAlert_(message) {
@@ -2532,6 +2571,8 @@ function microsoftTaskRequestOptions_(options) {
 }
 
 function escapeHtml_(text) {
+  // Element-text context only. Do not reuse this helper for HTML attribute
+  // values, which also require quote escaping and context-specific handling.
   return String(text || '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -5647,7 +5688,7 @@ function syncAll() {
         }
         if (!isTimeBudget) {
           state.health.lastFailedSyncAt = new Date().toISOString();
-          state.health.lastErrorMessage = String(e.message || e).slice(0, 500);
+          state.health.lastErrorMessage = redactHealthErrorMessage_(e.message || e);
           state.health.consecutiveFailures = (state.health.consecutiveFailures || 0) + 1;
         }
         normalizeState_(state);

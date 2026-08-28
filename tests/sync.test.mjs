@@ -134,6 +134,48 @@ test('fatal alerts are bounded and raw state export explicitly warns about sensi
   assert.equal(Object.hasOwn(userStore.values, 'unrelated'), true);
 });
 
+test('health error summaries retain only bounded diagnostics and scrub legacy state', () => {
+  const { context } = loadContext();
+  const secretBody = JSON.stringify({
+    access_token: 'token-secret-sentinel',
+    listTitle: 'Private list title sentinel',
+    taskTitle: 'Private task title sentinel',
+    owner: 'person@example.invalid',
+    endpoint: 'https://private.invalid/lists/list-secret/tasks/task-secret'
+  });
+  const httpSummary = context.redactHealthErrorMessage_(
+    'HTTP 500: ' + secretBody + ' request-id: req-123456'
+  );
+  assert.equal(httpSummary, 'HTTP code: 500; Error type: HTTP_ERROR; Correlation code: req-123456');
+  for (const secret of [
+    'token-secret-sentinel', 'Private list title sentinel', 'Private task title sentinel',
+    'person@example.invalid', 'private.invalid', 'list-secret', 'task-secret'
+  ]) {
+    assert.equal(httpSummary.includes(secret), false, secret);
+  }
+
+  const internalSummary = context.redactHealthErrorMessage_(
+    'STATE_PROPERTY_VALUE_LIMIT: ' + 'sensitive-body-sentinel '.repeat(2000)
+  );
+  assert.equal(internalSummary, 'HTTP code: unavailable; Error type: STATE_PROPERTY_VALUE_LIMIT');
+  assert.ok(internalSummary.length < 160);
+  assert.equal(internalSummary.includes('sensitive-body'), false);
+
+  const genericSummary = context.redactHealthErrorMessage_(
+    'simulated failure for private task title sentinel'
+  );
+  assert.equal(genericSummary, 'HTTP code: unavailable; Error type: UNCLASSIFIED');
+
+  const legacy = context.newState_();
+  legacy.health.lastErrorMessage =
+    'HTTP 429: https://private.invalid/secret token=legacy-token request-id: legacy-req-123';
+  context.normalizeState_(legacy);
+  assert.equal(legacy.health.lastErrorMessage,
+    'HTTP code: 429; Error type: HTTP_ERROR; Correlation code: legacy-req-123');
+  assert.equal(legacy.health.lastErrorMessage.includes('legacy-token'), false);
+  assert.equal(legacy.health.lastErrorMessage.includes('private.invalid'), false);
+});
+
 test('network public entrypoints initialize a fresh execution budget', () => {
   const { context } = loadContext();
   context.getSafetyConfig_ = () => ({ listDiscoveryMode: 'auto', googleListIds: [], excludedListNames: [] });
@@ -406,7 +448,7 @@ test('initializeSafeDefaults installs missing public defaults and preserves unre
     SYNC_LIST_DISCOVERY_MODE: 'auto',
     SYNC_ALLOW_DELETIONS: 'true',
     SYNC_ALLOW_LIST_DELETIONS: 'true',
-    SYNC_ALLOW_TASK_MOVES: 'false'
+    SYNC_ALLOW_TASK_MOVES: 'true'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(second.updatedProperties)), {});
   assert.deepEqual(
@@ -462,7 +504,7 @@ test('setupStatus returns bounded public-default status without exposing credent
       SYNC_LIST_DISCOVERY_MODE: 'auto',
       SYNC_ALLOW_DELETIONS: 'true',
       SYNC_ALLOW_LIST_DELETIONS: 'true',
-      SYNC_ALLOW_TASK_MOVES: 'false',
+      SYNC_ALLOW_TASK_MOVES: 'true',
       MS_CLIENT_ID: 'client-id-sentinel',
       MS_CLIENT_SECRET: 'secret-sentinel',
       MS_TENANT_ID: 'tenant-id-sentinel',
@@ -520,7 +562,7 @@ test('setupStatus accepts deliberate valid overrides while showing public-defaul
       SYNC_LIST_DISCOVERY_MODE: 'explicit',
       SYNC_ALLOW_DELETIONS: 'false',
       SYNC_ALLOW_LIST_DELETIONS: 'false',
-      SYNC_ALLOW_TASK_MOVES: 'true'
+      SYNC_ALLOW_TASK_MOVES: 'false'
     },
     scriptApp: { getProjectTriggers: () => [] }
   });
@@ -1985,7 +2027,7 @@ test('ordinary remote deletion failure retains the mapping and durable journal f
   assert.equal(state.g2m['g-task'], undefined);
 });
 
-test('a failed non-delete sync does not persist a first or second deletion confirmation', () => {
+test('a failed non-delete sync stores only a bounded error and no new deletion confirmation', () => {
   const { context } = loadContext({ scriptValues: { SYNC_ALLOW_DELETIONS: 'true' } });
   const state = mappedTaskState(context);
   readyDeletionCandidate(state, 'google', 'previous-round');
@@ -1995,15 +2037,26 @@ test('a failed non-delete sync does not persist a first or second deletion confi
   context.withGlobalLock_ = (fn) => fn();
   context.loadStateForSync_ = () => state;
   context.buildSnapshot_ = () => snap;
-  context.createUnmapped_ = () => { throw new Error('simulated create failure'); };
+  context.createUnmapped_ = () => {
+    throw new Error(
+      'HTTP 500: {"taskTitle":"private-task-sentinel","token":"private-token-sentinel"} ' +
+      'request-id: req-sync-123456'
+    );
+  };
   context.saveState_ = (value) => { saved = JSON.parse(JSON.stringify(value)); };
   context.sendFatalAlert_ = () => {};
 
-  assert.throws(() => context.syncAll(), /simulated create failure/);
+  assert.throws(() => context.syncAll(), /HTTP 500/);
   // An active round fence retains only the completed-round baseline, never
   // this round's attempted 2/2 promotion.
   assert.equal(saved.pendingTaskDeletions['g-task'].confirmations, 1);
   assert.equal(saved.deletionJournal['g-task'], undefined);
+  assert.equal(
+    saved.health.lastErrorMessage,
+    'HTTP code: 500; Error type: HTTP_ERROR; Correlation code: req-sync-123456'
+  );
+  assert.equal(saved.health.lastErrorMessage.includes('private-task-sentinel'), false);
+  assert.equal(saved.health.lastErrorMessage.includes('private-token-sentinel'), false);
 });
 
 test('a persisted delete journal recovers after remote success and final state-save failure', () => {

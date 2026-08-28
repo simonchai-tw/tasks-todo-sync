@@ -1,12 +1,12 @@
-# Deployment guide — 0.1.1
+# Deployment guide — 0.1.3
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.1.1` extends the stable core with deployment and recovery safeguards while preserving the documented task/list deletion behavior; cross-list task moves remain default-off while real-account validation continues. See the [v0.1.1 release notes](release-v0.1.1.md) for the change summary and verification boundary.
+This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.1.3` extends the stable core with deployment, recovery, UTF-8 storage, privacy-bounded health reporting, and cross-list move safeguards. Fresh projects enable cross-list task moves after bounded two-direction real-account validation. See the [changelog](../CHANGELOG.md) and [v0.1.1 release notes](release-v0.1.1.md) for the current and historical release history.
 
-Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been verified in both directions and are protected by confirmation, revalidation, journals, and tombstones. Cross-list task movement remains off by default while real-account validation continues.
+Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been verified in both directions and are protected by confirmation, revalidation, journals, and tombstones. Fresh projects also enable cross-list task movement after bounded maintainer testing verified one real-account move in each direction; this does not establish a universal guarantee.
 
-The productized entry point is `npx --yes tasks-todo-sync@0.1.1 init`. The manual Apps Script route below is the fallback when the published npm package cannot be resolved or when an operator wants to inspect each deployment step.
+The productized entry point is `npx tasks-todo-sync init`. The manual Apps Script route below is the fallback when the published npm package cannot be resolved or when an operator wants to inspect each deployment step.
 
 ## What you need
 
@@ -17,12 +17,12 @@ The productized entry point is `npx --yes tasks-todo-sync@0.1.1 init`. The manua
 
 Google Apps Script authorization and Microsoft OAuth are separate sign-ins. Authorize one Google account and one Microsoft account during setup. The exact number of pages depends on current sign-in sessions and provider consent prompts, so do not expect exactly two prompts. The CLI handles only the private Apps Script project and source deployment; Microsoft Entra registration, client-secret creation, and Microsoft authorization remain manual and private.
 
-## Productized `init` flow (`v0.1.1`)
+## Productized `init` flow (`v0.1.3`)
 
 Run:
 
 ```bash
-npx --yes tasks-todo-sync@0.1.1 init
+npx tasks-todo-sync init
 ```
 
 The command uses `clasp` to:
@@ -43,13 +43,13 @@ After you open the editor and run `initializeSafeDefaults()`, the helper fills m
 | `SYNC_LIST_DISCOVERY_MODE` | `auto` |
 | `SYNC_ALLOW_DELETIONS` | `true` |
 | `SYNC_ALLOW_LIST_DELETIONS` | `true` |
-| `SYNC_ALLOW_TASK_MOVES` | `false` |
+| `SYNC_ALLOW_TASK_MOVES` | `true` |
 
 `initializeSafeDefaults()` preserves existing explicit Script Properties. In particular, an existing private maintainer deployment with all three switches set to `true` is not changed.
 
-## v0.1.1 release behavior
+## v0.1.3 release behavior
 
-The release keeps the user-visible setup defaults stable and adds bounded recovery behavior:
+The release enables cross-list moves for fresh projects and extends bounded diagnostics while preserving the existing recovery model:
 
 | Area | Behavior | Release status |
 | --- | --- | --- |
@@ -58,6 +58,8 @@ The release keeps the user-visible setup defaults stable and adds bounded recove
 | Successful-round restore | Restores from a separately committed successful generation, never from an intra-round checkpoint. An upgraded deployment needs one verifiable successful sync first; legacy state without that evidence fails closed. | Included and verified by the final source tests; see [state rollback](#sync-state-rollback). |
 | Rich body | A Google title, date, or completion-only change does not rewrite an existing Microsoft rich-text body. A changed notes text projection does update the body. | Included and verified by provider payload tests. |
 | Authorization and errors | Authorization refresh/retry and fatal alerts have bounded behavior. Fatal alert email is redacted and excludes task/list content, provider IDs, and full responses. | Included and verified by the final 401 and alert assertions. |
+| Persisted health errors | Stores only HTTP status, a recognized internal error code, and a bounded request/correlation code instead of raw provider response bodies. | Included and verified by privacy regression tests. |
+| Cross-list moves | Fresh projects enable the guarded move journal after the maintainer's two-direction real-account smoke test. Existing explicit settings remain unchanged. | Included; delete-and-recreate metadata limits remain documented below. |
 | Pagination, storage, and metrics | Page-token/page-count and execution-budget guards fail closed. User Properties headroom and per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` are tracked without storing task/list content. | Included and verified by the final local release checks. |
 
 ## Manual Apps Script fallback
@@ -67,7 +69,7 @@ The release keeps the user-visible setup defaults stable and adds bounded recove
 1. Create a private standalone project at [script.google.com](https://script.google.com/).
 2. In Project Settings, enable display of the `appsscript.json` manifest.
 3. Copy this repository's `Code.gs` and `appsscript.json` into the project. Change `appsscript.json`'s `timeZone` to your own IANA time zone before saving; do not inherit `Asia/Taipei` unless it is correct for you.
-4. Run `initializeSafeDefaults()` and complete the Google authorization prompts. For a fresh project it fills `SYNC_LIST_DISCOVERY_MODE=auto`, `SYNC_ALLOW_DELETIONS=true`, `SYNC_ALLOW_LIST_DELETIONS=true`, and `SYNC_ALLOW_TASK_MOVES=false` without overwriting existing explicit Script Properties.
+4. Run `initializeSafeDefaults()` and complete the Google authorization prompts. For a fresh project it fills `SYNC_LIST_DISCOVERY_MODE=auto`, `SYNC_ALLOW_DELETIONS=true`, `SYNC_ALLOW_LIST_DELETIONS=true`, and `SYNC_ALLOW_TASK_MOVES=true` without overwriting existing explicit Script Properties.
 
 Google Tasks due dates are date-only. Microsoft due times are not preserved, so changing the project time zone affects date interpretation but does not create time-of-day round trips.
 
@@ -92,7 +94,7 @@ Use Apps Script **Project Settings → Script Properties** for configuration:
 | `SYNC_EXCLUDED_LIST_NAMES` | No | List names to exclude, one per line or comma-separated |
 | `SYNC_ALLOW_DELETIONS` | Yes | `true` for a fresh project; preserve an existing explicit value |
 | `SYNC_ALLOW_LIST_DELETIONS` | Yes | `true` for a fresh project; preserve an existing explicit value |
-| `SYNC_ALLOW_TASK_MOVES` | Yes | `false` for a fresh project; preserve an existing explicit value |
+| `SYNC_ALLOW_TASK_MOVES` | Yes | `true` for a fresh project; preserve an existing explicit value |
 
 Never put these values, OAuth tokens, raw state, or IDs in the repository, issues, or screenshots. The CLI does not collect or store them.
 
@@ -111,7 +113,7 @@ Never put these values, OAuth tokens, raw state, or IDs in the repository, issue
 4. Run `createTrigger()` only after the staging results are acceptable. It deletes earlier `syncAll` triggers and creates one 10-minute trigger.
 5. After it runs, use `healthCheck()` and `setupStatus()` to check health and trigger state.
 
-Cross-list task moves remain `SYNC_ALLOW_TASK_MOVES=false` for fresh projects while real-account validation continues. If you choose to test them, review the move notes below and use the separate validation runbook first.
+Cross-list task moves use `SYNC_ALLOW_TASK_MOVES=true` for fresh projects. Maintainer testing verified one bounded real-account move in each direction on 2026-08-28; this is not a universal guarantee. Movement uses delete-and-recreate semantics, so provider-only metadata such as reminders, recurrence, importance, categories, attachments, and history may not be preserved. Review the move notes below and the separate validation runbook before making large-scale changes.
 
 ### Task and list deletion behavior
 
@@ -127,7 +129,7 @@ Google Apps Script enforces a six-minute limit for one execution. The script's o
 - A two-complete-round deletion or Microsoft-origin old-task cleanup normally converges in 10–20 minutes.
 - Throttling, authorization failure, an incomplete inventory, or a skipped overlapping trigger can make either longer.
 
-Pagination has a bounded page-token/page-count guard and stops safely on repeated tokens, unreasonable page counts, or insufficient execution time. Time-budget recovery does not resume a partially fetched page set. Neither the Google nor Microsoft inventory stores a page cursor, delta token, or shard checkpoint. The next trigger begins a complete inventory again. If one full inventory consistently takes more than 5.25 minutes, a longer trigger interval does not fix it; persistent cursors/delta state or workload sharding must be implemented first. User Properties writes check estimated aggregate headroom, including retained generations and other user properties, before saving a new generation. Each round records bounded, content-free `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The final local release checks verified these guards; see the [v0.1.1 release checklist](release-v0.1.1.md#verification).
+Pagination has a bounded page-token/page-count guard and stops safely on repeated tokens, unreasonable page counts, or insufficient execution time. Time-budget recovery does not resume a partially fetched page set. Neither the Google nor Microsoft inventory stores a page cursor, delta token, or shard checkpoint. The next trigger begins a complete inventory again. If one full inventory consistently takes more than 5.25 minutes, a longer trigger interval does not fix it; persistent cursors/delta state or workload sharding must be implemented first. User Properties writes check estimated aggregate headroom, including retained generations and other user properties, before saving a new generation. Each round records bounded, content-free `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The current [engineering audit](audit.md) records the final local verification.
 
 ## Cross-list move notes
 
@@ -202,19 +204,19 @@ Do not depend on a Git tag that may not exist. Keep private source/version recor
 
 Source rollback does not roll back mappings, tombstones, move/deletion journals, or OAuth state. First export and retain state privately with `inspectSyncState()` and `exportRawSyncState()`. `restorePreviousSyncState()` refuses an active sync-round fence, active task move/deletion/list-deletion journals, and loss of tombstone evidence. It restores only a separately committed successful generation, never an intra-round checkpoint. After upgrading, complete and verify at least one successful sync before relying on restore; legacy state without a verifiable successful generation fails closed. Never clear properties or force-import state merely to bypass those safeguards. After any state restore, run `dryRunReport()` and manually review before resuming.
 
-## v0.1.1 release readiness check
+## v0.1.3 release readiness check
 
 - [ ] `npm run check` and `npm test` pass locally, including the round-fence, restore, rich-body, bounded-auth/error, pagination, storage, and metrics coverage.
 - [ ] CI passes on Node.js 22 and 24.
-- [ ] The pinned `v0.1.1` `npx` command has been exercised from the packed package in a disposable private project, the printed editor URL was opened, and `initializeSafeDefaults()` was run in the editor; or the manual fallback has been followed and checked.
+- [ ] The `npx tasks-todo-sync init` flow has been exercised from the packed package in a disposable private project, the printed editor URL was opened, and `initializeSafeDefaults()` was run in the editor; or the manual fallback has been followed and checked.
 - [ ] The project time zone is the operator's intended IANA value, and the CLI output includes the editor URL and post-deploy steps.
-- [ ] `setupStatus()` shows `auto`, task/list deletion `true`, and task moves `false` for a fresh project; existing explicit properties are recorded and preserved.
+- [ ] `setupStatus()` shows `auto`, task/list deletion `true`, and task moves `true` for a fresh project; existing explicit properties are recorded and preserved.
 - [ ] Microsoft Entra registration, client secret, redirect URI, and OAuth authorization were completed manually and remain private.
 - [ ] Two staging `syncAll()` runs are understood and have no unexpected duplicates.
 - [ ] `dryRunReport()` warnings, exclusions, faults, and list information are understood; it has not been mistaken for a mutation plan.
 - [ ] Bounded maintainer-private recoverable task and list deletion smoke evidence is retained for both directions; it is not treated as universal safety evidence.
-- [ ] Cross-list moves remain off by default and are not described as real-account validated.
+- [ ] Cross-list moves are enabled by default for fresh projects; the bounded maintainer real-account smoke evidence is recorded without treating it as universal safety evidence, and the delete-and-recreate metadata boundary is understood.
 - [ ] Source and state rollback procedures are documented separately, including the successful-generation restore boundary, and the operator understands the risks and limits of each.
 - [ ] Private vulnerability reporting is enabled before public use.
 
-Passing this list establishes release readiness for the documented `v0.1.1` scope. Publishing the package, tag, and GitHub release remains a separate step.
+Passing this list establishes release readiness for the documented `v0.1.3` scope. Publishing the package, tag, and GitHub release remains a separate step.

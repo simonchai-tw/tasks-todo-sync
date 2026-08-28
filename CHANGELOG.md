@@ -1,14 +1,22 @@
 # Changelog
 
+All notable changes to this project are documented here.
+
+## 0.1.3 — 2026-08-28
+
+### Release hardening and cross-list usability
+
+- Added privacy-bounded persisted health errors so `healthCheck()` does not expose raw provider response bodies.
+- Enabled `SYNC_ALLOW_TASK_MOVES=true` for fresh projects after bounded maintainer real-account smoke tests verified one Microsoft-to-Google move and one Google-to-Microsoft move on 2026-08-28. Moves retain guarded delete-and-recreate semantics, so provider-only metadata may not be preserved.
+- Aligned the current setup, security, audit, README, and disposable-data validation documentation with the release behavior and the simple `npx tasks-todo-sync init` flow.
+- Verified the `v0.1.3` local regression suite at **199/199 passed**, together with static validation, package dry-run validation, the packed-package smoke check, and `git diff --check`.
+
 ## 0.1.2 — 2026-08-28
 
 ### Hotfix
 
 - Fixed state-property preflight to measure actual UTF-8 bytes, avoiding false `STATE_PROPERTY_VALUE_LIMIT` failures for Unicode state and multi-chunk mappings.
 - Added Unicode and multi-chunk regression coverage, including the no-partial-write overage guard.
-
-
-All notable changes to this project are documented here.
 
 ## 0.1.1 — 2026-08-28
 

@@ -4,7 +4,9 @@
 
 | Version | Status |
 | --- | --- |
-| `0.1.1` | Current supported stable release |
+| `0.1.3` | Current supported stable release |
+| `0.1.2` | Previous stable release |
+| `0.1.1` | Earlier stable release |
 | Earlier releases | Upgrade before reporting a new issue |
 
 ## Security model
@@ -13,16 +15,16 @@ Tasks–To Do Sync is designed for one person connecting their own Google and Mi
 
 Store the Microsoft client-secret **value** and all runtime configuration only in Apps Script Script Properties. Never publish credentials, OAuth tokens, `.clasp.json`, `.clasprc.json`, state exports, move-correlation values, before-image receipts, provider IDs, personal email addresses, private Apps Script URLs, or task content.
 
-Fresh `v0.1.1` projects use these defaults:
+Fresh `v0.1.3` projects use these defaults:
 
 ```properties
 SYNC_LIST_DISCOVERY_MODE=auto
 SYNC_ALLOW_DELETIONS=true
 SYNC_ALLOW_LIST_DELETIONS=true
-SYNC_ALLOW_TASK_MOVES=false
+SYNC_ALLOW_TASK_MOVES=true
 ```
 
-Task and list deletion have been verified in both directions and use confirmation rounds, live revalidation, durable journals, and tombstones. Cross-list moves remain independently opt-in while real-account validation continues. The round fence keeps a prior successful deletion baseline when a run stops before final projection; restore uses only a separately committed successful generation and fails closed for legacy state without verifiable success.
+Task and list deletion, plus cross-list moves, use confirmation rounds, live revalidation, durable journals, and tombstones where applicable. Fresh projects enable cross-list moves after maintainer testing verified both directions on a real account on 2026-08-28. Cross-list movement uses delete-and-recreate semantics, so provider-only metadata may not be preserved. The round fence keeps a prior successful deletion baseline when a run stops before final projection; restore uses only a separately committed successful generation and fails closed for legacy state without verifiable success.
 
 ## Report a vulnerability
 
@@ -34,6 +36,6 @@ If a possible destructive-sync issue is active, run `deleteSyncTriggers()` first
 
 ## Runtime safeguards and limits
 
-The 10-minute trigger does not change Apps Script's six-minute execution ceiling. The synchronizer uses a 5.25-minute run budget, an additional reserve before destructive mutations, a global lock, durable journals, bounded pagination guards, and full-inventory retries. An account whose complete inventory cannot finish within the budget needs persistent pagination/delta state or workload sharding; see the [engineering audit](docs/audit.md) for the current validation boundary. Per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics are bounded and do not contain task/list content; storage-headroom and metrics checks are verified in the [v0.1.1 release notes](docs/release-v0.1.1.md#verification).
+The 10-minute trigger does not change Apps Script's six-minute execution ceiling. The synchronizer uses a 5.25-minute run budget, an additional reserve before destructive mutations, a global lock, durable journals, bounded pagination guards, and full-inventory retries. An account whose complete inventory cannot finish within the budget needs persistent pagination/delta state or workload sharding; see the [engineering audit](docs/audit.md) for the current validation boundary. Per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics are bounded and do not contain task/list content; storage-headroom and metrics checks are recorded in the current audit.
 
 Fatal alert emails are bounded and redacted: they retain the error class/code and correlation information needed for investigation, but omit task/list content, provider IDs, secrets, and full provider responses. Raw state exports, `SYNC_TASK_MOVE_OPERATION_JSON`, preview tokens, and before-image receipts remain sensitive private operational data even when reports use opaque references and bounded reason codes. Store Microsoft secrets only in Apps Script Script Properties; never put them in source, issues, logs, or exports. The recovery helpers protect concurrency and evidence; they do not replace Apps Script access control.

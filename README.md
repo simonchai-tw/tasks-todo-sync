@@ -66,7 +66,7 @@ The private trigger runs every 10 minutes. Ordinary changes normally appear with
 | Due dates | Google ↔ Microsoft | Date only; Google Tasks has no time-of-day field |
 | Personal lists | Google ↔ Microsoft | Eligible lists are discovered and paired automatically |
 | Delete tasks and lists | Google ↔ Microsoft | Enabled by default with confirmation and recovery records |
-| Move tasks between lists | Google ↔ Microsoft | Available as an opt-in advanced feature while real-account validation continues |
+| Move tasks between lists | Google ↔ Microsoft | Enabled by default with a durable move journal and live revalidation |
 
 ## A sync engine, not a chain of recipes
 
@@ -97,7 +97,7 @@ You will need:
 
 You authorize Google and Microsoft separately. Each provider may show more than one sign-in or consent page depending on your existing browser session, but the project connects one account from each ecosystem.
 
-Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, and advanced options—including the opt-in cross-list move validation.
+Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, and cross-list move details, including the delete-and-recreate metadata boundary.
 
 ## Documentation
 

@@ -1,6 +1,6 @@
 # Cross-list move E2E validation
 
-This runbook validates the default-off cross-list move feature against disposable data. It is deliberately separate from normal personal use: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
+This runbook validates cross-list moves against disposable data. Fresh projects enable the feature after bounded two-direction real-account validation, but movement still uses guarded delete-and-recreate semantics and may not preserve Microsoft-only metadata. Keep this runbook separate from valuable personal data: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
 
 ## Safety boundary
 
@@ -9,10 +9,10 @@ Use a separate Google account and Microsoft account when practical. If that is n
 ```properties
 SYNC_ALLOW_DELETIONS=false
 SYNC_ALLOW_LIST_DELETIONS=false
-SYNC_ALLOW_TASK_MOVES=false
+SYNC_ALLOW_TASK_MOVES=true
 ```
 
-Only the Google-origin move scenario below enables `SYNC_ALLOW_TASK_MOVES=true`, and only for the disposable lists. Never enable list deletion for this runbook.
+Cross-list moves are enabled for fresh projects. Keep both deletion switches `false` while running this move-focused validation so ordinary deletion propagation cannot add noise. Never enable list deletion for this runbook.
 
 ## Prepare disposable lists
 
@@ -34,7 +34,7 @@ Only the Google-origin move scenario below enables `SYNC_ALLOW_TASK_MOVES=true`,
 
 ## Google-origin move
 
-1. Set `SYNC_ALLOW_TASK_MOVES=true` for the disposable staging project only. Leave both deletion switches `false`.
+1. Confirm `SYNC_ALLOW_TASK_MOVES=true` for the disposable staging project. Leave both deletion switches `false`.
 2. Run `syncAll()` once after the move. Inspect both services and the private mapping/state export.
 3. Run `syncAll()` a second time. Expected result:
    - exactly one Microsoft counterpart exists in the target list;
@@ -52,6 +52,7 @@ Only the Google-origin move scenario below enables `SYNC_ALLOW_TASK_MOVES=true`,
 2. Move a second disposable Google task across the two disposable lists.
 3. Run `dryRunReport()` and `syncAll()`.
 4. Confirm the candidate is reported as blocked, the old Microsoft task remains, and no destination Microsoft task is created.
+5. Restore `SYNC_ALLOW_TASK_MOVES=true` before continuing or returning the fresh project to normal use.
 
 ## Microsoft-origin observation
 
