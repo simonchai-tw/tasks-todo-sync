@@ -17,9 +17,10 @@ assert(packageJson.name === 'tasks-todo-sync', 'package name must remain tasks-t
 assert(typeof packageJson.version === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version),
   'package version must be a valid release version');
 assert(packageJson.private === false, 'package must remain publishable');
-assert(packageJson.author === 'Simon', 'package author must remain Simon');
-assert(Array.isArray(packageJson.contributors) && packageJson.contributors.length === 1
-  && packageJson.contributors[0] === 'Codex', 'package contributors must be ["Codex"]');
+assert(packageJson.author === 'Simon Chai', 'package author must remain Simon Chai');
+assert(Array.isArray(packageJson.contributors) && packageJson.contributors.length === 2
+  && packageJson.contributors[0] === 'ChatGPT' && packageJson.contributors[1] === 'Claude',
+  'package contributors must be ["ChatGPT", "Claude"]');
 assert(packageLock.name === packageJson.name && packageLock.version === packageJson.version,
   'package-lock metadata must match package.json');
 const lockRoot = packageLock.packages?.[''];
@@ -113,7 +114,7 @@ if (/extension\.id\s*===\s*MOVE_EXTENSION_NAME|\.endsWith\([^\n]*MOVE_EXTENSION_
   throw new Error('Move recovery must use the exact service-normalized extension-id allowlist');
 }
 
-if (/\.everyMinutes\(15\)/.test(code) || /已建立每 15 分鐘同步/.test(code)) {
+if (/\.everyMinutes\(15\)/.test(code) || /15-minute sync trigger/i.test(code)) {
   throw new Error('Current trigger implementation must not claim or install a 15-minute cadence');
 }
 
@@ -122,7 +123,7 @@ for (const relative of [
   '../docs/e2e-validation.md', '../SECURITY.md'
 ]) {
   const text = readFileSync(new URL(relative, import.meta.url), 'utf8');
-  if (/runs every 15 minutes|creates? (?:the |a )?15-minute .*trigger|每 15 分鐘同步/i.test(text)) {
+  if (/runs every 15 minutes|creates? (?:the |a )?15-minute .*trigger/i.test(text)) {
     throw new Error(`${relative} still presents 15 minutes as the current cadence`);
   }
 }

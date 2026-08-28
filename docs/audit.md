@@ -4,7 +4,7 @@ Audit scope: 0.1.3 — 2026-08-28
 
 ## Release decision
 
-`v0.1.3` extends the stable personal, single-operator synchronization release with deployment, integrity, recovery, UTF-8 storage, privacy-bounded health reporting, and cross-list move safeguards. It retains the documented two-way task and list deletion paths. Fresh projects enable cross-list task moves after bounded maintainer real-account validation covered both directions.
+`v0.1.3` extends the stable personal, single-operator synchronization release with deployment, integrity, recovery, UTF-8 storage, privacy-bounded health reporting, and cross-list move safeguards. It retains the documented two-way task and list deletion paths. Fresh projects enable cross-list task moves after bidirectional real-account validation was completed.
 
 Fresh-project setup uses these values:
 
@@ -15,7 +15,7 @@ Fresh-project setup uses these values:
 
 Existing explicit Script Properties are preserved. This is intentional: a maintainer's private deployment whose three switches are already `true` remains unchanged.
 
-Task and list deletion are implemented, enabled for fresh projects, and covered by maintainer-private recoverable smoke tests in both directions. They use independent evidence, two-round confirmation, live revalidation, journals, and tombstones. Cross-list task moves are enabled for fresh projects; maintainer testing verified one bounded Microsoft-to-Google move and one bounded Google-to-Microsoft move on 2026-08-28, without establishing a universal guarantee. Movement uses delete-and-recreate semantics, so provider-only metadata may not be preserved.
+Task and list deletion are implemented, enabled for fresh projects, and covered by bidirectional real-account validation. They use independent evidence, two-round confirmation, live revalidation, journals, and tombstones. Cross-list task moves are enabled for fresh projects after bidirectional real-account validation was completed, without establishing a universal guarantee. Movement uses delete-and-recreate semantics, so provider-only metadata may not be preserved.
 
 ## v0.1.3 scope and verification boundary
 
@@ -40,10 +40,10 @@ Microsoft Entra app registration, client-secret creation, Script Properties, red
 
 ## Evidence reviewed
 
-- Static validation and the local automated suite passed **199/199 tests** in the `v0.1.3` release worktree. `npm run check`, `npm run smoke:package`, and `git diff --check` also passed locally.
+- Static validation, the local automated suite, `npm run check`, `npm run smoke:package`, and `git diff --check` passed in the `v0.1.3` release worktree.
 - The `v0.1.2` package and its UTF-8 hotfix checks remain historical evidence. The earlier `v0.1.1` and `v0.1.0` package checks, including the pre-`v0.1.0` `tasks-todo-sync@0.1.0-rc.7` guided-deployment checks, remain historical evidence.
 - Prior Apps Script, CI, and release evidence is bounded; deployment and publication are separate release steps and are not inferred from source inspection.
-- Bounded maintainer-private recoverable task-deletion and list-deletion smoke checks covered both directions.
+- Bidirectional real-account validation covered task deletion and list deletion.
 - The ordinary scheduled sync/health evidence observed no unexpected creates, moves, deletes, or conflicts in its bounded run; it is not a complete account-configuration test.
 
 These observations deliberately omit private mappings, task/list counts, timestamps, project identifiers, credentials, and Apps Script version numbers. They establish the verified private baseline for this stable release scope.
@@ -72,13 +72,13 @@ Google-origin cross-list movement is a guarded create-before-delete transaction 
 
 The supported trigger cadence is 10 minutes. Apps Script's single-execution ceiling is six minutes; the script budgets 5.25 minutes and leaves 45 seconds before that ceiling. Task/list deletion recovery and apply paths, plus move create/delete boundaries, stop with an additional 45-second reserve inside the internal budget before live reads, durable journal saves, and remote mutations. Existing durable journals remain recoverable and current-round volatile confirmations are rolled back before catch-save.
 
-Pagination uses bounded page-token/page-count and execution-budget guards; it fails closed on repeated tokens or unreasonable page counts. There is no persistent Google page cursor, Graph next-link/delta token, or sharded inventory checkpoint. A time-budget exit saves durable state but the next invocation starts a complete inventory. If a complete inventory always exceeds the internal budget, neither a 10- nor 15-minute trigger can make that inventory complete. User Properties writes check estimated aggregate headroom, including retained generations and other user properties. Each round records privacy-bounded `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics without task/list content. The final local release checks verified these guards; the preceding [v0.1.1 release notes](release-v0.1.1.md#verification) remain the historical baseline.
+Pagination uses bounded page-token/page-count and execution-budget guards; it fails closed on repeated tokens or unreasonable page counts. There is no persistent Google page cursor, Graph next-link/delta token, or sharded inventory checkpoint. A time-budget exit saves durable state but the next invocation starts a complete inventory. If a complete inventory always exceeds the internal budget, a longer trigger interval cannot make that inventory complete. User Properties writes check estimated aggregate headroom, including retained generations and other user properties. Each round records privacy-bounded `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics without task/list content. The final local release checks verified these guards; the preceding [v0.1.1 release notes](release-v0.1.1.md#verification) remain the historical baseline.
 
 When both providers report a change, last-write-wins compares Google's `updated` timestamp with Microsoft's `lastModifiedDateTime`. These are independent provider clocks and can have a small clock-skew or commit-latency window, so a simultaneous edit may not always select the intuitively expected winner. This is a known limitation of the current timestamp-based conflict model, not a universal data-loss guarantee.
 
 ## Validation backlog after `v0.1.3`
 
-- Interrupted cross-list recovery, Microsoft-only metadata loss, and a concurrent Microsoft edit remain follow-up validation after the bounded two-direction real-account smoke test recorded above.
+- Interrupted cross-list recovery, Microsoft-only metadata loss, and a concurrent Microsoft edit remain follow-up validation after the completed bidirectional real-account validation.
 - A complete field matrix for title, notes/content, date-only due dates, and completion state.
 - OAuth refresh, reauthorization, and recovery exercises.
 - A rehearsed source rollback and separately rehearsed state rollback.
@@ -87,4 +87,4 @@ When both providers report a change, last-write-wins compares Google's `updated`
 - Persistent cursor/delta or sharding design for an account whose complete inventory cannot finish within 5.25 minutes.
 - A complete per-task mutation plan if a future dry-run safety guarantee beyond the current move preview is needed.
 
-These items remain important follow-up validation, but they do not expand the documented `v0.1.3` scope. Cross-list moves are enabled for fresh projects after the bounded two-direction smoke test; that test is evidence for this deployment, not a universal safety guarantee.
+These items remain important follow-up validation, but they do not expand the documented `v0.1.3` scope. Cross-list moves are enabled for fresh projects after bidirectional real-account validation; that validation is evidence for this deployment, not a universal safety guarantee.

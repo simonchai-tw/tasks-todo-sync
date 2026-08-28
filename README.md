@@ -56,6 +56,8 @@ The project directly synchronizes **Google Tasks ↔ Microsoft To Do**. The surr
 
 The private trigger runs every 10 minutes. Ordinary changes normally appear within 0–10 minutes; operations that require two complete confirmation rounds normally settle within 10–20 minutes.
 
+The current release is recommended for approximately 300 tracked task pairs or fewer. Completed tasks remain part of the synchronized state until they are deleted and the sync converges, so they continue to count toward that guidance until cleanup finishes.
+
 ## What stays in sync
 
 | Capability | Direction | Notes |
@@ -77,7 +79,7 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The core loop is covered by automated checks, GitHub CI, CodeQL, and bounded real-account smoke tests. Detailed evidence and known limits are recorded in the [engineering audit](docs/audit.md).
+The core loop is covered by automated checks, GitHub CI, CodeQL, and bidirectional real-account validation. Detailed evidence and known limits are recorded in the [engineering audit](docs/audit.md).
 
 ## Get started
 
@@ -111,4 +113,12 @@ Follow the **[quick start](docs/quick-start.md)** for the guided installation, o
 
 Questions, ideas, or something not working? [Open an issue](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose).
 
+## Next
+
+- Backward-compatible gzip+Base64 state storage is planned for the next release.
+- Validation will target approximately 600 tracked task pairs.
+- Apps Script will send a one-time storage-pressure email to the effective Google account by default, with an optional `ALERT_EMAIL` override.
+
 Tasks–To Do Sync is open source under the [MIT License](LICENSE). GitHub hosts the source; synchronization runs in your private Google Apps Script project.
+
+Created by Simon Chai with assistance from ChatGPT and Claude. This is an independent open-source project, not affiliated with or endorsed by Google, Microsoft, or Apple.

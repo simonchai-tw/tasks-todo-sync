@@ -2,7 +2,7 @@
   "name": "tasks-todo-sync",
   "version": "0.1.3",
   "private": false,
-  "description": "Self-hosted, bidirectional sync between Google Tasks and Microsoft To Do, powered by Google Apps Script.",
+  "description": "Self-hosted, bidirectional sync between Google Tasks and Microsoft To Do that runs on Google Apps Script.",
   "keywords": [
     "google-tasks",
     "microsoft-todo",
@@ -15,9 +15,10 @@
     "microsoft-graph",
     "oauth2"
   ],
-  "author": "Simon",
+  "author": "Simon Chai",
   "contributors": [
-    "Codex"
+    "ChatGPT",
+    "Claude"
   ],
   "license": "MIT",
   "repository": {

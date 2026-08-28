@@ -1,6 +1,6 @@
 # Cross-list move E2E validation
 
-This runbook validates cross-list moves against disposable data. Fresh projects enable the feature after bounded two-direction real-account validation, but movement still uses guarded delete-and-recreate semantics and may not preserve Microsoft-only metadata. Keep this runbook separate from valuable personal data: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
+This runbook validates cross-list moves against disposable data. Fresh projects enable the feature after bidirectional real-account validation was completed, but movement still uses guarded delete-and-recreate semantics and may not preserve Microsoft-only metadata. Keep this runbook separate from valuable personal data: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
 
 ## Safety boundary
 
@@ -17,8 +17,8 @@ Cross-list moves are enabled for fresh projects. Keep both deletion switches `fa
 ## Prepare disposable lists
 
 1. Create two uniquely named lists on each service, for example:
-   - `E2E-20260826-Move-Source`
-   - `E2E-20260826-Move-Target`
+   - `E2E-Move-Source`
+   - `E2E-Move-Target`
 2. Pair only those lists through the normal explicit-pairing procedure, or confirm that auto discovery selected exactly those lists.
 3. Run `setupStatus()` and `dryRunReport()`. The report must contain no unexpected lists, faults, or credentials. Record the disposable list IDs privately; do not put them in GitHub issues, screenshots, or this repository.
 

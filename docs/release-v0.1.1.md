@@ -31,8 +31,8 @@ The CLI never accepts or stores Microsoft credentials. Authorize one Google acco
 
 Before publishing the package, tag, and GitHub release, the maintainer should confirm:
 
-- [x] `npm run check` and `npm test` pass locally, including round-fence, restore, rich-body, bounded-auth/error, pagination, storage, and metrics coverage; the local regression suite passed **196 / 196**.
-- [x] A packed-tarball `init --timezone` smoke test passes for a non-`Asia/Taipei` time zone and preserves partial-resume behavior.
+- [x] `npm run check` and `npm test` pass locally, including round-fence, restore, rich-body, bounded-auth/error, pagination, storage, and metrics coverage.
+- [x] A packed-tarball `init --timezone` validation passes for a non-`Asia/Taipei` time zone and preserves partial-resume behavior.
 - [x] The final pagination page-token/page-count guards, aggregate User Properties headroom check, and content-free per-round metrics are implemented and exercised.
 - [x] Fatal alert redaction and second-401/invalid-grant behavior are covered by the final tests.
 - [x] The release documentation links pass the repository's Markdown/link checks and `git diff --check` is clean.

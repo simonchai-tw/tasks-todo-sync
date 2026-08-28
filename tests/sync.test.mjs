@@ -251,7 +251,7 @@ test('state blob preflight accepts multi-chunk Unicode mappings by actual UTF-8 
   }
   const payload = {
     version: 1,
-    title: '多段狀態驗證：中文、emoji 與 60 筆 mappings',
+    title: 'Multi-chunk state validation: Unicode, emoji, and 60 mappings',
     g2m: g2m
   };
 
@@ -604,10 +604,10 @@ test('setupStatus reports missing and invalid safety settings without exposing s
   assert.equal(report.projectTimeZone, 'Asia/Taipei');
   assert.equal(report.allSafetyDefaultsCorrect, false);
   assert.equal(report.allSafetySettingsValid, false);
-  assert.equal(report.safetyDefaults.SYNC_LIST_DISCOVERY_MODE.value, '無效設定');
-  assert.equal(report.safetyDefaults.SYNC_ALLOW_DELETIONS.value, '無效設定');
+  assert.equal(report.safetyDefaults.SYNC_LIST_DISCOVERY_MODE.value, 'Invalid configuration');
+  assert.equal(report.safetyDefaults.SYNC_ALLOW_DELETIONS.value, 'Invalid configuration');
   assert.equal(report.safetyDefaults.SYNC_ALLOW_LIST_DELETIONS.valid, true);
-  assert.equal(report.safetyDefaults.SYNC_ALLOW_TASK_MOVES.value, '未設定');
+  assert.equal(report.safetyDefaults.SYNC_ALLOW_TASK_MOVES.value, 'Not configured');
   assert.equal(report.credentials.msClientIdPresent, false);
   assert.equal(report.credentials.msClientSecretPresent, false);
   assert.equal(report.credentials.msTenantIdPresent, false);
@@ -1090,7 +1090,7 @@ test('rejects adoption when existing mappings share a Microsoft list', () => {
       googleListIds: ['g-one', 'g-two'],
       allowDeletions: false
     }),
-    /STATE_MALFORMED.*一對一配對/
+    /STATE_MALFORMED.*not one-to-one/
   );
 });
 
@@ -2625,11 +2625,11 @@ test('dry-run task move preview reports enabled, blocked, and recovery states wi
   const warnings = [];
   context.appendTaskMovePreview_(state, inventory, { allowTaskMoves: true }, actions, warnings);
   assert.equal(actions.length, 1);
-  assert.match(actions[0], /Google 跨清單移動/);
+  assert.match(actions[0], /Google.*move/);
 
   const blocked = [];
   context.appendTaskMovePreview_(state, inventory, { allowTaskMoves: false }, [], blocked);
-  assert.match(blocked[0], /目前被阻擋/);
+  assert.match(blocked[0], /currently blocked/);
   assert.equal(state.g2m['g-task'].msListId, 'ms-old');
 });
 
@@ -2931,7 +2931,7 @@ test('auto discovery dry-run failure preserves a durable move journal and report
   assert.equal(report.pendingMoveSummary.total, 1);
   assert.equal(report.pendingMoveSummary.microsoftTaskSnapshotsMissing, 1);
   assert.deepEqual(logged.pendingMoves, JSON.parse(JSON.stringify(report.pendingMoves)));
-  assert.match(report.warnings.join('\n'), /auto/);
+  assert.match(report.warnings.join('\n'), /auto/i);
   assert.equal(JSON.stringify(userStore.values), beforeState);
 });
 
@@ -4499,8 +4499,8 @@ test('duplicate Microsoft listMap targets fail closed before list journal recove
   assert.equal(state.listMap['g-list'], 'ms-list');
   assert.equal(state.listMap['g-live'], 'ms-list');
   assert.equal(state.listDeletionJournal[pair.key].phase, 'blocked');
-  assert.throws(() => context.normalizeState_(JSON.parse(JSON.stringify(state))), /STATE_MALFORMED.*一對一配對/);
-  assert.throws(() => context.validateImportedState_(JSON.parse(JSON.stringify(state))), /IMPORT_INVALID_STATE.*一對一配對/);
+  assert.throws(() => context.normalizeState_(JSON.parse(JSON.stringify(state))), /STATE_MALFORMED.*not one-to-one/);
+  assert.throws(() => context.validateImportedState_(JSON.parse(JSON.stringify(state))), /IMPORT_INVALID_STATE.*not one-to-one/);
 });
 
 test('fault repair converts pure list metadata into an anti-recreate historic guard', () => {
@@ -4874,7 +4874,7 @@ test('schema 3 rejects unknown lifecycle keys before normalization or import wri
   const { context } = loadContext();
   const badTop = context.newState_();
   badTop.listDeletionJournals = { typo: 'prepared' };
-  assert.throws(() => context.normalizeState_(badTop), /STATE_MALFORMED.*未知欄位/);
+  assert.throws(() => context.normalizeState_(badTop), /STATE_MALFORMED.*unknown field/);
   assert.ok(badTop.listDeletionJournals);
   const fieldCases = [
     ['pendingTaskDeletions', 'g-task', { gId: 'g-task', unexpected: true }],
@@ -4885,17 +4885,17 @@ test('schema 3 rejects unknown lifecycle keys before normalization or import wri
   for (const [field, key, record] of fieldCases) {
     const state = context.newState_();
     state[field][key] = record;
-    assert.throws(() => context.normalizeState_(state), /STATE_MALFORMED.*未知欄位/, field);
+    assert.throws(() => context.normalizeState_(state), /STATE_MALFORMED.*unknown field/, field);
   }
   const tombstone = context.newState_();
   tombstone.tombstones.g['g-task'] = { at: Date.now(), source: 'test', unexpected: true };
-  assert.throws(() => context.normalizeState_(tombstone), /STATE_MALFORMED.*未知欄位/);
+  assert.throws(() => context.normalizeState_(tombstone), /STATE_MALFORMED.*unknown field/);
   const imported = loadContext();
   let saves = 0;
   imported.context.withGlobalLock_ = (fn) => fn();
   imported.context.loadStateForSync_ = () => imported.context.newState_();
   imported.context.saveState_ = () => { saves += 1; };
-  assert.throws(() => imported.context.importSyncState(badTop), /IMPORT_INVALID_STATE.*未知欄位/);
+  assert.throws(() => imported.context.importSyncState(badTop), /IMPORT_INVALID_STATE.*unknown field/);
   assert.equal(saves, 0);
 });
 
@@ -5439,7 +5439,7 @@ test('malformed list tombstones reject import and restore without save, while he
     const report = reports.at(-1);
     assert.equal(report.ok, false);
     assert.ok(report.listTombstoneIntegrityIssues.includes(item.expected), item.expected);
-    assert.ok(report.issues.some((issue) => issue.includes('tombstone 完整性錯誤')));
+    assert.ok(report.issues.some((issue) => issue.includes('tombstone integrity error')));
     assert.equal(JSON.stringify(report).includes('g-tombstone'), false, 'health must not disclose IDs');
     assert.equal(JSON.stringify(report).includes('custom google'), false, 'health must not disclose names');
   }
@@ -6164,8 +6164,8 @@ test('createTrigger replaces sync triggers with the exact 10-minute cadence and 
 
   assert.deepEqual(deleted, ['sync']);
   assert.deepEqual(everyMinutesCalls, [10]);
-  assert.match(logs.join('\n'), /每 10 分鐘/);
-  assert.match(logs.join('\n'), /5\.25 分鐘/);
+  assert.match(logs.join('\n'), /every 10 minutes/);
+  assert.match(logs.join('\n'), /5\.25-minute budget/);
   assert.match(logs.join('\n'), /lock/);
 });
 
@@ -6322,8 +6322,8 @@ test('completed move preserves its durable journal when the delete boundary runs
 });
 
 test('time budget text promises full re-inventory instead of cursor resume', () => {
-  assert.match(code, /下輪會重新執行完整 inventory，沒有持久化 page cursor/);
-  assert.doesNotMatch(code, /TIME_BUDGET_HTTP[^\n]*下輪續跑/);
+  assert.match(code, /next (?:round|invocation).*full inventory.*persisted page cursor/i);
+  assert.doesNotMatch(code, /TIME_BUDGET_HTTP[^\n]*resum/i);
   assert.match(code, /SYNC_TRIGGER_INTERVAL_MINUTES = 10/);
 });
 

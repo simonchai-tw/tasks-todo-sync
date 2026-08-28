@@ -9,5 +9,4 @@ coverage/
 *sync-state*.json
 *state-export*.json
 npm-debug.log*
-/docs/original-opus-guide.md
 /Tasks-ToDo-Sync-Code.md

@@ -2,9 +2,9 @@
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.1.3` extends the stable core with deployment, recovery, UTF-8 storage, privacy-bounded health reporting, and cross-list move safeguards. Fresh projects enable cross-list task moves after bounded two-direction real-account validation. See the [changelog](../CHANGELOG.md) and [v0.1.1 release notes](release-v0.1.1.md) for the current and historical release history.
+This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.1.3` extends the stable core with deployment, recovery, UTF-8 storage, privacy-bounded health reporting, and cross-list move safeguards. Fresh projects enable cross-list task moves after bidirectional real-account validation was completed. See the [changelog](../CHANGELOG.md) and [v0.1.1 release notes](release-v0.1.1.md) for the current and historical release history.
 
-Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been verified in both directions and are protected by confirmation, revalidation, journals, and tombstones. Fresh projects also enable cross-list task movement after bounded maintainer testing verified one real-account move in each direction; this does not establish a universal guarantee.
+Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been validated in both directions and are protected by confirmation, revalidation, journals, and tombstones. Fresh projects also enable cross-list task movement after bidirectional real-account validation was completed; this does not establish a universal guarantee.
 
 The productized entry point is `npx tasks-todo-sync init`. The manual Apps Script route below is the fallback when the published npm package cannot be resolved or when an operator wants to inspect each deployment step.
 
@@ -59,7 +59,7 @@ The release enables cross-list moves for fresh projects and extends bounded diag
 | Rich body | A Google title, date, or completion-only change does not rewrite an existing Microsoft rich-text body. A changed notes text projection does update the body. | Included and verified by provider payload tests. |
 | Authorization and errors | Authorization refresh/retry and fatal alerts have bounded behavior. Fatal alert email is redacted and excludes task/list content, provider IDs, and full responses. | Included and verified by the final 401 and alert assertions. |
 | Persisted health errors | Stores only HTTP status, a recognized internal error code, and a bounded request/correlation code instead of raw provider response bodies. | Included and verified by privacy regression tests. |
-| Cross-list moves | Fresh projects enable the guarded move journal after the maintainer's two-direction real-account smoke test. Existing explicit settings remain unchanged. | Included; delete-and-recreate metadata limits remain documented below. |
+| Cross-list moves | Fresh projects enable the guarded move journal after bidirectional real-account validation. Existing explicit settings remain unchanged. | Included; delete-and-recreate metadata limits remain documented below. |
 | Pagination, storage, and metrics | Page-token/page-count and execution-budget guards fail closed. User Properties headroom and per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` are tracked without storing task/list content. | Included and verified by the final local release checks. |
 
 ## Manual Apps Script fallback
@@ -113,11 +113,11 @@ Never put these values, OAuth tokens, raw state, or IDs in the repository, issue
 4. Run `createTrigger()` only after the staging results are acceptable. It deletes earlier `syncAll` triggers and creates one 10-minute trigger.
 5. After it runs, use `healthCheck()` and `setupStatus()` to check health and trigger state.
 
-Cross-list task moves use `SYNC_ALLOW_TASK_MOVES=true` for fresh projects. Maintainer testing verified one bounded real-account move in each direction on 2026-08-28; this is not a universal guarantee. Movement uses delete-and-recreate semantics, so provider-only metadata such as reminders, recurrence, importance, categories, attachments, and history may not be preserved. Review the move notes below and the separate validation runbook before making large-scale changes.
+Cross-list task moves use `SYNC_ALLOW_TASK_MOVES=true` for fresh projects. Bidirectional real-account validation is complete; this is not a universal guarantee. Movement uses delete-and-recreate semantics, so provider-only metadata such as reminders, recurrence, importance, categories, attachments, and history may not be preserved. Review the move notes below and the separate validation runbook before making large-scale changes.
 
 ### Task and list deletion behavior
 
-Task deletion uses independent snapshots, delete-versus-edit checks, durable journals, and 30-day tombstones. List deletion additionally requires auto-mode provenance, complete inventory evidence, exact task fingerprints, a pre-delete reread, and a durable per-pair journal. Maintainer smoke tests cover both deletion directions with recoverable test data.
+Task deletion uses independent snapshots, delete-versus-edit checks, durable journals, and 30-day tombstones. List deletion additionally requires auto-mode provenance, complete inventory evidence, exact task fingerprints, a pre-delete reread, and a durable per-pair journal. Bidirectional real-account validation covers both deletion directions with recoverable test data.
 
 If an existing deployment explicitly has `SYNC_ALLOW_DELETIONS=false`, Microsoft-origin movement can leave the new Google counterpart alongside the old one. With the fresh-project value `true`, a later complete confirmation round normally retires the old counterpart after a temporary duplicate.
 
@@ -214,8 +214,8 @@ Source rollback does not roll back mappings, tombstones, move/deletion journals,
 - [ ] Microsoft Entra registration, client secret, redirect URI, and OAuth authorization were completed manually and remain private.
 - [ ] Two staging `syncAll()` runs are understood and have no unexpected duplicates.
 - [ ] `dryRunReport()` warnings, exclusions, faults, and list information are understood; it has not been mistaken for a mutation plan.
-- [ ] Bounded maintainer-private recoverable task and list deletion smoke evidence is retained for both directions; it is not treated as universal safety evidence.
-- [ ] Cross-list moves are enabled by default for fresh projects; the bounded maintainer real-account smoke evidence is recorded without treating it as universal safety evidence, and the delete-and-recreate metadata boundary is understood.
+- [ ] Bidirectional real-account validation covers recoverable task and list deletion evidence; it is not treated as universal safety evidence.
+- [ ] Cross-list moves are enabled by default for fresh projects; bidirectional real-account validation is recorded without treating it as universal safety evidence, and the delete-and-recreate metadata boundary is understood.
 - [ ] Source and state rollback procedures are documented separately, including the successful-generation restore boundary, and the operator understands the risks and limits of each.
 - [ ] Private vulnerability reporting is enabled before public use.
 

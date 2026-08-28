@@ -188,7 +188,7 @@ function setupSafePropertyStatus_(properties, key, expected) {
     : normalized === 'true' || normalized === 'false';
   const matchesPublicDefault = valid && normalized === expected;
   return {
-    value: missing ? '未設定' : (valid ? normalized : '無效設定'),
+    value: missing ? 'Not configured' : (valid ? normalized : 'Invalid configuration'),
     expected: expected,
     // Keep correct as the legacy public-default comparison. Consumers that
     // need to distinguish a valid override can use valid and
@@ -352,8 +352,8 @@ function getConfig_() {
   };
   if (!config.clientId || !config.clientSecret) {
     throw new Error(
-      '尚未設定 Microsoft Client ID/Secret；請在 Project Settings → Script Properties 設定 ' +
-      'MS_CLIENT_ID、MS_CLIENT_SECRET、MS_TENANT_ID、ALERT_EMAIL。'
+      'Microsoft Client ID/Secret is not configured. Set ' +
+      'MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, and ALERT_EMAIL in Project Settings → Script Properties.'
     );
   }
   return config;
@@ -375,7 +375,7 @@ function getSafetyConfig_() {
   ).trim().toLowerCase();
   if (discoveryMode !== 'explicit' && discoveryMode !== 'auto') {
     throw new Error(
-      'SYNC_DISCOVERY_MODE_INVALID：SYNC_LIST_DISCOVERY_MODE 只能是 explicit 或 auto。'
+      'SYNC_DISCOVERY_MODE_INVALID: SYNC_LIST_DISCOVERY_MODE must be explicit or auto.'
     );
   }
   const invalidSafetyKeys = [];
@@ -426,8 +426,8 @@ function requireSyncAllowlist_(safety) {
   if (isAutoDiscoveryMode_(safety)) return;
   if (REQUIRE_LIST_ALLOWLIST && (!safety || !safety.googleListIds.length)) {
     throw new Error(
-      'SYNC_ALLOWLIST_REQUIRED：請先執行 listGoogleTaskLists()，再於 Script Properties 設定 ' +
-      'SYNC_GOOGLE_LIST_IDS。多個 ID 以逗號分隔。'
+      'SYNC_ALLOWLIST_REQUIRED: Run listGoogleTaskLists(), then set ' +
+      'SYNC_GOOGLE_LIST_IDS in Script Properties. Separate multiple IDs with commas.'
     );
   }
 }
@@ -435,7 +435,7 @@ function requireSyncAllowlist_(safety) {
 function requireExplicitListPairMode_(safety) {
   if (isAutoDiscoveryMode_(safety)) {
     throw new Error(
-      'SYNC_PAIR_HELPER_EXPLICIT_MODE_ONLY：目前是 auto 模式；請使用 dryRunReport() 檢視自動清單發現計畫。'
+      'SYNC_PAIR_HELPER_EXPLICIT_MODE_ONLY: Auto mode is active. Use dryRunReport() to view the automatic list-discovery plan.'
     );
   }
 }
@@ -503,7 +503,7 @@ function listGoogleTaskLists() {
   const lists = getGLists_().map(function(list) {
     return {
       id: list.id,
-      title: list.title || '(無標題清單)',
+      title: list.title || '(Untitled list)',
       selected: isAutoDiscoveryMode_(safety)
         ? isAutoEligibleGoogleList_(list, safety)
         : !!configured[list.id]
@@ -514,8 +514,8 @@ function listGoogleTaskLists() {
     listDiscoveryMode: safety.listDiscoveryMode,
     configuredGoogleListIds: safety.googleListIds,
     note: isAutoDiscoveryMode_(safety)
-      ? 'auto 模式會同步所有 selected=true 的一般 Google 清單；排除名稱由 SYNC_EXCLUDED_LIST_NAMES 控制。'
-      : '將要同步的 id 寫入 Script Property：SYNC_GOOGLE_LIST_IDS；多個 ID 以逗號分隔。'
+      ? 'Auto mode syncs every regular Google list with selected=true; excluded names are controlled by SYNC_EXCLUDED_LIST_NAMES.'
+      : 'Add the IDs to sync to Script Property SYNC_GOOGLE_LIST_IDS; separate multiple IDs with commas.'
   }, null, 2));
 }
 
@@ -530,7 +530,7 @@ function parseConfiguredListPairs_(raw, safety, requireConfig) {
   if (!raw) {
     if (requireConfig) {
       throw new Error(
-        'SYNC_PAIR_CONFIG_REQUIRED：請先設定 Script Property SYNC_LIST_PAIRS_JSON。'
+        'SYNC_PAIR_CONFIG_REQUIRED: First set Script Property SYNC_LIST_PAIRS_JSON.'
       );
     }
     return { configured: false, pairs: [] };
@@ -541,11 +541,11 @@ function parseConfiguredListPairs_(raw, safety, requireConfig) {
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
-    throw new Error('SYNC_PAIR_INVALID_JSON：SYNC_LIST_PAIRS_JSON 不是有效 JSON。');
+    throw new Error('SYNC_PAIR_INVALID_JSON: SYNC_LIST_PAIRS_JSON is not valid JSON.');
   }
   if (!Array.isArray(parsed) || !parsed.length) {
     throw new Error(
-      'SYNC_PAIR_INVALID_FORMAT：SYNC_LIST_PAIRS_JSON 必須是至少包含一組配對的 JSON 陣列。'
+      'SYNC_PAIR_INVALID_FORMAT: SYNC_LIST_PAIRS_JSON must be a JSON array with at least one pair.'
     );
   }
 
@@ -554,26 +554,26 @@ function parseConfiguredListPairs_(raw, safety, requireConfig) {
   const seenMicrosoft = new Set();
   const pairs = parsed.map(function(item, index) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new Error('SYNC_PAIR_INVALID_ENTRY：第 ' + (index + 1) + ' 組配對必須是物件。');
+      throw new Error('SYNC_PAIR_INVALID_ENTRY: Pair ' + (index + 1) + ' must be an object.');
     }
     const googleListId = typeof item.googleListId === 'string' ? item.googleListId.trim() : '';
     const microsoftListId = typeof item.microsoftListId === 'string' ? item.microsoftListId.trim() : '';
     if (!googleListId || !microsoftListId) {
       throw new Error(
-        'SYNC_PAIR_INVALID_ENTRY：第 ' + (index + 1) + ' 組配對缺少 googleListId 或 microsoftListId。'
+        'SYNC_PAIR_INVALID_ENTRY: Pair ' + (index + 1) + ' is missing googleListId or microsoftListId.'
       );
     }
     if (!allowed.has(googleListId)) {
       throw new Error(
-        'SYNC_PAIR_NOT_ALLOWLISTED：Google 清單 ' + googleListId +
-        ' 不在 SYNC_GOOGLE_LIST_IDS。'
+        'SYNC_PAIR_NOT_ALLOWLISTED: Google list ' + googleListId +
+        ' is not in SYNC_GOOGLE_LIST_IDS.'
       );
     }
     if (seenGoogle.has(googleListId)) {
-      throw new Error('SYNC_PAIR_DUPLICATE_GOOGLE：Google 清單重複配對：' + googleListId);
+      throw new Error('SYNC_PAIR_DUPLICATE_GOOGLE: Google list is paired more than once: ' + googleListId);
     }
     if (seenMicrosoft.has(microsoftListId)) {
-      throw new Error('SYNC_PAIR_DUPLICATE_MICROSOFT：Microsoft 清單重複配對：' + microsoftListId);
+      throw new Error('SYNC_PAIR_DUPLICATE_MICROSOFT: Microsoft list is paired more than once: ' + microsoftListId);
     }
     seenGoogle.add(googleListId);
     seenMicrosoft.add(microsoftListId);
@@ -586,7 +586,7 @@ function parseConfiguredListPairs_(raw, safety, requireConfig) {
   const unpairedAllowed = safety.googleListIds.filter(function(id) { return !seenGoogle.has(id); });
   if (unpairedAllowed.length) {
     throw new Error(
-      'SYNC_PAIR_ALLOWLIST_UNPAIRED：設定明確配對後，allowlist 中每個 Google 清單都必須配對。缺少：' +
+      'SYNC_PAIR_ALLOWLIST_UNPAIRED: When explicit pairs are configured, every Google list in the allowlist must be paired. Missing: ' +
       unpairedAllowed.join(', ')
     );
   }
@@ -605,15 +605,15 @@ function buildConfiguredPairsFromExistingMappings_(state, safety) {
     const rawMicrosoftListId = state.listMap[googleListId];
     if (typeof rawMicrosoftListId !== 'string' || !rawMicrosoftListId.trim()) {
       throw new Error(
-        'SYNC_PAIR_ADOPT_MAPPING_MISSING：allowlist 中的 Google 清單 ' + googleListId +
-        ' 尚未有既存 listMap，不能自動採納。'
+        'SYNC_PAIR_ADOPT_MAPPING_MISSING: Google list ' + googleListId +
+        ' in the allowlist has no existing listMap and cannot be adopted automatically.'
       );
     }
     const microsoftListId = rawMicrosoftListId.trim();
     if (seenMicrosoft.has(microsoftListId)) {
       throw new Error(
-        'SYNC_PAIR_ADOPT_DUPLICATE_MICROSOFT：多個 Google 清單指向同一個 Microsoft 清單 ' +
-        microsoftListId + '。'
+        'SYNC_PAIR_ADOPT_DUPLICATE_MICROSOFT: Multiple Google lists point to Microsoft list ' +
+        microsoftListId + '.'
       );
     }
     seenMicrosoft.add(microsoftListId);
@@ -654,16 +654,16 @@ function validateConfiguredListPairInventory_(pairs, googleLists, microsoftLists
     const google = googleById[pair.googleListId] || null;
     const microsoft = microsoftById[pair.microsoftListId] || null;
     if (!google) {
-      errors.push('SYNC_PAIR_GOOGLE_NOT_FOUND：找不到 Google 清單 ' + pair.googleListId);
+      errors.push('SYNC_PAIR_GOOGLE_NOT_FOUND: Google list not found: ' + pair.googleListId);
     }
     if (!microsoft) {
-      errors.push('SYNC_PAIR_MICROSOFT_NOT_FOUND：找不到 Microsoft 清單 ' + pair.microsoftListId);
+      errors.push('SYNC_PAIR_MICROSOFT_NOT_FOUND: Microsoft list not found: ' + pair.microsoftListId);
     }
     return {
       googleListId: pair.googleListId,
-      googleListTitle: google ? (google.title || '(無標題清單)') : null,
+      googleListTitle: google ? (google.title || '(Untitled list)') : null,
       microsoftListId: pair.microsoftListId,
-      microsoftListTitle: microsoft ? (microsoft.displayName || '(無標題清單)') : null
+      microsoftListTitle: microsoft ? (microsoft.displayName || '(Untitled list)') : null
     };
   });
   if (errors.length) throw new Error(errors.join('\n'));
@@ -688,20 +688,20 @@ function validateConfiguredListPairState_(pairs, state) {
     }) || null;
     if (existingMicrosoft && existingMicrosoft !== pair.microsoftListId) {
       errors.push(
-        'SYNC_PAIR_REBIND_BLOCKED：Google 清單 ' + pair.googleListId +
-        ' 已配對到另一個 Microsoft 清單。'
+        'SYNC_PAIR_REBIND_BLOCKED: Google list ' + pair.googleListId +
+        ' is already paired with another Microsoft list.'
       );
     }
     if (existingGoogle && existingGoogle !== pair.googleListId) {
       errors.push(
-        'SYNC_PAIR_MICROSOFT_IN_USE：Microsoft 清單 ' + pair.microsoftListId +
-        ' 已配對到另一個 Google 清單。'
+        'SYNC_PAIR_MICROSOFT_IN_USE: Microsoft list ' + pair.microsoftListId +
+        ' is already paired with another Google list.'
       );
     }
     if (state.listFaults.g[pair.googleListId] || state.listFaults.ms[pair.microsoftListId]) {
       errors.push(
-        'SYNC_PAIR_FAULTED：配對 ' + pair.googleListId + ' ↔ ' + pair.microsoftListId +
-        ' 目前有清單故障標記，請先修復。'
+        'SYNC_PAIR_FAULTED: Pair ' + pair.googleListId + ' ↔ ' + pair.microsoftListId +
+        ' currently has a list-fault marker. Repair it first.'
       );
     }
   });
@@ -713,14 +713,14 @@ function validateConfiguredListPairState_(pairs, state) {
     const requestedGoogle = requestedByMicrosoft[rec.msListId];
     if (requestedMicrosoft && requestedMicrosoft !== rec.msListId) {
       errors.push(
-        'SYNC_PAIR_TASK_MAPPING_CONFLICT：Google 清單 ' + rec.gListId +
-        ' 仍有任務映射指向另一個 Microsoft 清單。'
+        'SYNC_PAIR_TASK_MAPPING_CONFLICT: Google list ' + rec.gListId +
+        ' still has task mappings pointing to another Microsoft list.'
       );
     }
     if (requestedGoogle && requestedGoogle !== rec.gListId) {
       errors.push(
-        'SYNC_PAIR_TASK_MAPPING_CONFLICT：Microsoft 清單 ' + rec.msListId +
-        ' 仍有任務映射來自另一個 Google 清單。'
+        'SYNC_PAIR_TASK_MAPPING_CONFLICT: Microsoft list ' + rec.msListId +
+        ' still has task mappings from another Google list.'
       );
     }
   });
@@ -747,8 +747,8 @@ function requireConfiguredListPairsApplied_(state, safety) {
   });
   if (pending.length) {
     throw new Error(
-      'SYNC_PAIR_NOT_APPLIED：已設定 SYNC_LIST_PAIRS_JSON，但尚未套用。請先執行 ' +
-      'validateConfiguredListPairs()，再執行 applyConfiguredListPairs()。'
+      'SYNC_PAIR_NOT_APPLIED: SYNC_LIST_PAIRS_JSON is configured but has not been applied. Run ' +
+      'validateConfiguredListPairs(), then applyConfiguredListPairs().'
     );
   }
   return config;
@@ -760,7 +760,7 @@ function listMicrosoftTaskLists() {
   const lists = getMsLists_().map(function(list) {
     return {
       id: list.id,
-      title: list.displayName || '(無標題清單)',
+      title: list.displayName || '(Untitled list)',
       isOwner: list.isOwner === true,
       isShared: list.isShared === true,
       wellknownListName: list.wellknownListName || null,
@@ -771,8 +771,8 @@ function listMicrosoftTaskLists() {
     lists: lists,
     listDiscoveryMode: safety.listDiscoveryMode,
     note: isAutoDiscoveryMode_(safety)
-      ? 'auto 模式只會同步 autoEligible=true 的自有非共享一般清單；Flagged Emails 與排除名稱不會同步。'
-      : '只將既有清單 ID 寫入 SYNC_LIST_PAIRS_JSON；不要依標題猜測或公開分享 ID 清單。'
+      ? 'Auto mode syncs only owned, non-shared regular lists with autoEligible=true; Flagged Emails and excluded names are not synced.'
+      : 'Write only existing list IDs to SYNC_LIST_PAIRS_JSON; do not infer IDs from titles or share a public ID list.'
   }, null, 2));
   return lists;
 }
@@ -784,12 +784,12 @@ function validateConfiguredListPairs() {
     requireExplicitListPairMode_(safety);
     requireSyncAllowlist_(safety);
     if (safety.allowDeletions) {
-      throw new Error('SYNC_PAIR_DELETIONS_MUST_BE_FALSE：首次配對前請將 SYNC_ALLOW_DELETIONS 設為 false。');
+      throw new Error('SYNC_PAIR_DELETIONS_MUST_BE_FALSE: Set SYNC_ALLOW_DELETIONS to false before the initial pairing.');
     }
     const config = getConfiguredListPairs_(safety, true);
     const loaded = loadStateForInspection_();
     if (loaded.corrupt) {
-      throw new Error('STATE_CORRUPT：狀態存在但無法讀取，禁止套用清單配對。');
+      throw new Error('STATE_CORRUPT: State exists but cannot be read; applying list pairs is blocked.');
     }
     const details = validateConfiguredListPairInventory_(config.pairs, getGLists_(), getMsLists_());
     const statuses = validateConfiguredListPairState_(config.pairs, loaded.state);
@@ -800,7 +800,7 @@ function validateConfiguredListPairs() {
       ok: true,
       pairs: details,
       deletionsEnabled: safety.allowDeletions,
-      note: '純驗證；未修改同步狀態，也未建立、更新或刪除任何清單與任務。'
+      note: 'Validation only; no sync state was changed and no lists or tasks were created, updated, or deleted.'
     };
     console.log(JSON.stringify(report, null, 2));
     return report;
@@ -815,7 +815,7 @@ function applyConfiguredListPairs() {
     requireExplicitListPairMode_(safety);
     requireSyncAllowlist_(safety);
     if (safety.allowDeletions) {
-      throw new Error('SYNC_PAIR_DELETIONS_MUST_BE_FALSE：首次配對前請將 SYNC_ALLOW_DELETIONS 設為 false。');
+      throw new Error('SYNC_PAIR_DELETIONS_MUST_BE_FALSE: Set SYNC_ALLOW_DELETIONS to false before the initial pairing.');
     }
     const config = getConfiguredListPairs_(safety, true);
     const state = loadStateForSync_();
@@ -837,7 +837,7 @@ function applyConfiguredListPairs() {
       alreadyApplied: config.pairs.length - applied,
       pairs: details,
       deletionsEnabled: safety.allowDeletions,
-      note: '只更新 listMap；未建立、更新或刪除任何雲端清單與任務。請接著執行 dryRunReport()。'
+      note: 'Only listMap was updated; no cloud lists or tasks were created, updated, or deleted. Next, run dryRunReport().'
     };
     console.log(JSON.stringify(report, null, 2));
     return report;
@@ -853,13 +853,13 @@ function adoptExistingListMappingsAsConfiguredPairs() {
     requireSyncAllowlist_(safety);
     if (safety.allowDeletions) {
       throw new Error(
-        'SYNC_PAIR_DELETIONS_MUST_BE_FALSE：採納既有 mapping 前請將 SYNC_ALLOW_DELETIONS 設為 false。'
+        'SYNC_PAIR_DELETIONS_MUST_BE_FALSE: Set SYNC_ALLOW_DELETIONS to false before adopting existing mappings.'
       );
     }
 
     const loaded = loadStateForInspection_();
     if (loaded.corrupt) {
-      throw new Error('STATE_CORRUPT：狀態存在但無法讀取，禁止採納既有 mapping。');
+      throw new Error('STATE_CORRUPT: State exists but cannot be read; adopting existing mappings is blocked.');
     }
     const pairs = buildConfiguredPairsFromExistingMappings_(loaded.state, safety);
     const details = validateConfiguredListPairInventory_(pairs, getGLists_(), getMsLists_());
@@ -879,13 +879,13 @@ function adoptExistingListMappingsAsConfiguredPairs() {
         existingConfig = parseConfiguredListPairs_(existingRaw, safety, true);
       } catch (e) {
         throw new Error(
-          'SYNC_PAIR_ADOPT_PROPERTY_CONFLICT：既有 SYNC_LIST_PAIRS_JSON 無法驗證，拒絕覆蓋。' +
+          'SYNC_PAIR_ADOPT_PROPERTY_CONFLICT: Existing SYNC_LIST_PAIRS_JSON cannot be validated; overwrite refused.' +
           e.message
         );
       }
       if (!configuredListPairsEquivalent_(existingConfig.pairs, pairs)) {
         throw new Error(
-          'SYNC_PAIR_ADOPT_PROPERTY_CONFLICT：既有 SYNC_LIST_PAIRS_JSON 與目前 listMap 不同，拒絕覆蓋。'
+          'SYNC_PAIR_ADOPT_PROPERTY_CONFLICT: Existing SYNC_LIST_PAIRS_JSON differs from the current listMap; overwrite refused.'
         );
       }
     } else {
@@ -900,8 +900,8 @@ function adoptExistingListMappingsAsConfiguredPairs() {
       pairs: details,
       deletionsEnabled: safety.allowDeletions,
       note: changed
-        ? '只由既有 listMap 建立 SYNC_LIST_PAIRS_JSON；未修改同步狀態或任何雲端清單與任務。'
-        : '既有 SYNC_LIST_PAIRS_JSON 與 listMap 相同；未執行任何寫入。'
+        ? 'SYNC_LIST_PAIRS_JSON was created only from the existing listMap; no sync state or cloud lists or tasks were changed.'
+        : 'Existing SYNC_LIST_PAIRS_JSON matches listMap; no writes were made.'
     };
     console.log(JSON.stringify(report, null, 2));
     return report;
@@ -932,24 +932,24 @@ function startAuthorization() {
   initializeExecutionBudget_();
   const service = microsoftService_();
   if (service.hasAccess()) {
-    console.log('[Auth] 已有有效授權。');
+    console.log('[Auth] Valid authorization already exists.');
     return;
   }
-  console.log('[Auth] 請開啟：' + service.getAuthorizationUrl());
+  console.log('[Auth] Open: ' + service.getAuthorizationUrl());
 }
 
 function authCallback(request) {
   initializeExecutionBudget_();
   const ok = microsoftService_().handleCallback(request);
   return HtmlService.createHtmlOutput(ok
-    ? '<h2 style="color:green;font-family:sans-serif">授權成功，可關閉此頁。</h2>'
-    : '<h2 style="color:red;font-family:sans-serif">授權失敗，請查看 Apps Script log。</h2>');
+    ? '<h2 style="color:green;font-family:sans-serif">Authorization successful. You may close this page.</h2>'
+    : '<h2 style="color:red;font-family:sans-serif">Authorization failed. Check the Apps Script log.</h2>');
 }
 
 function resetMicrosoftAuthorization() {
   initializeExecutionBudget_();
   microsoftService_().reset();
-  console.log('[Auth] Microsoft OAuth token 已清除。');
+  console.log('[Auth] Microsoft OAuth token cleared.');
 }
 
 function newState_() {
@@ -1002,7 +1002,7 @@ function assertKnownObjectKeys_(value, allowed, label, errorCode) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return;
   Object.keys(value).forEach(function(key) {
     if (allowed.indexOf(key) >= 0) return;
-    throw new Error((errorCode || 'STATE_MALFORMED') + '：' + label + ' 包含未知欄位 ' + key + '，已拒絕覆寫。');
+    throw new Error((errorCode || 'STATE_MALFORMED') + ': ' + label + ' contains unknown field ' + key + '; overwrite refused.');
   });
 }
 
@@ -1013,11 +1013,11 @@ function assertListMapOneToOne_(state, errorCode) {
   Object.keys(listMap).forEach(function(gListId) {
     const msListId = listMap[gListId];
     if (!gListId || typeof msListId !== 'string' || !msListId) {
-      throw new Error((errorCode || 'STATE_MALFORMED') + '：listMap 包含無效清單 ID，已拒絕覆寫。');
+      throw new Error((errorCode || 'STATE_MALFORMED') + ': listMap contains an invalid list ID; overwrite refused.');
     }
     if (seenMicrosoft[msListId] && seenMicrosoft[msListId] !== gListId) {
-      throw new Error((errorCode || 'STATE_MALFORMED') + '：listMap 不是一對一配對；Microsoft 清單 ' +
-        msListId + ' 同時指向 ' + seenMicrosoft[msListId] + ' 與 ' + gListId + '。');
+      throw new Error((errorCode || 'STATE_MALFORMED') + ': listMap is not one-to-one; Microsoft list ' +
+        msListId + ' is mapped to both ' + seenMicrosoft[msListId] + ' and ' + gListId + '.');
     }
     seenMicrosoft[msListId] = gListId;
   });
@@ -1099,16 +1099,16 @@ function assertStrictSchema2StateShape_(state, errorCode) {
   ['listMap', 'm2g'].forEach(function(field) {
     const table = state[field];
     if (!table || typeof table !== 'object' || Array.isArray(table)) {
-      throw new Error((errorCode || 'STATE_MALFORMED') + '：schema=2 ' + field + ' 必須是物件。');
+      throw new Error((errorCode || 'STATE_MALFORMED') + ': schema=2 ' + field + ' must be an object.');
     }
     Object.keys(table).forEach(function(key) {
       if (typeof table[key] !== 'string') {
-        throw new Error((errorCode || 'STATE_MALFORMED') + '：schema=2 ' + field + '[' + key + '] 必須是字串。');
+        throw new Error((errorCode || 'STATE_MALFORMED') + ': schema=2 ' + field + '[' + key + '] must be a string.');
       }
     });
   });
   if (!state.health || typeof state.health !== 'object' || Array.isArray(state.health)) {
-    throw new Error((errorCode || 'STATE_MALFORMED') + '：schema=2 health 必須是物件。');
+    throw new Error((errorCode || 'STATE_MALFORMED') + ': schema=2 health must be an object.');
   }
   assertKnownObjectKeys_(state.health,
     ['lastSuccessfulSyncAt', 'lastFailedSyncAt', 'lastErrorMessage', 'consecutiveFailures',
@@ -1118,7 +1118,7 @@ function assertStrictSchema2StateShape_(state, errorCode) {
     const table = state[field];
     if (table === undefined) return;
     if (!table || typeof table !== 'object' || Array.isArray(table)) {
-      throw new Error((errorCode || 'STATE_MALFORMED') + '：schema=2 ' + field + ' 必須是物件。');
+      throw new Error((errorCode || 'STATE_MALFORMED') + ': schema=2 ' + field + ' must be an object.');
     }
     if (field === 'tombstones') {
       assertKnownObjectKeys_(table, ['g', 'm'], 'schema=2 tombstones', errorCode);
@@ -1126,7 +1126,7 @@ function assertStrictSchema2StateShape_(state, errorCode) {
         const sideTable = table[side];
         if (sideTable === undefined) return;
         if (!sideTable || typeof sideTable !== 'object' || Array.isArray(sideTable)) {
-          throw new Error((errorCode || 'STATE_MALFORMED') + '：schema=2 tombstones 必須包含 g/m 物件。');
+          throw new Error((errorCode || 'STATE_MALFORMED') + ': schema=2 tombstones must contain g/m objects.');
         }
         Object.keys(sideTable).forEach(function(key) {
           assertKnownObjectKeys_(sideTable[key], recordFields[field], field + '.' + side + '[' + key + ']', errorCode);
@@ -1139,7 +1139,7 @@ function assertStrictSchema2StateShape_(state, errorCode) {
       ['g', 'ms'].forEach(function(side) {
         const sideTable = table[side];
         if (!sideTable || typeof sideTable !== 'object' || Array.isArray(sideTable)) {
-          throw new Error((errorCode || 'STATE_MALFORMED') + '：schema=2 listFaults 必須包含 g/ms 物件。');
+          throw new Error((errorCode || 'STATE_MALFORMED') + ': schema=2 listFaults must contain g/ms objects.');
         }
         Object.keys(sideTable).forEach(function(key) {
           assertKnownObjectKeys_(sideTable[key], recordFields[field], field + '.' + side + '[' + key + ']', errorCode);
@@ -1164,7 +1164,7 @@ function newMoveCorrelationId_() {
   if (typeof Utilities !== 'undefined' && Utilities && typeof Utilities.getUuid === 'function') {
     const value = Utilities.getUuid();
     if (validMoveCorrelationId_(value)) return value;
-    throw new Error('MOVE_CORRELATION_GENERATION_FAILED：Utilities.getUuid() 未回傳有效 UUID。');
+    throw new Error('MOVE_CORRELATION_GENERATION_FAILED: Utilities.getUuid() did not return a valid UUID.');
   }
   // Node tests do not provide Apps Script Utilities.  This fallback is never
   // used in Apps Script, but keeps the pure synchronizer testable there.
@@ -1179,10 +1179,10 @@ function newMoveCorrelationId_() {
 function normalizeState_(state) {
   if (state === undefined || state === null) return newState_();
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
-    throw new Error('STATE_MALFORMED：同步狀態必須是物件，已拒絕覆寫。');
+    throw new Error('STATE_MALFORMED: Sync state must be an object; overwrite refused.');
   }
   if (state.schema !== 2 && state.schema !== 3) {
-    throw new Error('STATE_SCHEMA_UNSUPPORTED：只支援 schema=2 或 schema=3，已拒絕覆寫。');
+    throw new Error('STATE_SCHEMA_UNSUPPORTED: Only schema=2 or schema=3 is supported; overwrite refused.');
   }
   // Validate the deployed schema 2 shape before its additive migration, then
   // validate the complete schema 3 lifecycle state. Silently ignoring a
@@ -1200,40 +1200,40 @@ function normalizeState_(state) {
   requiredObjects.forEach(function(field) {
     if (state[field] === undefined) state[field] = {};
     if (!state[field] || typeof state[field] !== 'object' || Array.isArray(state[field])) {
-      throw new Error('STATE_MALFORMED：' + field + ' 必須是物件，已拒絕覆寫。');
+      throw new Error('STATE_MALFORMED: ' + field + ' must be an object; overwrite refused.');
     }
   });
   ['taskMoveJournal', 'listPairMeta', 'pendingListDeletions', 'listDeletionJournal',
     'listDeletionConflicts'].forEach(function(field) {
     if (state[field] === undefined) state[field] = {};
     if (!state[field] || typeof state[field] !== 'object' || Array.isArray(state[field])) {
-      throw new Error('STATE_MALFORMED：' + field + ' 必須是物件，已拒絕覆寫。');
+      throw new Error('STATE_MALFORMED: ' + field + ' must be an object; overwrite refused.');
     }
   });
   if (state.listTombstones === undefined) state.listTombstones = { g: {}, ms: {} };
   if (!state.listTombstones || typeof state.listTombstones !== 'object' || Array.isArray(state.listTombstones) ||
       !state.listTombstones.g || typeof state.listTombstones.g !== 'object' || Array.isArray(state.listTombstones.g) ||
       !state.listTombstones.ms || typeof state.listTombstones.ms !== 'object' || Array.isArray(state.listTombstones.ms)) {
-    throw new Error('STATE_MALFORMED：listTombstones 必須包含 g/ms 物件，已拒絕覆寫。');
+    throw new Error('STATE_MALFORMED: listTombstones must contain g/ms objects; overwrite refused.');
   }
   if (state.listTombstoneNames === undefined) {
     if (!isSchema2) {
-      throw new Error('STATE_MALFORMED：schema=3 缺少 listTombstoneNames，已拒絕猜測或重建名稱防護。');
+      throw new Error('STATE_MALFORMED: schema=3 is missing listTombstoneNames; name protections will not be inferred or rebuilt.');
     }
     state.listTombstoneNames = { g: {}, ms: {} };
   }
   if (!state.listTombstoneNames || typeof state.listTombstoneNames !== 'object' || Array.isArray(state.listTombstoneNames) ||
       !state.listTombstoneNames.g || typeof state.listTombstoneNames.g !== 'object' || Array.isArray(state.listTombstoneNames.g) ||
       !state.listTombstoneNames.ms || typeof state.listTombstoneNames.ms !== 'object' || Array.isArray(state.listTombstoneNames.ms)) {
-    throw new Error('STATE_MALFORMED：listTombstoneNames 必須包含 g/ms 物件，已拒絕覆寫。');
+    throw new Error('STATE_MALFORMED: listTombstoneNames must contain g/ms objects; overwrite refused.');
   }
   if (!state.tombstones.g || typeof state.tombstones.g !== 'object' || Array.isArray(state.tombstones.g) ||
       !state.tombstones.m || typeof state.tombstones.m !== 'object' || Array.isArray(state.tombstones.m)) {
-    throw new Error('STATE_MALFORMED：tombstones 必須包含 g/m 物件，已拒絕覆寫。');
+    throw new Error('STATE_MALFORMED: tombstones must contain g/m objects; overwrite refused.');
   }
   if (!state.listFaults.g || typeof state.listFaults.g !== 'object' || Array.isArray(state.listFaults.g) ||
       !state.listFaults.ms || typeof state.listFaults.ms !== 'object' || Array.isArray(state.listFaults.ms)) {
-    throw new Error('STATE_MALFORMED：listFaults 必須包含 g/ms 物件，已拒絕覆寫。');
+    throw new Error('STATE_MALFORMED: listFaults must contain g/ms objects; overwrite refused.');
   }
   // A schema-2 state becomes schema=3 above. Re-run strict validation only
   // after every additive default is present, so no unknown top-level or task
@@ -1255,7 +1255,7 @@ function normalizeState_(state) {
   Object.keys(state.pendingTaskDeletions).forEach(function(gId) {
     const pending = state.pendingTaskDeletions[gId];
     if (!state.g2m[gId]) {
-      throw new Error('STATE_MALFORMED：pendingTaskDeletions[' + gId + '] 缺少 mapping，已拒絕覆寫。');
+      throw new Error('STATE_MALFORMED: pendingTaskDeletions[' + gId + '] has no mapping; overwrite refused.');
       return;
     }
     // A ready 2/2 candidate must already have a prepared deletion journal.
@@ -1271,7 +1271,7 @@ function normalizeState_(state) {
   });
   Object.keys(state.taskDeletionConflicts).forEach(function(gId) {
     if (!state.g2m[gId]) {
-      throw new Error('STATE_MALFORMED：taskDeletionConflicts[' + gId + '] 缺少 mapping，已拒絕覆寫。');
+      throw new Error('STATE_MALFORMED: taskDeletionConflicts[' + gId + '] has no mapping; overwrite refused.');
     }
   });
   Object.keys(state.taskMoveJournal).forEach(function(gId) {
@@ -1288,8 +1288,8 @@ function normalizeState_(state) {
         Number(journal.uncertainConfirmations || 0) > 2 ||
         (Object.prototype.hasOwnProperty.call(journal, 'correlationId') &&
           !validMoveCorrelationId_(journal.correlationId))) {
-      throw new Error('STATE_MALFORMED：taskMoveJournal[' + gId +
-        '] 與 mapping 不一致或缺少復原證據，已拒絕覆寫。');
+      throw new Error('STATE_MALFORMED: taskMoveJournal[' + gId +
+        '] is inconsistent with its mapping or lacks restoration evidence; overwrite refused.');
     }
   });
   return state;
@@ -1412,7 +1412,7 @@ function loadBlobAtomic_(baseKey) {
     }
     return JSON.parse(decodeURIComponent(parts.join('')));
   } catch (e) {
-    console.error('[Storage] 讀取失敗：' + e.message);
+    console.error('[Storage] Read failed: ' + e.message);
     return null;
   }
 }
@@ -1454,11 +1454,11 @@ function successfulRoundManifest_(props) {
   try {
     manifest = JSON.parse(raw);
   } catch (e) {
-    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT：成功輪次復原指標無法解析。');
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT: Successful-round restore pointer cannot be parsed.');
   }
   if (!manifest || manifest.version !== 1 || !validSuccessfulRoundEntry_(manifest.current) ||
       (manifest.previous !== null && manifest.previous !== undefined && !validSuccessfulRoundEntry_(manifest.previous))) {
-    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT：成功輪次復原指標格式無效。');
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT: Successful-round restore pointer has an invalid format.');
   }
   return manifest;
 }
@@ -1473,33 +1473,33 @@ function loadStateGeneration_(props, generation, errorCode) {
   const prefix = STATE_KEY + '_gen_' + generation + '_';
   const count = Number(props.getProperty(prefix + 'count'));
   if (!Number.isInteger(count) || count < 1) {
-    throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + '：目標世代缺少有效 count。');
+    throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + ': Target generation has no valid count.');
   }
   const parts = [];
   for (let i = 0; i < count; i++) {
     const piece = props.getProperty(prefix + i);
-    if (piece === null) throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + '：目標世代缺少 chunk ' + i + '。');
+    if (piece === null) throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + ': Target generation is missing chunk ' + i + '.');
     parts.push(piece);
   }
   try {
     return normalizeState_(JSON.parse(decodeURIComponent(parts.join(''))));
   } catch (e) {
     if (String(e.message || '').indexOf(errorCode || 'STATE_RESTORE_CORRUPT') === 0) throw e;
-    throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + '：目標世代無法讀取。' + String(e && e.message ? e.message : e));
+    throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + ': Target generation cannot be read. ' + String(e && e.message ? e.message : e));
   }
 }
 
 function currentStateGeneration_(props) {
   const raw = props.getProperty(STATE_KEY + '_manifest');
-  if (!raw) throw new Error('STATE_RESTORE_UNAVAILABLE：找不到目前狀態 manifest。');
+  if (!raw) throw new Error('STATE_RESTORE_UNAVAILABLE: Current-state manifest not found.');
   let manifest;
   try {
     manifest = JSON.parse(raw);
   } catch (e) {
-    throw new Error('STATE_RESTORE_CORRUPT：目前狀態 manifest 無法解析。');
+    throw new Error('STATE_RESTORE_CORRUPT: Current-state manifest cannot be parsed.');
   }
   if (!manifest || typeof manifest.generation !== 'string' || !manifest.generation) {
-    throw new Error('STATE_RESTORE_CORRUPT：目前狀態 manifest 缺少世代。');
+    throw new Error('STATE_RESTORE_CORRUPT: Current-state manifest has no generation.');
   }
   return manifest.generation;
 }
@@ -1507,12 +1507,12 @@ function currentStateGeneration_(props) {
 function recordSuccessfulSyncRound_(roundId, generation) {
   const props = PropertiesService.getUserProperties();
   if (typeof generation !== 'string' || !generation) {
-    throw new Error('STATE_SUCCESSFUL_ROUND_GENERATION_REQUIRED：成功同步輪次必須引用已驗證的 final state generation。');
+    throw new Error('STATE_SUCCESSFUL_ROUND_GENERATION_REQUIRED: A successful sync round must reference a verified final-state generation.');
   }
   const existing = successfulRoundManifest_(props);
   if (existing && existing.current.generation === generation && existing.current.roundId === roundId) return true;
   if (existing && existing.current.generation === generation) {
-    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT：同一狀態世代對應不同成功輪次。');
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT: The same state generation maps to different successful rounds.');
   }
   const next = {
     version: 1,
@@ -1522,13 +1522,13 @@ function recordSuccessfulSyncRound_(roundId, generation) {
   props.setProperty(SUCCESSFUL_ROUND_MANIFEST_KEY, JSON.stringify(next));
   const written = successfulRoundManifest_(props);
   if (!written || written.current.generation !== generation || written.current.roundId !== roundId) {
-    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED：成功輪次復原指標無法確認。');
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED: Successful-round restore pointer could not be verified.');
   }
   // Drop obsolete ordinary checkpoints only after the new durable pointer was
   // verified. Its current and previous entries remain protected by cleanup.
   const currentManifest = JSON.parse(props.getProperty(STATE_KEY + '_manifest') || 'null');
   if (!currentManifest || !currentManifest.generation) {
-    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED：目前狀態 manifest 遺失。');
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED: Current-state manifest is missing.');
   }
   cleanupOldGenerations_(props, STATE_KEY, currentManifest.generation,
     currentManifest.previousGeneration || null, successfulRoundGenerations_(props));
@@ -1557,7 +1557,7 @@ function assertNoActiveSyncRoundFence_(code) {
   const fence = syncRoundFenceStatus_();
   if (fence.active) {
     throw new Error((code || 'STATE_CHANGE') +
-      '_ROUND_FENCE_ACTIVE：上一輪同步尚未完成 durable commit；請先執行 syncAll() 讓它安全恢復。');
+      '_ROUND_FENCE_ACTIVE: The previous sync round did not complete its durable commit; run syncAll() to recover safely.');
   }
 }
 
@@ -1581,7 +1581,7 @@ function openSyncRoundFence_(roundId) {
     }
   } catch (e) {
     SYNC_ROUND_FENCE_ACTIVE_ = false;
-    throw new Error('SYNC_ROUND_FENCE_SET_FAILED：無法建立同步 safety fence；已在 inventory 前停止。' + e.message);
+    throw new Error('SYNC_ROUND_FENCE_SET_FAILED: Could not create the sync safety fence; stopped before inventory. ' + e.message);
   }
   SYNC_ROUND_FENCE_ACTIVE_ = true;
   SYNC_ROUND_FENCE_ROUND_ID_ = expectedRoundId;
@@ -1598,13 +1598,13 @@ function activateSyncRoundFence_(roundId) {
     fence = null;
   }
   if (!fence || fence.roundId !== expectedRoundId || fence.phase !== 'arming') {
-    throw new Error('SYNC_ROUND_FENCE_ACTIVATE_FAILED：同步 fence 無法由 arming 轉為 active。');
+    throw new Error('SYNC_ROUND_FENCE_ACTIVATE_FAILED: Sync fence could not transition from arming to active.');
   }
   fence.phase = 'active';
   props.setProperty(ROUND_FENCE_KEY, JSON.stringify(fence));
   const written = syncRoundFenceStatus_();
   if (!written.active || !written.valid || written.roundId !== expectedRoundId || written.phase !== 'active') {
-    throw new Error('SYNC_ROUND_FENCE_ACTIVATE_FAILED：同步 fence active read-back 不符。');
+    throw new Error('SYNC_ROUND_FENCE_ACTIVATE_FAILED: Sync fence active read-back does not match.');
   }
 }
 
@@ -1618,7 +1618,7 @@ function clearSyncRoundFence_() {
   } catch (e) {
     // Keep the execution-local flag true as well. The next sync verifies the
     // durable state before selecting final-commit recovery or the safe baseline.
-    throw new Error('SYNC_ROUND_FENCE_CLEAR_FAILED：final state 已保存但無法清除 safety fence；下輪將先驗證 durable state 再安全恢復。' + e.message);
+    throw new Error('SYNC_ROUND_FENCE_CLEAR_FAILED: Final state was saved but the safety fence could not be cleared; the next round will verify durable state before recovering safely. ' + e.message);
   }
   SYNC_ROUND_FENCE_ACTIVE_ = false;
   SYNC_ROUND_FENCE_ROUND_ID_ = null;
@@ -1761,7 +1761,7 @@ function loadStateForSync_() {
   }
   const raw = loadBlobAtomic_(STATE_KEY);
   if (!raw) {
-    throw new Error('STATE_CORRUPT：狀態存在但無法讀取。請執行 exportRawSyncState() 並暫停同步。');
+    throw new Error('STATE_CORRUPT: State exists but cannot be read. Run exportRawSyncState() and pause syncing.');
   }
   return normalizeState_(raw);
 }
@@ -1815,8 +1815,8 @@ function assertTombstoneEvidencePreserved_(current, replacement, now) {
           (isFinite(oldAt) ? isFinite(newAt) && newAt >= oldAt :
             JSON.stringify(incoming) === JSON.stringify(existing));
         if (!preserved) {
-          throw new Error('STATE_TOMBSTONE_PRESERVATION_REQUIRED：' + group.label + ' ' + side +
-            '[' + idOrName + '] 尚未過期，匯入/還原不得移除或回退其 resurrection evidence。');
+          throw new Error('STATE_TOMBSTONE_PRESERVATION_REQUIRED: ' + group.label + ' ' + side +
+            '[' + idOrName + '] has not expired; import/restore must not remove or roll back its resurrection evidence.');
         }
       });
     });
@@ -1851,8 +1851,8 @@ function assertListTombstoneCanonicalsPreserved_(current, replacement, now) {
       const atLeastAsNew = isFinite(oldAt) ? isFinite(newAt) && newAt >= oldAt :
         JSON.stringify(incoming) === JSON.stringify(existing);
       if (!sameCanonical || !atLeastAsNew) {
-        throw new Error('STATE_TOMBSTONE_PRESERVATION_REQUIRED：list tombstone ' + side + '[' + id +
-          '] 尚未過期，匯入/還原不得拆分、改綁、改名或回退其 exact-pair resurrection evidence。');
+        throw new Error('STATE_TOMBSTONE_PRESERVATION_REQUIRED: list tombstone ' + side + '[' + id +
+          '] has not expired; import/restore must not split, rebind, rename, or roll back its exact-pair resurrection evidence.');
       }
     });
   });
@@ -1874,8 +1874,8 @@ function assertHistoricListGuardsPreserved_(current, replacement) {
     const atLeastAsNew = oldAt !== null ? newAt !== null && newAt >= oldAt :
       JSON.stringify(incoming) === JSON.stringify(existing);
     if (!samePairAndNames || !atLeastAsNew) {
-      throw new Error('STATE_HISTORIC_GUARD_PRESERVATION_REQUIRED：repair historic pair ' + key +
-        ' 仍阻擋自動重建，匯入/還原不得移除、改綁或回退其 reservation evidence。');
+      throw new Error('STATE_HISTORIC_GUARD_PRESERVATION_REQUIRED: repair historic pair ' + key +
+        ' still blocks automatic recreation; import/restore must not remove, rebind, or roll back its reservation evidence.');
     }
   });
 }
@@ -1926,8 +1926,8 @@ function assertReservationTablePreserved_(currentTable, replacementTable, label,
     const existing = currentTable[key];
     const incoming = replacementTable && replacementTable[key];
     if (!compatible(existing, incoming)) {
-      throw new Error('STATE_DELETION_EVIDENCE_PRESERVATION_REQUIRED：' + label + '[' + key +
-        '] 仍是 anti-recreate/delete reservation，匯入/還原不得移除、改綁或回退其 evidence。');
+      throw new Error('STATE_DELETION_EVIDENCE_PRESERVATION_REQUIRED: ' + label + '[' + key +
+        '] remains an anti-recreate/delete reservation; import/restore must not remove, rebind, or roll back its evidence.');
     }
   });
 }
@@ -1988,7 +1988,7 @@ function assertActiveDeletionEvidencePreserved_(current, replacement) {
 function withGlobalLock_(fn) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) {
-    console.warn('[Lock] 另一同步執行中，本輪跳過。');
+    console.warn('[Lock] Another sync is running; this round is skipped.');
     return null;
   }
   try {
@@ -2006,7 +2006,7 @@ function assertDestructiveTimeBudget_(code) {
   if (RUN_STARTED_AT &&
       !remainingTimeOk_(RUN_STARTED_AT, DESTRUCTIVE_OPERATION_RESERVE_MS)) {
     throw new Error((code || 'TIME_BUDGET_DESTRUCTIVE') +
-      '：刪除安全邊界前時間不足；未執行後續 live read、durable journal save 或 remote delete。');
+      ': Insufficient time before the deletion safety boundary; no subsequent live read, durable journal save, or remote delete was performed.');
   }
 }
 
@@ -2030,7 +2030,7 @@ function isNotFoundError_(e) {
 }
 
 function taskLabel_(id, title) {
-  if (VERBOSE_LOG) return title || '(無標題)';
+  if (VERBOSE_LOG) return title || '(Untitled)';
   return id;
 }
 
@@ -2049,17 +2049,17 @@ function sendMailAlert_(subject, body) {
   try {
     const c = getConfig_();
     if (!c.alertEmail) {
-      console.error('[Alert] 未設定 ALERT_EMAIL，無法寄送警報。');
+      console.error('[Alert] ALERT_EMAIL is not configured; cannot send alert.');
       return false;
     }
     if (MailApp.getRemainingDailyQuota && MailApp.getRemainingDailyQuota() < 1) {
-      console.warn('[Alert] MailApp 配額不足，跳過寄信。');
+      console.warn('[Alert] MailApp quota is insufficient; email skipped.');
       return false;
     }
     MailApp.sendEmail({ to: c.alertEmail, subject: subject, body: body });
     return true;
   } catch (e) {
-    console.error('[Alert] 寄送失敗：' + e.message);
+    console.error('[Alert] Send failed: ' + e.message);
     return false;
   }
 }
@@ -2069,23 +2069,23 @@ function sendReauthorizationAlert_() {
   try {
     url = microsoftService_().getAuthorizationUrl();
   } catch (e) {
-    console.error('[Auth] 產生授權網址失敗：' + e.message);
+    console.error('[Auth] Failed to generate authorization URL: ' + e.message);
     return;
   }
   if (!canSendAlert_(ALERT_KEYS.reauth)) {
-    console.warn('[Auth] 重新授權警報仍在冷卻期，跳過寄信。');
+    console.warn('[Auth] Reauthorization alert is still in its cooldown period; email skipped.');
     return;
   }
-  const sent = sendMailAlert_('[同步引擎] Microsoft To Do 授權需更新', '同步已停止。請開啟以下網址重新授權：\n' + url);
+  const sent = sendMailAlert_('[Sync engine] Microsoft To Do authorization needs renewal', 'Syncing has stopped. Open the following URL to reauthorize:\n' + url);
   if (sent) markAlertSent_(ALERT_KEYS.reauth);
 }
 
 function sendFatalAlert_(message) {
   if (!canSendAlert_(ALERT_KEYS.fatal)) {
-    console.warn('[Alert] 嚴重錯誤警報仍在冷卻期，跳過寄信。');
+    console.warn('[Alert] Fatal-error alert is still in its cooldown period; email skipped.');
     return;
   }
-  const sent = sendMailAlert_('[同步引擎] 同步失敗', redactFatalAlert_(message));
+  const sent = sendMailAlert_('[Sync engine] Sync failed', redactFatalAlert_(message));
   if (sent) markAlertSent_(ALERT_KEYS.fatal);
 }
 
@@ -2141,10 +2141,10 @@ function redactHealthErrorMessage_(error) {
 
 function sendListFaultAlert_(message) {
   if (!canSendAlert_(ALERT_KEYS.listFault)) {
-    console.warn('[ListFault] 清單隔離警報仍在冷卻期，跳過寄信。');
+    console.warn('[ListFault] List-isolation alert is still in its cooldown period; email skipped.');
     return;
   }
-  const sent = sendMailAlert_('[同步引擎] 清單隔離警告', message + '\n\n請執行 listSyncFaults() 與 dryRunReport()。');
+  const sent = sendMailAlert_('[Sync engine] List isolation warning', message + '\n\nRun listSyncFaults() and dryRunReport().');
   if (sent) markAlertSent_(ALERT_KEYS.listFault);
 }
 
@@ -2177,7 +2177,7 @@ function fetchJsonWithRetry_(url, options, authKind) {
       msService = msService || microsoftService_();
       if (!msService.hasAccess()) {
         sendReauthorizationAlert_();
-        throw new Error('Microsoft 授權失效，請重新授權。');
+        throw new Error('Microsoft authorization has expired. Reauthorize it.');
       }
       opts.headers.Authorization = 'Bearer ' + (refreshedMicrosoftToken || msService.getAccessToken());
     } else {
@@ -2217,9 +2217,9 @@ function fetchJsonWithRetry_(url, options, authKind) {
     const exponential = Math.min(30000, 1000 * Math.pow(2, attempt));
     const delay = Math.max(retryAfter, exponential + Math.floor(Math.random() * 750));
     if (RUN_STARTED_AT && Date.now() + delay > RUN_STARTED_AT + RUN_LIMIT_MS) {
-      throw new Error('TIME_BUDGET_HTTP：距逾時過近，暫緩重試；下輪會重新執行完整 inventory，沒有持久化 page cursor。');
+      throw new Error('TIME_BUDGET_HTTP: Too close to timeout to retry; the next round will rerun the full inventory, with no persisted page cursor.');
     }
-    console.warn('[HTTP] ' + code + '，' + delay + ' ms 後重試。');
+    console.warn('[HTTP] ' + code + '; retrying in ' + delay + ' ms.');
     Utilities.sleep(delay);
   }
   throw lastError || new Error('HTTP request failed');
@@ -2562,7 +2562,7 @@ function msDue_(googleDue) {
 function microsoftTaskRequestOptions_(options) {
   const timeZone = resolveTimeZone_(syncTimeZone_());
   if (!timeZone) {
-    throw new Error('SYNC_TIME_ZONE_INVALID：Apps Script 專案時區不是支援的 IANA 時區。');
+    throw new Error('SYNC_TIME_ZONE_INVALID: The Apps Script project time zone is not a supported IANA time zone.');
   }
   const request = Object.assign({}, options || {});
   request.headers = Object.assign({}, request.headers || {});
@@ -2630,7 +2630,7 @@ function googleNotesAreBlank_(notes) {
 
 function msPayloadFromGoogle_(task, mode) {
   if (mode !== 'create' && mode !== 'update') {
-    throw new Error('MS_PAYLOAD_MODE_REQUIRED：Google → Microsoft payload 必須指定 create 或 update。');
+    throw new Error('MS_PAYLOAD_MODE_REQUIRED: Google → Microsoft payload must specify create or update.');
   }
   const notes = task && task.notes;
   const payload = {
@@ -2970,8 +2970,8 @@ function rebuildListTombstoneNameAliases_(state) {
 function assertListTombstoneIntegrity_(state, errorCode) {
   const issues = listTombstoneIntegrityIssues_(state);
   if (issues.length) {
-    throw new Error((errorCode || 'STATE_MALFORMED') + '：list tombstone ID/name guard 完整性驗證失敗（' +
-      issues.join(',') + '）；已拒絕覆寫或清理 resurrection evidence。');
+    throw new Error((errorCode || 'STATE_MALFORMED') + ': list tombstone ID/name guard integrity validation failed (' +
+      issues.join(',') + '); overwriting or clearing resurrection evidence was refused.');
   }
 }
 
@@ -3018,7 +3018,7 @@ function markListPairDeleted_(state, pair, source) {
   // This helper is intentionally callable only with a custom, auto-proven
   // pair. Default/unknown/shared lists must never gain list tombstones.
   if (!pair || !pair.deletable) {
-    throw new Error('LIST_TOMBSTONE_INELIGIBLE：預設或不合資格清單不可寫入 tombstone。');
+    throw new Error('LIST_TOMBSTONE_INELIGIBLE: Default or ineligible lists cannot be written to tombstones.');
   }
   const record = {
     at: Date.now(),
@@ -3282,7 +3282,7 @@ function pauseListDeletionIntentBeforeInventory_(state, safety) {
     if (changed || listDeletionModeError_(safety)) persistSyncState_(state);
   }
   if (listDeletionModeError_(safety)) {
-    throw new Error('SYNC_LIST_DELETIONS_AUTO_ONLY：清單刪除只允許 SYNC_LIST_DISCOVERY_MODE=auto。');
+    throw new Error('SYNC_LIST_DELETIONS_AUTO_ONLY: List deletion is allowed only when SYNC_LIST_DISCOVERY_MODE=auto.');
   }
 }
 
@@ -3661,7 +3661,7 @@ function buildListDeletionRevalidation_(state, record, safety) {
   try {
     gDefault = getGDefaultList_();
   } catch (e) {
-    throw new Error('LIST_DELETE_DEFAULT_REVALIDATION_FAILED：' + e.message);
+    throw new Error('LIST_DELETE_DEFAULT_REVALIDATION_FAILED: ' + e.message);
   }
   if (!gDefault || !gDefault.id || !allGLists.some(function(list) { return list.id === gDefault.id; })) {
     throw new Error('LIST_DELETE_DEFAULT_REVALIDATION_FAILED');
@@ -4072,7 +4072,7 @@ function recordTaskDeletionConflict_(state, gId, rec, reason) {
     msListId: rec.msListId
   };
   clearDeletionTracking_(state, gId);
-  console.warn('[DeleteConflict] ' + reason + '：' + gId);
+  console.warn('[DeleteConflict] ' + reason + ': ' + gId);
 }
 
 function deletionTargetIsSafe_(gId, rec, missingSide, gTask, msTask, snap) {
@@ -4140,14 +4140,14 @@ function observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, round
       confirmations: 1
     };
     state.pendingTaskDeletions[gId] = candidate;
-    console.log('[DeleteCandidate] 第 1/2 輪確認：' + gId + ' missing=' + missingSide);
+    console.log('[DeleteCandidate] Confirmation round 1/2: ' + gId + ' missing=' + missingSide);
     return candidate;
   }
   if (candidate.lastRoundId !== roundId) {
     candidate.confirmations = Math.min(2, Number(candidate.confirmations || 0) + 1);
     candidate.lastRoundId = roundId;
     candidate.lastConfirmedAt = new Date().toISOString();
-    console.log('[DeleteCandidate] 第 ' + candidate.confirmations + '/2 輪確認：' + gId + ' missing=' + missingSide);
+    console.log('[DeleteCandidate] Confirmation round ' + candidate.confirmations + '/2: ' + gId + ' missing=' + missingSide);
   }
   return candidate;
 }
@@ -4159,7 +4159,7 @@ function finalizeTaskDeletion_(state, snap, gId, rec, missingSide) {
   delete snap.msTasksById[rec.msId];
   delete snap.gListByTask[gId];
   delete snap.msListByTask[rec.msId];
-  console.log('[Delete] 完成：' + gId + ' missing=' + missingSide);
+  console.log('[Delete] Completed: ' + gId + ' missing=' + missingSide);
 }
 
 function remoteDeleteForMissingSide_(gId, rec, missingSide) {
@@ -4230,7 +4230,7 @@ function recoverPreparedTaskDeletions_(state, snap) {
       return;
     }
     if (!rec) {
-      console.error('[DeleteJournal] mapping 缺失，保留 journal 並停止自動建立：' + gId);
+      console.error('[DeleteJournal] Mapping is missing; journal retained and automatic creation stopped: ' + gId);
       return;
     }
     const pairBlockReason = taskDeletionPairBlockReason_(state, snap, rec);
@@ -4434,7 +4434,7 @@ function ensureTaskMoveState_(state) {
 
 function moveFingerprintFromGoogle_(task) {
   return JSON.stringify({
-    title: task && task.title || '(無標題)',
+    title: task && task.title || '(Untitled)',
     notes: task && task.notes == null ? '' : String(task.notes),
     due: task && task.due ? String(task.due).slice(0, 10) : null,
     status: task && task.status === 'completed' ? 'completed' : 'needsAction'
@@ -4518,7 +4518,7 @@ function blockTaskMove_(state, gId, rec, journal, reason) {
     journal.lastBlockedAt = new Date().toISOString();
   }
   recordTaskDeletionConflict_(state, gId, rec, reason);
-  console.warn('[MoveConflict] ' + reason + '：' + gId);
+  console.warn('[MoveConflict] ' + reason + ': ' + gId);
   return false;
 }
 
@@ -4540,17 +4540,17 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
     targetMsListId, progress, roundId) {
   ensureTaskMoveState_(state);
   if (!snap.safety || !snap.safety.allowTaskMoves) {
-    console.warn('[MoveBlocked] Google 任務跨清單；SYNC_ALLOW_TASK_MOVES=false：' +
+    console.warn('[MoveBlocked] Google task moved across lists; SYNC_ALLOW_TASK_MOVES=false: ' +
       taskLabel_(gId, gTask.title));
     return false;
   }
   if (state.deletionJournal[gId]) {
-    console.warn('[MoveBlocked] Google 任務跨清單；DELETE_JOURNAL_PENDING：' +
+    console.warn('[MoveBlocked] Google task moved across lists; DELETE_JOURNAL_PENDING: ' +
       taskLabel_(gId, gTask.title));
     return false;
   }
   if (!googleMoveInventoryComplete_(state, snap, rec, currentGListId, targetMsListId)) {
-    console.warn('[MoveBlocked] Google 任務跨清單；MOVE_INVENTORY_INCOMPLETE：' +
+    console.warn('[MoveBlocked] Google task moved across lists; MOVE_INVENTORY_INCOMPLETE: ' +
       taskLabel_(gId, gTask.title));
     return false;
   }
@@ -4558,7 +4558,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
   let journal = state.taskMoveJournal[gId] || null;
   const oldMsTask = snap.msTasksById[rec.msId] || null;
   if (oldMsTask && snap.msListByTask[rec.msId] !== rec.msListId) {
-    console.warn('[MoveBlocked] Google 任務跨清單；MOVE_SOURCE_CHANGED：' +
+    console.warn('[MoveBlocked] Google task moved across lists; MOVE_SOURCE_CHANGED: ' +
       taskLabel_(gId, gTask.title));
     return false;
   }
@@ -4644,7 +4644,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
       persistSyncState_(state);
     }
     if (Number(journal.uncertainConfirmations || 0) < 2) {
-      console.warn('[MoveRecovery] 建立結果尚未確認，下一輪再查：' + taskLabel_(gId, gTask.title));
+      console.warn('[MoveRecovery] Creation result is not yet confirmed; check again next round: ' + taskLabel_(gId, gTask.title));
       return false;
     }
     journal.phase = 'retry_create';
@@ -4740,7 +4740,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
   delete snap.msListByTask[journal.oldMsId];
   snap.msTasksById[movedMsTask.id] = movedMsTask;
   snap.msListByTask[movedMsTask.id] = journal.targetMsListId;
-  console.log('[Move] Google → Microsoft 重新同步：' + taskLabel_(gId, gTask.title));
+  console.log('[Move] Google → Microsoft resync: ' + taskLabel_(gId, gTask.title));
   return true;
 }
 
@@ -4865,7 +4865,7 @@ function markListFault_(state, side, id, info) {
 function alertListFaultsIfAny_(state) {
   const count = Object.keys(state.listFaults.g).length + Object.keys(state.listFaults.ms).length;
   if (!count) return;
-  sendListFaultAlert_('目前有 ' + count + ' 個清單處於隔離狀態。syncAll 會跳過這些清單，不會刪除任務。');
+  sendListFaultAlert_(count + ' lists are currently isolated. syncAll will skip them and will not delete tasks.');
 }
 
 function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
@@ -4892,7 +4892,7 @@ function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
       target = createMsList_(gList.title || '(Untitled list)');
         msLists.push(target);
         msById[target.id] = target;
-        console.log('[List] 建立 MS 清單：' + (VERBOSE_LOG ? (gList.title || '(無標題清單)') : gList.id));
+        console.log('[List] Create Microsoft list: ' + (VERBOSE_LOG ? (gList.title || '(Untitled list)') : gList.id));
       }
       state.listMap[gList.id] = target.id;
       mappedMsIds[target.id] = true;
@@ -4904,11 +4904,11 @@ function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
     markListFault_(state, 'ms', msId, {
       reason: 'MS_LIST_MISSING',
       gListId: gList.id,
-      gListTitle: gList.title || '(無標題清單)',
-      msListTitle: '(已消失或無法讀取)'
+      gListTitle: gList.title || '(Untitled list)',
+      msListTitle: '(Missing or unreadable)'
     });
     stateChanged = true;
-    console.error('[ListFault] Microsoft 清單消失或無法讀取，已隔離：msListId=' + msId);
+    console.error('[ListFault] Microsoft list is missing or unreadable and has been isolated: msListId=' + msId);
   });
 
   Object.keys(state.listMap).forEach(function(gListId) {
@@ -4918,12 +4918,12 @@ function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
     const msListId = state.listMap[gListId];
     markListFault_(state, 'g', gListId, {
       reason: 'GOOGLE_LIST_MISSING',
-      gListTitle: '(已消失或無法讀取)',
+      gListTitle: '(Missing or unreadable)',
       msListId: msListId,
       msListTitle: (msById[msListId] && msById[msListId].displayName) || ''
     });
     stateChanged = true;
-    console.error('[ListFault] Google 清單消失或無法讀取，已隔離：gListId=' + gListId);
+    console.error('[ListFault] Google list is missing or unreadable and has been isolated: gListId=' + gListId);
   });
 
   if (stateChanged) {
@@ -4991,9 +4991,9 @@ function planAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety, 
     reservedMicrosoft[microsoft.id] = true;
     plan.pairs.push({
       googleListId: google.id,
-      googleListTitle: google.title || '(無標題清單)',
+      googleListTitle: google.title || '(Untitled list)',
       microsoftListId: microsoft.id,
-      microsoftListTitle: microsoft.displayName || '(無標題清單)',
+      microsoftListTitle: microsoft.displayName || '(Untitled list)',
       reason: reason,
       existing: !!existing
     });
@@ -5017,8 +5017,8 @@ function planAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety, 
       key: key,
       googleListId: googleId || null,
       microsoftListId: microsoftId || null,
-      googleListTitle: google ? (google.title || '(無標題清單)') : '',
-      microsoftListTitle: microsoft ? (microsoft.displayName || '(無標題清單)') : '',
+      googleListTitle: google ? (google.title || '(Untitled list)') : '',
+      microsoftListTitle: microsoft ? (microsoft.displayName || '(Untitled list)') : '',
       reason: reason
     });
   }
@@ -5044,7 +5044,7 @@ function planAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety, 
         reservedMicrosoft[microsoftListId] = true;
         return;
       }
-      fault(google, { id: microsoftListId, displayName: '(已消失或無法讀取)' }, 'MS_LIST_MISSING');
+      fault(google, { id: microsoftListId, displayName: '(Missing or unreadable)' }, 'MS_LIST_MISSING');
       return;
     }
     if (!eligibleMicrosoft[microsoftListId]) {
@@ -5060,9 +5060,9 @@ function planAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety, 
     })) {
       plan.pairs.push({
         googleListId: google.id,
-        googleListTitle: google.title || '(無標題清單)',
+        googleListTitle: google.title || '(Untitled list)',
         microsoftListId: microsoft.id,
-        microsoftListTitle: microsoft.displayName || '(無標題清單)',
+        microsoftListTitle: microsoft.displayName || '(Untitled list)',
         reason: 'EXISTING_ID_MAPPING',
         existing: true
       });
@@ -5182,7 +5182,7 @@ function assertAutoListCreateStillSafe_(state, side, planned, gLists, allMsLists
   if (!source || !exactFingerprint || !sourceEligible || mapped || reservedIds[planned.id] ||
       hasListTombstone_(state, tombstoneSide, planned.id, sourceName) ||
       (nameKey && lifecycle.reservedNameKeys[nameKey])) {
-    throw new Error('AUTO_CREATE_STALE_PLAN_BLOCKED：清單 lifecycle reservation 或來源 metadata 已變更，已拒絕建立對端清單。');
+    throw new Error('AUTO_CREATE_STALE_PLAN_BLOCKED: List lifecycle reservation or source metadata changed; creating the counterpart list was refused.');
   }
 }
 
@@ -5195,7 +5195,7 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
     }
     state.listMap[pair.googleListId] = pair.microsoftListId;
     stateChanged = true;
-    console.log('[List] 自動配對：' + pair.reason + '（' + pair.googleListId + ' ↔ ' + pair.microsoftListId + '）');
+    console.log('[List] Auto-pair: ' + pair.reason + ' (' + pair.googleListId + ' ↔ ' + pair.microsoftListId + ')');
   });
   if (stateChanged) persistSyncState_(state);
 
@@ -5203,11 +5203,11 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
     if (isGListFaulted_(state, google.id) || state.listMap[google.id]) return;
     assertAutoListCreateStillSafe_(state, 'microsoft', google, gLists, allMsLists, gDefaultList, safety);
       const microsoft = createMsList_(google.title || '(Untitled list)');
-    if (!microsoft || !microsoft.id) throw new Error('AUTO_CREATE_MICROSOFT_LIST_FAILED：未取得新 Microsoft 清單 ID。');
+    if (!microsoft || !microsoft.id) throw new Error('AUTO_CREATE_MICROSOFT_LIST_FAILED: New Microsoft list ID was not returned.');
     allMsLists.push(microsoft);
     state.listMap[google.id] = microsoft.id;
     persistSyncState_(state);
-    console.log('[List] Google → Microsoft 建立清單：' + google.id);
+    console.log('[List] Google → Microsoft list created: ' + google.id);
   });
   plan.createGoogle.forEach(function(microsoft) {
     if (isMsListFaulted_(state, microsoft.id)) return;
@@ -5217,11 +5217,11 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
     if (alreadyMapped) return;
     assertAutoListCreateStillSafe_(state, 'google', microsoft, gLists, allMsLists, gDefaultList, safety);
       const google = createGList_(microsoft.displayName || '(Untitled list)');
-    if (!google || !google.id) throw new Error('AUTO_CREATE_GOOGLE_LIST_FAILED：未取得新 Google 清單 ID。');
+    if (!google || !google.id) throw new Error('AUTO_CREATE_GOOGLE_LIST_FAILED: New Google list ID was not returned.');
     gLists.push(google);
     state.listMap[google.id] = microsoft.id;
     persistSyncState_(state);
-    console.log('[List] Microsoft → Google 建立清單：' + microsoft.id);
+    console.log('[List] Microsoft → Google list created: ' + microsoft.id);
   });
   return plan;
 }
@@ -5246,12 +5246,12 @@ function buildSnapshot_(state, startedAt) {
     try {
       gDefaultList = getGDefaultList_();
     } catch (e) {
-      throw new Error('AUTO_DEFAULT_LIST_LOOKUP_FAILED：無法確認 Google 預設清單，已停止自動配對。' + e.message);
+      throw new Error('AUTO_DEFAULT_LIST_LOOKUP_FAILED: Could not confirm the Google default list; automatic pairing stopped. ' + e.message);
     }
     if (!gDefaultList || !gDefaultList.id || !allGLists.some(function(list) {
       return list.id === gDefaultList.id;
     })) {
-      throw new Error('AUTO_DEFAULT_LIST_LOOKUP_FAILED：Google 預設清單不在本輪 inventory，已停止自動配對。');
+      throw new Error('AUTO_DEFAULT_LIST_LOOKUP_FAILED: Google default list is not in this round\'s inventory; automatic pairing stopped.');
     }
   } else {
     safety.googleListIds.forEach(function(id) { activeGListIds[id] = true; });
@@ -5314,13 +5314,13 @@ function buildSnapshot_(state, startedAt) {
         inventoryComplete = false;
         markListFault_(state, 'g', gList.id, {
           reason: 'HTTP_404_WHILE_FETCHING_TASKS',
-          gListTitle: gList.title || '(無標題清單)',
+          gListTitle: gList.title || '(Untitled list)',
           // Keep the exact mapped counterpart on the fault.  Repair needs this
           // historical pair to convert ordinary auto provenance into the
           // anti-recreation guard before it removes the mapping.
           msListId: state.listMap[gList.id] || null
         });
-        console.error('[ListFault] 抓取 Google 任務時 404，已隔離：gListId=' + gList.id);
+        console.error('[ListFault] Got 404 while fetching Google tasks; list isolated: gListId=' + gList.id);
         continue;
       }
       throw e;
@@ -5369,9 +5369,9 @@ function buildSnapshot_(state, startedAt) {
         markListFault_(state, 'ms', msListId, {
           reason: 'HTTP_404_WHILE_FETCHING_TASKS',
           gListId: gListId,
-          gListTitle: gList ? (gList.title || '(無標題清單)') : ''
+          gListTitle: gList ? (gList.title || '(Untitled list)') : ''
         });
-        console.error('[ListFault] 抓取 Microsoft 任務時 404，已隔離：msListId=' + msListId);
+        console.error('[ListFault] Got 404 while fetching Microsoft tasks; list isolated: msListId=' + msListId);
         continue;
       }
       throw e;
@@ -5490,11 +5490,11 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
       }
       if (!allowDeletions) {
         if (missingSide === 'google') {
-          console.warn('[DeleteBlocked] Google 任務消失；SYNC_ALLOW_DELETIONS=false，保留 Microsoft 任務：' + msId);
+          console.warn('[DeleteBlocked] Google task is missing; SYNC_ALLOW_DELETIONS=false, retaining Microsoft task: ' + msId);
         } else if (missingSide === 'microsoft') {
-          console.warn('[DeleteBlocked] Microsoft 任務消失；SYNC_ALLOW_DELETIONS=false，保留 Google 任務：' + taskLabel_(gId, gTask.title));
+          console.warn('[DeleteBlocked] Microsoft task is missing; SYNC_ALLOW_DELETIONS=false, retaining Google task: ' + taskLabel_(gId, gTask.title));
         } else {
-          console.warn('[DeleteBlocked] 兩端任務消失；SYNC_ALLOW_DELETIONS=false，保留 mapping 並不建立 tombstone：' + gId);
+          console.warn('[DeleteBlocked] Both tasks are missing; SYNC_ALLOW_DELETIONS=false, retaining mapping and not creating a tombstone: ' + gId);
         }
       } else {
         observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, roundId, progress);
@@ -5531,11 +5531,11 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
           ? updateMsTask_(rec.msListId, msId, payload)
           : msTask;
         putMapping_(state, gTask, currentGListId, updatedMs, rec.msListId);
-        console.warn('[Conflict] LWW 選 Google：' + taskLabel_(gId, gTask.title));
+        console.warn('[Conflict] LWW selected Google: ' + taskLabel_(gId, gTask.title));
       } else {
         const updatedG = updateGTask_(rec.gListId, gId, googlePayloadFromMs_(msTask));
         putMapping_(state, updatedG, rec.gListId, msTask, rec.msListId);
-        console.warn('[Conflict] LWW 選 Microsoft：' + msId);
+        console.warn('[Conflict] LWW selected Microsoft: ' + msId);
       }
     } else {
       rec.gListId = currentGListId;
@@ -5558,7 +5558,7 @@ function createUnmapped_(state, snap, startedAt) {
     putMapping_(state, gTask, gListId, msTask, msListId);
     snap.msTasksById[msTask.id] = msTask;
     snap.msListByTask[msTask.id] = msListId;
-    console.log('[Create] Google → MS：' + taskLabel_(gId, gTask.title));
+    console.log('[Create] Google → MS: ' + taskLabel_(gId, gTask.title));
   }
   for (const msId of Object.keys(snap.msTasksById)) {
     if (!remainingTimeOk_(startedAt, 30000)) throw new Error('TIME_BUDGET_CREATE');
@@ -5576,7 +5576,7 @@ function createUnmapped_(state, snap, startedAt) {
     if (isListPairReserved_(snap, gListId, msListId)) continue;
     const gTask = createGTask_(gListId, googlePayloadFromMs_(msTask, 'create'));
     putMapping_(state, gTask, gListId, msTask, msListId);
-    console.log('[Create] MS → Google：' + taskLabel_(msId, msTask.title));
+    console.log('[Create] MS → Google: ' + taskLabel_(msId, msTask.title));
   }
 }
 
@@ -5603,8 +5603,8 @@ function syncAll() {
       // failure here stops before a single inventory or remote call.
       state = sanitizePreexistingSyncRoundFence_(state);
     } catch (e) {
-      console.error('[Sync] 狀態載入失敗：' + e.message);
-      sendFatalAlert_('狀態載入失敗：' + e.message);
+      console.error('[Sync] State load failed: ' + e.message);
+      sendFatalAlert_('State load failed: ' + e.message);
       logSyncSummary_('failure');
       throw e;
     }
@@ -5654,7 +5654,7 @@ function syncAll() {
       finalStateCommitted = true;
       recordSuccessfulSyncRound_(roundId, finalGeneration);
       clearSyncRoundFence_();
-      console.log('[Sync] 完成。mapping=' + Object.keys(state.g2m).length);
+      console.log('[Sync] Completed. mapping=' + Object.keys(state.g2m).length);
       logSyncSummary_('success');
     } catch (e) {
       const isTimeBudget = String(e.message).indexOf('TIME_BUDGET_') === 0;
@@ -5697,15 +5697,15 @@ function syncAll() {
         // round. If this clear fails, leave the fence for next-run sanitizing.
         if (roundFenceOpened) clearSyncRoundFence_();
       } catch (saveError) {
-        console.error('[Sync] 保存進度失敗：' + saveError.message);
+        console.error('[Sync] Progress save failed: ' + saveError.message);
       }
       if (isTimeBudget) {
-        console.warn('[Sync] 接近時間上限，已安全保存 durable state；下輪會重新執行完整 inventory，沒有持久化 page cursor。');
+        console.warn('[Sync] Near the time limit; durable state was saved safely. The next round will rerun the full inventory, with no persisted page cursor.');
         logSyncSummary_('time_budget');
         return;
       }
       sendFatalAlert_(String(e.message || e));
-      console.error('[Sync] 失敗：' + e.message + '\n' + (e.stack || ''));
+      console.error('[Sync] Failed: ' + e.message + '\n' + (e.stack || ''));
       logSyncSummary_('failure');
       throw e;
     }
@@ -5880,7 +5880,7 @@ function appendTaskMovePreview_(state, inventory, safety, actions, warnings, pen
       recoveryPhase: journal.phase || 'unknown',
       msTask: msTask
     });
-    warnings.push('[WARNING] 尚有待復原的跨清單移動：' + gId +
+    warnings.push('[WARNING] Cross-list move still awaiting recovery: ' + gId +
       ' phase=' + journal.phase + (journal.lastBlockedReason
         ? ' reason=' + journal.lastBlockedReason : ''));
   });
@@ -5907,16 +5907,16 @@ function appendTaskMovePreview_(state, inventory, safety, actions, warnings, pen
           msTask: msTask
         });
         if (safety.allowTaskMoves) {
-          actions.push('[ACTION] Google 跨清單移動將重建 Microsoft 對應：' + label +
-            '（' + rec.msListId + ' → ' + targetMsListId + '）');
+          actions.push('[ACTION] Google cross-list move will recreate the Microsoft counterpart: ' + label +
+            ' (' + rec.msListId + ' → ' + targetMsListId + ')');
         } else {
-          warnings.push('[WARNING] Google 跨清單移動目前被阻擋：' + label);
+          warnings.push('[WARNING] Google cross-list move is currently blocked: ' + label);
         }
       }
     }
     if (msTask && inventory.msListByTask[rec.msId] &&
         inventory.msListByTask[rec.msId] !== rec.msListId) {
-      warnings.push('[WARNING] Microsoft 任務以相同 ID 出現在不同清單，下一輪會 fail closed：' +
+      warnings.push('[WARNING] Microsoft task with the same ID appears in different lists; the next round will fail closed: ' +
         taskLabel_(rec.msId, msTask.title));
     }
   });
@@ -5947,13 +5947,13 @@ function dryRunReport() {
     if (loaded.corrupt) {
       const pendingMoves = [];
       const report = {
-        warnings: ['STATE_CORRUPT：狀態存在但無法讀取。請勿執行 syncAll。請執行 exportRawSyncState() 並暫停同步。'].concat(
-          roundFence.active ? ['ROUND_FENCE_ACTIVE：下一次 syncAll 會先安全清除 volatile proof。'] : []
+        warnings: ['STATE_CORRUPT: State exists but cannot be read. Do not run syncAll. Run exportRawSyncState() and pause syncing.'].concat(
+          roundFence.active ? ['ROUND_FENCE_ACTIVE: The next syncAll will safely clear volatile proof first.'] : []
         ),
         roundFence: roundFence,
         pendingMoves: pendingMoves,
         pendingMoveSummary: pendingMoveSummary_(pendingMoves),
-        note: '純讀取報告；不建立清單，也不建立、更新或刪除任務。'
+        note: 'Read-only report; no lists or tasks are created, updated, or deleted.'
       };
       console.log(JSON.stringify(report, null, 2));
       return report;
@@ -5964,7 +5964,7 @@ function dryRunReport() {
     const info = [];
     const pendingMoves = [];
     if (roundFence.active) {
-    warnings.push('[WARNING] 有未完成的 sync round safety fence；下一次 syncAll 會先驗證 final commit 或保留 baseline proof，再繼續。');
+    warnings.push('[WARNING] An unfinished sync-round safety fence exists; the next syncAll will verify final commit or preserve baseline proof before continuing.');
     }
     const allGLists = getGLists_();
     const gLists = allowedGoogleLists_(allGLists, safety);
@@ -5977,7 +5977,7 @@ function dryRunReport() {
       }).map(function(list) {
         return {
           id: list.id,
-          title: list.displayName || '(無標題清單)',
+          title: list.displayName || '(Untitled list)',
           reason: normalizeListName_(list.wellknownListName) === 'flaggedemails'
             ? 'FLAGGED_EMAILS'
             : list.isOwner !== true || list.isShared !== false
@@ -5994,7 +5994,7 @@ function dryRunReport() {
         if (!gDefaultList || !gDefaultList.id || !allGLists.some(function(list) {
           return list.id === gDefaultList.id;
         })) {
-          throw new Error('AUTO_DEFAULT_LIST_LOOKUP_FAILED：Google 預設清單不在本輪 inventory。');
+          throw new Error('AUTO_DEFAULT_LIST_LOOKUP_FAILED: Google default list is not in this round\'s inventory.');
         }
         lifecycle = classifyListLifecycle_(state, allGLists, msLists, gDefaultList, safety);
         plan = planAutoListMappings_(state, gLists, msLists, gDefaultList, safety, lifecycle);
@@ -6023,7 +6023,7 @@ function dryRunReport() {
           });
           } catch (e) {
             if (isNotFoundError_(e)) {
-              warnings.push('[WARNING] Google 清單 ' + (list.title || list.id) + ' 無法讀取，可能已消失。');
+              warnings.push('[WARNING] Google list ' + (list.title || list.id) + ' is unreadable and may be missing.');
               return;
             }
             throw e;
@@ -6040,7 +6040,7 @@ function dryRunReport() {
           });
           } catch (e) {
             if (isNotFoundError_(e)) {
-              warnings.push('[WARNING] Microsoft 清單 ' + (list.displayName || list.id) + ' 無法讀取，可能已消失。');
+              warnings.push('[WARNING] Microsoft list ' + (list.displayName || list.id) + ' is unreadable and may be missing.');
               return;
             }
             throw e;
@@ -6048,39 +6048,39 @@ function dryRunReport() {
         });
       }
       if (autoError) {
-        warnings.push('[WARNING] auto 清單發現已安全停止：' + autoError);
+        warnings.push('[WARNING] Auto list discovery stopped safely: ' + autoError);
       } else {
         plan.pairs.forEach(function(pair) {
           if (pair.existing) return;
-          actions.push('[ACTION] 自動配對既有清單：' + pair.googleListTitle + ' ↔ ' + pair.microsoftListTitle + '（' + pair.reason + '）');
+          actions.push('[ACTION] Auto-pair existing lists: ' + pair.googleListTitle + ' ↔ ' + pair.microsoftListTitle + ' (' + pair.reason + ')');
           if ((googleTaskCounts[pair.googleListId] || 0) > 0 &&
               (microsoftTaskCounts[pair.microsoftListId] || 0) > 0) {
-            warnings.push('[WARNING] 首次聯集：既有清單「' + pair.googleListTitle + '」與「' +
-              pair.microsoftListTitle + '」兩端都有任務；同名任務可能保留為兩筆。');
+            warnings.push('[WARNING] Initial union: Existing lists "' + pair.googleListTitle + '" and "' +
+              pair.microsoftListTitle + '" both contain tasks; tasks with the same name may be retained as duplicates.');
           }
         });
         plan.createMicrosoft.forEach(function(list) {
-          actions.push('[ACTION] Google → Microsoft 建立清單：' + (list.title || '(無標題清單)'));
+          actions.push('[ACTION] Google → Microsoft create list: ' + (list.title || '(Untitled list)'));
         });
       plan.createGoogle.forEach(function(list) {
-        actions.push('[ACTION] Microsoft → Google 建立清單：' + (list.displayName || '(無標題清單)'));
+        actions.push('[ACTION] Microsoft → Google create list: ' + (list.displayName || '(Untitled list)'));
       });
       plan.faults.forEach(function(fault) {
-          warnings.push('[WARNING] 將隔離而不猜測配對：' + fault.reason + '（' +
-            (fault.googleListTitle || fault.microsoftListTitle || '未知清單') + '）');
+          warnings.push('[WARNING] Will isolate without guessing a pair: ' + fault.reason + ' (' +
+            (fault.googleListTitle || fault.microsoftListTitle || 'Unknown list') + ')');
         });
       }
       // A discovery failure leaves normal move candidates unobservable, but a
       // durable journal is still reported as RECOVERY with snapshot=MISSING.
       appendTaskMovePreview_(state, moveInventory, safety, actions, warnings, pendingMoves);
       if (!safety.allowDeletions) {
-        info.push('[INFO] SYNC_ALLOW_DELETIONS=false；不會累積或推進任務刪除候選。');
+        info.push('[INFO] SYNC_ALLOW_DELETIONS=false; task-deletion candidates will not be accumulated or advanced.');
       }
       if (!safety.allowTaskMoves) {
-        info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false；Google 跨清單移動會被阻擋。');
+        info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false; Google cross-list moves will be blocked.');
       }
       if (!safety.allowListDeletions) {
-        info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false；不會累積或推進清單刪除候選。');
+        info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false; list-deletion candidates will not be accumulated or advanced.');
       }
       const report = {
         warnings: warnings,
@@ -6094,10 +6094,10 @@ function dryRunReport() {
         autoPlan: plan ? {
           pairs: plan.pairs,
           createMicrosoft: plan.createMicrosoft.map(function(list) {
-            return { id: list.id, title: list.title || '(無標題清單)' };
+            return { id: list.id, title: list.title || '(Untitled list)' };
           }),
           createGoogle: plan.createGoogle.map(function(list) {
-            return { id: list.id, title: list.displayName || '(無標題清單)' };
+            return { id: list.id, title: list.displayName || '(Untitled list)' };
           }),
           faults: plan.faults.map(function(fault) {
             const copy = Object.assign({}, fault);
@@ -6124,7 +6124,7 @@ function dryRunReport() {
           counts[pair.status] = (counts[pair.status] || 0) + 1;
           return counts;
         }, {}) : null,
-        note: '純讀取 auto 清單發現預演；不建立清單，也不建立、更新或刪除任務。'
+        note: 'Read-only auto list-discovery preview; no lists or tasks are created, updated, or deleted.'
       };
       console.log(JSON.stringify(report, null, 2));
       return report;
@@ -6151,41 +6151,41 @@ function dryRunReport() {
           return item.status === 'READY_TO_APPLY';
         }).length;
         if (pendingCount) {
-          actions.push('[ACTION] 明確清單配對已驗證但尚未套用；請先執行 applyConfiguredListPairs()。');
+          actions.push('[ACTION] Explicit list pairs are validated but not applied; run applyConfiguredListPairs() first.');
         } else {
-          info.push('[INFO] SYNC_LIST_PAIRS_JSON 的明確 ID 配對已全部套用。');
+          info.push('[INFO] All explicit ID pairs in SYNC_LIST_PAIRS_JSON have been applied.');
         }
       } catch (e) {
         explicitPairError = String(e.message || e);
-        warnings.push('[WARNING] 明確清單配對無效或未就緒：' + explicitPairError);
+        warnings.push('[WARNING] Explicit list pairs are invalid or not ready: ' + explicitPairError);
       }
     }
     if (!safety.googleListIds.length) {
-      warnings.push('[WARNING] 尚未設定 SYNC_GOOGLE_LIST_IDS；syncAll 與 createTrigger 會拒絕執行。');
+      warnings.push('[WARNING] SYNC_GOOGLE_LIST_IDS is not configured; syncAll and createTrigger will refuse to run.');
     }
-    warnings.push('[WARNING] dryRunReport 是只讀庫存與設定報告，不預演任務層級的更新、刪除或衝突。');
+    warnings.push('[WARNING] dryRunReport is a read-only inventory and configuration report; it does not preview task-level updates, deletions, or conflicts.');
     if (!safety.allowDeletions) {
-      info.push('[INFO] SYNC_ALLOW_DELETIONS=false；不會累積或推進任務刪除候選。');
+      info.push('[INFO] SYNC_ALLOW_DELETIONS=false; task-deletion candidates will not be accumulated or advanced.');
     }
     if (!safety.allowTaskMoves) {
-      info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false；Google 跨清單移動會被阻擋。');
+      info.push('[INFO] SYNC_ALLOW_TASK_MOVES=false; Google cross-list moves will be blocked.');
     }
     if (!safety.allowListDeletions) {
-      info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false；不會累積或推進清單刪除候選。');
+      info.push('[INFO] SYNC_ALLOW_LIST_DELETIONS=false; list-deletion candidates will not be accumulated or advanced.');
     }
     if (listDeletionModeError_(safety)) {
-      warnings.push('[WARNING] SYNC_ALLOW_LIST_DELETIONS=true 只能用於 auto；syncAll 會先持久化暫停 journal 再拒絕執行。');
+      warnings.push('[WARNING] SYNC_ALLOW_LIST_DELETIONS=true is allowed only in auto mode; syncAll will durably pause existing list journals before refusing to run.');
     }
     const faults = [];
     Object.keys(state.listFaults.ms).forEach(function(msId) {
       const f = state.listFaults.ms[msId];
       faults.push(Object.assign({ side: 'microsoft', msListId: msId }, f));
-      warnings.push('[WARNING] 清單隔離中：Microsoft ' + msId + '（Google：' + (f.gListTitle || f.gListId || '未知') + '）。syncAll 會跳過。');
+      warnings.push('[WARNING] List isolated: Microsoft ' + msId + ' (Google: ' + (f.gListTitle || f.gListId || 'Unknown') + '). syncAll will skip it.');
     });
     Object.keys(state.listFaults.g).forEach(function(gId) {
       const f = state.listFaults.g[gId];
       faults.push(Object.assign({ side: 'google', gListId: gId }, f));
-      warnings.push('[WARNING] 清單隔離中：Google ' + (f.gListTitle || gId) + '。syncAll 會跳過。');
+      warnings.push('[WARNING] List isolated: Google ' + (f.gListTitle || gId) + '. syncAll will skip it.');
     });
     const explicitPairByGoogle = {};
     explicitPairConfig.pairs.forEach(function(pair) {
@@ -6202,18 +6202,18 @@ function dryRunReport() {
       }
       return {
         id: list.id,
-        title: list.title || '(無標題清單)',
+        title: list.title || '(Untitled list)',
         microsoftListId: explicitPairByGoogle[list.id] || null,
         nextSyncAction: nextSyncAction
       };
     });
     googleListsWithoutMapping.forEach(function(item) {
       if (item.nextSyncAction === 'CREATE_MICROSOFT_LIST') {
-        actions.push('[ACTION] 下次 syncAll 會建立 Microsoft 清單：' + item.title);
+        actions.push('[ACTION] The next syncAll will create a Microsoft list: ' + item.title);
       } else if (item.nextSyncAction === 'APPLY_EXPLICIT_PAIR_FIRST') {
-        actions.push('[ACTION] Google 清單「' + item.title + '」必須先套用明確 Microsoft 清單 ID 配對。');
+        actions.push('[ACTION] Google list "' + item.title + '" must first apply an explicit Microsoft list ID pair.');
       } else {
-        actions.push('[ACTION] Google 清單「' + item.title + '」被無效的明確配對設定安全阻擋。');
+        actions.push('[ACTION] Google list "' + item.title + '" is safely blocked by an invalid explicit-pair configuration.');
       }
     });
     const possibleNameCollisions = [];
@@ -6222,14 +6222,14 @@ function dryRunReport() {
         const same = msLists.filter(function(ms) { return ms.displayName === gList.title; });
         if (same.length && !state.listMap[gList.id]) {
           possibleNameCollisions.push({
-            googleListTitle: gList.title || '(無標題清單)',
+            googleListTitle: gList.title || '(Untitled list)',
             microsoftListTitles: same.map(function(x) { return x.displayName; }),
-            note: 'ALLOW_NAME_PAIRING=false，因此不會自動配對；下次 syncAll 會建立新的 Microsoft 清單。'
+            note: 'ALLOW_NAME_PAIRING=false, so no automatic pairing will occur; the next syncAll will create a new Microsoft list.'
           });
         }
       });
       possibleNameCollisions.forEach(function(item) {
-        info.push('[INFO] Google 清單「' + item.googleListTitle + '」在 Microsoft 有同名清單，但不會自動配對。');
+        info.push('[INFO] Google list "' + item.googleListTitle + '" has a Microsoft list with the same name, but they will not be paired automatically.');
       });
     }
   let gTaskCount = 0;
@@ -6251,7 +6251,7 @@ function dryRunReport() {
       });
       } catch (e) {
         if (isNotFoundError_(e)) {
-          warnings.push('[WARNING] Google 清單 ' + (list.title || list.id) + ' 無法讀取，可能已消失。');
+          warnings.push('[WARNING] Google list ' + (list.title || list.id) + ' is unreadable and may be missing.');
           return;
         }
         throw e;
@@ -6280,7 +6280,7 @@ function dryRunReport() {
       });
       } catch (e) {
         if (isNotFoundError_(e)) {
-          warnings.push('[WARNING] Microsoft 清單 ' + msListId + ' 無法讀取，可能已消失。');
+          warnings.push('[WARNING] Microsoft list ' + msListId + ' is unreadable and may be missing.');
           return;
         }
         throw e;
@@ -6311,7 +6311,7 @@ function dryRunReport() {
       googleTasks: gTaskCount,
       microsoftTasksInMappedLists: msTaskCount,
       mappedPairs: Object.keys(state.g2m).length,
-      note: '純讀取庫存與設定報告；不建立清單，也不建立、更新或刪除任務。'
+      note: 'Read-only inventory and configuration report; no lists or tasks are created, updated, or deleted.'
     };
   console.log(JSON.stringify(report, null, 2));
   return report;
@@ -6327,8 +6327,8 @@ function createTrigger() {
     if (trigger.getHandlerFunction() === 'syncAll') ScriptApp.deleteTrigger(trigger);
   });
   ScriptApp.newTrigger('syncAll').timeBased().everyMinutes(SYNC_TRIGGER_INTERVAL_MINUTES).create();
-  console.log('[Trigger] 已建立每 ' + SYNC_TRIGGER_INTERVAL_MINUTES +
-    ' 分鐘同步；單次執行預算為 5.25 分鐘，遇到重疊會由全域 lock 安全略過。');
+  console.log('[Trigger] Created a sync every ' + SYNC_TRIGGER_INTERVAL_MINUTES +
+    ' minutes; each run has a 5.25-minute budget, and overlaps are safely skipped by the global lock.');
 }
 
 function deleteSyncTriggers() {
@@ -6345,7 +6345,7 @@ function inspectSyncState() {
     console.log(JSON.stringify({
       error: 'STATE_CORRUPT',
       roundFence: roundFence,
-      note: '狀態存在但無法讀取。請執行 exportRawSyncState() 並暫停同步。'
+      note: 'State exists but cannot be read. Run exportRawSyncState() and pause syncing.'
     }, null, 2));
     return;
   }
@@ -6408,8 +6408,8 @@ function resolveTaskMoveJournalRef_(state, journalRef) {
   });
   if (matches.length !== 1) {
     throw new Error(matches.length > 1
-      ? 'MOVE_OPERATION_JOURNAL_REF_COLLISION：journalRef 不唯一，拒絕選取。'
-      : 'MOVE_OPERATION_JOURNAL_NOT_FOUND：找不到 journalRef。');
+      ? 'MOVE_OPERATION_JOURNAL_REF_COLLISION: journalRef is not unique; selection refused.'
+      : 'MOVE_OPERATION_JOURNAL_NOT_FOUND: journalRef not found.');
   }
   return matches[0];
 }
@@ -6442,7 +6442,7 @@ function inspectTaskMoveJournals() {
       journalCount: journals.length,
       journals: journals,
       taskMoves: taskMoveObservability_(state),
-      note: '此報告只顯示 opaque refs 與 bounded evidence；先執行 exportRawSyncState() 備份，再設定 SYNC_TASK_MOVE_OPERATION_JSON 並呼叫 previewTaskMoveJournalOperation()。'
+      note: 'This report shows only opaque refs and bounded evidence. First back up with exportRawSyncState(), then set SYNC_TASK_MOVE_OPERATION_JSON and call previewTaskMoveJournalOperation().'
     };
     console.log(JSON.stringify(report, null, 2));
     return report;
@@ -6451,32 +6451,32 @@ function inspectTaskMoveJournals() {
 
 function parseTaskMoveOperation_(requirePreviewToken) {
   const raw = PropertiesService.getScriptProperties().getProperty(TASK_MOVE_OPERATION_PROPERTY);
-  if (!raw) throw new Error('MOVE_OPERATION_MISSING：請設定 SYNC_TASK_MOVE_OPERATION_JSON。');
+  if (!raw) throw new Error('MOVE_OPERATION_MISSING: Set SYNC_TASK_MOVE_OPERATION_JSON.');
   let operation;
   try {
     operation = JSON.parse(raw);
   } catch (e) {
-    throw new Error('MOVE_OPERATION_INVALID_JSON：SYNC_TASK_MOVE_OPERATION_JSON 不是有效 JSON。');
+    throw new Error('MOVE_OPERATION_INVALID_JSON: SYNC_TASK_MOVE_OPERATION_JSON is not valid JSON.');
   }
   if (!operation || typeof operation !== 'object' || Array.isArray(operation)) {
-    throw new Error('MOVE_OPERATION_INVALID：操作必須是 JSON 物件。');
+    throw new Error('MOVE_OPERATION_INVALID: Operation must be a JSON object.');
   }
   const allowed = ['action', 'journalRef', 'revision', 'candidateRef', 'previewToken', 'confirmation'];
   Object.keys(operation).forEach(function(key) {
-    if (allowed.indexOf(key) < 0) throw new Error('MOVE_OPERATION_INVALID：不接受未知欄位 ' + key + '。');
+    if (allowed.indexOf(key) < 0) throw new Error('MOVE_OPERATION_INVALID: Unknown field is not accepted: ' + key + '.');
   });
   if (['resume', 'cancel', 'reconcile'].indexOf(operation.action) < 0 ||
       typeof operation.journalRef !== 'string' || !operation.journalRef ||
       typeof operation.revision !== 'string' || !operation.revision) {
-    throw new Error('MOVE_OPERATION_INVALID：action、journalRef、revision 必須有效。');
+    throw new Error('MOVE_OPERATION_INVALID: action, journalRef, and revision must be valid.');
   }
   ['candidateRef', 'previewToken', 'confirmation'].forEach(function(field) {
     if (operation[field] !== undefined && (typeof operation[field] !== 'string' || !operation[field])) {
-      throw new Error('MOVE_OPERATION_INVALID：' + field + ' 若提供必須是非空字串。');
+      throw new Error('MOVE_OPERATION_INVALID: ' + field + ' must be a non-empty string when provided.');
     }
   });
   if (requirePreviewToken && (typeof operation.previewToken !== 'string' || !operation.previewToken)) {
-    throw new Error('MOVE_OPERATION_PREVIEW_TOKEN_REQUIRED：請先 preview，再將 previewToken 寫回操作 JSON。');
+    throw new Error('MOVE_OPERATION_PREVIEW_TOKEN_REQUIRED: Preview first, then write previewToken back to the operation JSON.');
   }
   return operation;
 }
@@ -6618,8 +6618,8 @@ function resolveTaskMoveOperationCandidate_(tasks, candidateRef) {
   });
   if (matches.length !== 1) {
     throw new Error(matches.length > 1
-      ? 'MOVE_OPERATION_CANDIDATE_REF_COLLISION：candidateRef 不唯一，拒絕選取。'
-      : 'MOVE_OPERATION_CANDIDATE_NOT_FOUND：找不到 candidateRef。');
+      ? 'MOVE_OPERATION_CANDIDATE_REF_COLLISION: candidateRef is not unique; selection refused.'
+      : 'MOVE_OPERATION_CANDIDATE_NOT_FOUND: candidateRef not found.');
   }
   return matches[0];
 }
@@ -6715,7 +6715,7 @@ function taskMoveOperationPublicResult_(operation, entry, evidence, plan, previe
       ).map(taskMoveOperationCandidateRef_).sort()
     },
     previewToken: previewToken,
-    note: 'apply 會重新讀取 live evidence；此 preview 不會修改 provider 或同步狀態。'
+    note: 'apply rereads live evidence; this preview does not change the provider or sync state.'
   };
 }
 
@@ -6727,7 +6727,7 @@ function previewTaskMoveJournalOperation() {
     const state = loadStateForSync_();
     const entry = resolveTaskMoveJournalRef_(state, operation.journalRef);
     if (entry.revision !== operation.revision) {
-      throw new Error('MOVE_OPERATION_STALE_REVISION：journal 已改變，請重新 inspect。');
+      throw new Error('MOVE_OPERATION_STALE_REVISION: Journal changed; inspect it again.');
     }
     const evidence = taskMoveOperationLiveEvidence_(state, entry);
     const plan = taskMoveOperationPlan_(operation, entry, evidence);
@@ -6757,7 +6757,7 @@ function saveTaskMoveOperationReceipt_(operation, entry, state) {
       throw new Error('receipt read-back mismatch');
     }
   } catch (e) {
-    throw new Error('MOVE_OPERATION_RECEIPT_SAVE_FAILED：無法保存 private before-image；未修改任何 journal。');
+    throw new Error('MOVE_OPERATION_RECEIPT_SAVE_FAILED: Could not save private before-image; no journal was changed.');
   }
 }
 
@@ -6769,15 +6769,15 @@ function applyTaskMoveJournalOperation() {
     const state = loadStateForSync_();
     const entry = resolveTaskMoveJournalRef_(state, operation.journalRef);
     if (entry.revision !== operation.revision) {
-      throw new Error('MOVE_OPERATION_STALE_REVISION：journal 已改變，請重新 inspect 與 preview。');
+      throw new Error('MOVE_OPERATION_STALE_REVISION: Journal changed; inspect and preview it again.');
     }
     const evidence = taskMoveOperationLiveEvidence_(state, entry);
     const liveToken = taskMoveOperationEvidenceDigest_(operation, entry, evidence);
     if (operation.previewToken !== liveToken) {
-      throw new Error('MOVE_OPERATION_STALE_PREVIEW：live evidence 已改變，請重新 preview。');
+      throw new Error('MOVE_OPERATION_STALE_PREVIEW: Live evidence changed; preview again.');
     }
     const plan = taskMoveOperationPlan_(operation, entry, evidence);
-    if (!plan.ok) throw new Error('MOVE_OPERATION_NOT_SAFE：' + boundedMoveReason_(plan.code));
+    if (!plan.ok) throw new Error('MOVE_OPERATION_NOT_SAFE: ' + boundedMoveReason_(plan.code));
     // Receipt first.  A receipt failure leaves the loaded state untouched and
     // cannot result in a provider mutation because this API is journal-only.
     saveTaskMoveOperationReceipt_(operation, entry, state);
@@ -6803,7 +6803,7 @@ function applyTaskMoveJournalOperation() {
     saveState_(state);
     const report = taskMoveOperationPublicResult_(operation, entry, evidence, plan, liveToken);
     report.applied = true;
-    report.note = '只更新 local move journal；下一個 syncAll 會重新驗證後才可能修改 provider。';
+    report.note = 'Only the local move journal was updated; the next syncAll will revalidate before it may change the provider.';
     console.log(JSON.stringify(report, null, 2));
     return report;
   });
@@ -6832,75 +6832,75 @@ function healthCheck() {
     return report;
   }
   if (!isAutoDiscoveryMode_(safety) && !safety.googleListIds.length) {
-    issues.push('尚未設定 SYNC_GOOGLE_LIST_IDS；同步與觸發器目前被安全鎖住。');
+    issues.push('SYNC_GOOGLE_LIST_IDS is not configured; syncing and triggers are currently safety-locked.');
   }
   try {
     getConfig_();
   } catch (e) {
-    issues.push('Script Properties 缺少必要設定：' + e.message);
+    issues.push('Script Properties is missing required configuration: ' + e.message);
   }
   try {
     const service = microsoftService_();
     if (!service.hasAccess()) {
-      issues.push('Microsoft 授權失效。請執行 resetMicrosoftAuthorization() 後再執行 startAuthorization()。');
+      issues.push('Microsoft authorization has expired. Run resetMicrosoftAuthorization(), then startAuthorization().');
     }
   } catch (e) {
-    issues.push('Microsoft 授權檢查失敗：' + e.message);
+    issues.push('Microsoft authorization check failed: ' + e.message);
   }
   const triggers = ScriptApp.getProjectTriggers().filter(function(trigger) {
     return trigger.getHandlerFunction() === 'syncAll';
   });
   if (!triggers.length) {
-    issues.push('沒有 syncAll 觸發器。請執行 createTrigger()。');
+    issues.push('No syncAll trigger exists. Run createTrigger().');
   }
   const loaded = loadStateForInspection_();
   if (loaded.corrupt) {
-    issues.push('狀態損壞：STATE_CORRUPT。請執行 exportRawSyncState() 並暫停同步。');
+    issues.push('State is corrupted: STATE_CORRUPT. Run exportRawSyncState() and pause syncing.');
   }
   const state = loaded.state;
   try {
     requireConfiguredListPairsApplied_(state, safety);
   } catch (e) {
-    issues.push('明確清單配對未就緒：' + e.message);
+    issues.push('Explicit list pairs are not ready: ' + e.message);
   }
   const faultCount = Object.keys(state.listFaults.g).length + Object.keys(state.listFaults.ms).length;
   if (faultCount) {
-    issues.push('有 ' + faultCount + ' 個清單處於隔離狀態。請執行 listSyncFaults()。');
+    issues.push(faultCount + ' lists are isolated. Run listSyncFaults().');
   }
   const taskDeletion = taskDeletionObservability_(state, safety);
   const taskMoves = taskMoveObservability_(state);
   const listDeletion = listDeletionObservability_(state, safety);
   if (listDeletionModeError_(safety)) {
-    issues.push('SYNC_ALLOW_LIST_DELETIONS=true 只能在 auto 模式使用；同步會先暫停既有清單 journal。');
+    issues.push('SYNC_ALLOW_LIST_DELETIONS=true can be used only in auto mode; syncing will pause existing list journals first.');
   }
   if (listDeletion.journalPhases.orphan || listDeletion.journalPhases.blocked) {
-    issues.push('有 ' + (listDeletion.journalPhases.orphan + listDeletion.journalPhases.blocked) +
-      ' 個清單刪除 journal 無法安全續跑。');
+    issues.push((listDeletion.journalPhases.orphan + listDeletion.journalPhases.blocked) +
+      ' list-deletion journals cannot safely continue.');
   }
   const listTombstoneIntegrityIssues = loaded.listTombstoneIntegrityIssues ||
     listTombstoneIntegrityIssues_(state);
   if (listTombstoneIntegrityIssues.length) {
-    issues.push('有 ' + listTombstoneIntegrityIssues.length +
-      ' 項清單 tombstone 完整性錯誤（含雙向與 alias 對稱檢查）；已保守阻擋自動重建。');
+    issues.push(listTombstoneIntegrityIssues.length +
+      ' list tombstone integrity errors (including bidirectional and alias symmetry checks); automatic recreation is conservatively blocked.');
   }
   if (taskDeletion.orphanDeletionJournals) {
-    issues.push('有 ' + taskDeletion.orphanDeletionJournals +
-      ' 個刪除 journal 缺少 mapping；已安全阻擋自動建立，請先恢復或人工檢查 state。');
+    issues.push(taskDeletion.orphanDeletionJournals +
+      ' deletion journals lack mappings; automatic creation is safely blocked. Restore or inspect state manually first.');
   }
   if (taskDeletion.blockedDeletionJournals) {
-    issues.push('有 ' + taskDeletion.blockedDeletionJournals +
-      ' 個刪除 journal 的清單配對或 inventory 未完成；已隔離且不會刪除。');
+    issues.push(taskDeletion.blockedDeletionJournals +
+      ' deletion journals have incomplete list pairing or inventory; they are isolated and will not delete.');
   }
   if (taskMoves.blockedJournals) {
-    issues.push('有 ' + taskMoves.blockedJournals +
-      ' 個 task move journal 被安全阻擋。請執行 inspectTaskMoveJournals()。');
+    issues.push(taskMoves.blockedJournals +
+      ' task-move journals are safely blocked. Run inspectTaskMoveJournals().');
   }
   if (taskMoves.legacyWithoutCorrelation) {
-    issues.push('有 ' + taskMoves.legacyWithoutCorrelation +
-      ' 個 legacy task move journal 沒有 correlation marker；不會自動採納或重建。請執行 inspectTaskMoveJournals()。');
+    issues.push(taskMoves.legacyWithoutCorrelation +
+      ' legacy task-move journals have no correlation marker; they will not be adopted or recreated automatically. Run inspectTaskMoveJournals().');
   }
   if (roundFence.active) {
-    issues.push('有未完成的 sync round safety fence；下一次 syncAll 會先驗證 final commit 或保留 baseline proof，再安全恢復。');
+    issues.push('An unfinished sync-round safety fence exists; the next syncAll will verify final commit or preserve baseline proof before recovering safely.');
   }
   const report = {
     ok: issues.length === 0,
@@ -6923,7 +6923,7 @@ function healthCheck() {
 function exportSyncState() {
   const loaded = loadStateForInspection_();
   if (loaded.corrupt) {
-    console.error('[Export] 狀態損壞。請改用 exportRawSyncState()。');
+    console.error('[Export] State is corrupted. Use exportRawSyncState() instead.');
     console.log(JSON.stringify({ error: 'STATE_CORRUPT' }, null, 2));
     return;
   }
@@ -6958,7 +6958,7 @@ function restorePreviousSyncState() {
     const props = PropertiesService.getUserProperties();
     const successful = successfulRoundManifest_(props);
     if (!successful) {
-      throw new Error('STATE_RESTORE_UNAVAILABLE：尚無可驗證的成功同步輪次快照。');
+      throw new Error('STATE_RESTORE_UNAVAILABLE: No verifiable successful-sync-round snapshot exists yet.');
     }
     const currentGeneration = currentStateGeneration_(props);
     // If the main state is the current successful final commit, restore the
@@ -6966,14 +6966,14 @@ function restorePreviousSyncState() {
     // recovery returns to the most recent successful commit.
     const target = currentGeneration === successful.current.generation ? successful.previous : successful.current;
     if (!target) {
-      throw new Error('STATE_RESTORE_UNAVAILABLE：沒有更早的成功同步輪次可復原。');
+      throw new Error('STATE_RESTORE_UNAVAILABLE: No earlier successful sync round is available to restore.');
     }
     const previous = loadStateGeneration_(props, target.generation, 'STATE_RESTORE_CORRUPT');
     assertNoAnyDeletionJournals_(previous, 'STATE_RESTORE');
     assertTombstoneEvidencePreserved_(current, previous);
     assertActiveDeletionEvidencePreserved_(current, previous);
     saveState_(previous);
-    console.log('[Restore] 已將目標成功同步輪次複製為目前狀態。請先執行 dryRunReport()。');
+    console.log('[Restore] Target successful sync round copied to current state. Run dryRunReport() first.');
   });
 }
 
@@ -6987,10 +6987,10 @@ function importSyncState(jsonString) {
     try {
       parsed = typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
     } catch (e) {
-      throw new Error('IMPORT_INVALID_JSON：匯入內容不是有效 JSON。');
+      throw new Error('IMPORT_INVALID_JSON: Imported content is not valid JSON.');
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('IMPORT_INVALID_STATE：匯入內容必須是狀態 JSON 物件。');
+      throw new Error('IMPORT_INVALID_STATE: Imported content must be a state JSON object.');
     }
     validateImportedState_(parsed);
     const normalized = normalizeState_(parsed);
@@ -6998,7 +6998,7 @@ function importSyncState(jsonString) {
     assertTombstoneEvidencePreserved_(current, normalized);
     assertActiveDeletionEvidencePreserved_(current, normalized);
     saveState_(normalized);
-    console.log('[Import] 已匯入狀態。請執行 dryRunReport() 確認後再啟用 syncAll。');
+    console.log('[Import] State imported. Run dryRunReport() to confirm before enabling syncAll.');
   });
 }
 
@@ -7007,27 +7007,27 @@ function validateImportedState_(state) {
   const optionalObjectFields = ['pendingTaskDeletions', 'deletionJournal', 'taskMoveJournal',
     'taskDeletionConflicts'];
   if (state.schema !== 2 && state.schema !== 3) {
-    throw new Error('IMPORT_INVALID_STATE：僅接受 schema=2 或 schema=3 的完整匯出。');
+    throw new Error('IMPORT_INVALID_STATE: Only complete schema=2 or schema=3 exports are accepted.');
   }
   assertStrictSchema2StateShape_(state, 'IMPORT_INVALID_STATE');
   assertStrictSchema3StateShape_(state, 'IMPORT_INVALID_STATE');
   objectFields.forEach(function(field) {
     const value = state[field];
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error('IMPORT_INVALID_STATE：欄位 ' + field + ' 必須是物件。');
+      throw new Error('IMPORT_INVALID_STATE: Field ' + field + ' must be an object.');
     }
   });
   optionalObjectFields.forEach(function(field) {
     if (state[field] !== undefined &&
         (!state[field] || typeof state[field] !== 'object' || Array.isArray(state[field]))) {
-      throw new Error('IMPORT_INVALID_STATE：欄位 ' + field + ' 若提供必須是物件。');
+      throw new Error('IMPORT_INVALID_STATE: Field ' + field + ' must be an object when provided.');
     }
   });
   assertListMapOneToOne_(state, 'IMPORT_INVALID_STATE');
   Object.keys(state.g2m).forEach(function(gTaskId) {
     const rec = state.g2m[gTaskId];
     if (!rec || typeof rec !== 'object' || !rec.msId || !rec.gListId || !rec.msListId) {
-      throw new Error('IMPORT_INVALID_STATE：g2m[' + gTaskId + '] 缺少必要 ID。');
+      throw new Error('IMPORT_INVALID_STATE: g2m[' + gTaskId + '] is missing a required ID.');
     }
   });
   validateImportedTaskDeletionState_(state);
@@ -7043,12 +7043,12 @@ function validateImportedTaskDeletionRecord_(field, gTaskId, record, requireRoun
     (record.gUpdated === null || typeof record.gUpdated === 'string' || record.gUpdated === undefined) &&
     (record.msUpdated === null || typeof record.msUpdated === 'string' || record.msUpdated === undefined);
   if (!hasStrings) {
-    throw new Error('IMPORT_INVALID_STATE：' + field + '[' + gTaskId + '] 格式或 task/list ID 無效。');
+    throw new Error('IMPORT_INVALID_STATE: ' + field + '[' + gTaskId + '] has an invalid format or task/list ID.');
   }
   if (requireRound &&
       (!Number.isInteger(record.confirmations) || record.confirmations !== 1 ||
        typeof record.lastRoundId !== 'string' || !record.lastRoundId)) {
-    throw new Error('IMPORT_INVALID_STATE：pendingTaskDeletions[' + gTaskId + '] 缺少有效 round。');
+    throw new Error('IMPORT_INVALID_STATE: pendingTaskDeletions[' + gTaskId + '] has no valid round.');
   }
 }
 
@@ -7062,22 +7062,22 @@ function validateImportedTaskDeletionState_(state) {
     const mapping = state.g2m[gTaskId];
     if (!mapping || mapping.msId !== record.msId || mapping.gListId !== record.gListId ||
         mapping.msListId !== record.msListId) {
-      throw new Error('IMPORT_INVALID_STATE：pendingTaskDeletions[' + gTaskId + '] 與 mapping 不一致。');
+      throw new Error('IMPORT_INVALID_STATE: pendingTaskDeletions[' + gTaskId + '] is inconsistent with its mapping.');
     }
   });
   Object.keys(journals).forEach(function(gTaskId) {
     const record = journals[gTaskId];
     validateImportedTaskDeletionRecord_('deletionJournal', gTaskId, record, false);
     if (record.phase !== 'prepared' && record.phase !== 'paused') {
-      throw new Error('IMPORT_INVALID_STATE：deletionJournal[' + gTaskId + '] phase 無效。');
+      throw new Error('IMPORT_INVALID_STATE: deletionJournal[' + gTaskId + '] has an invalid phase.');
     }
     if (typeof record.preparedAt !== 'string' || !record.preparedAt) {
-      throw new Error('IMPORT_INVALID_STATE：deletionJournal[' + gTaskId + '] 缺少 preparedAt。');
+      throw new Error('IMPORT_INVALID_STATE: deletionJournal[' + gTaskId + '] is missing preparedAt.');
     }
     const mapping = state.g2m[gTaskId];
     if (mapping && (mapping.msId !== record.msId || mapping.gListId !== record.gListId ||
         mapping.msListId !== record.msListId)) {
-      throw new Error('IMPORT_INVALID_STATE：deletionJournal[' + gTaskId + '] 與 mapping 不一致。');
+      throw new Error('IMPORT_INVALID_STATE: deletionJournal[' + gTaskId + '] is inconsistent with its mapping.');
     }
   });
   Object.keys(conflicts).forEach(function(gTaskId) {
@@ -7088,7 +7088,7 @@ function validateImportedTaskDeletionState_(state) {
         typeof record.msListId !== 'string' || !record.msListId ||
         typeof record.reason !== 'string' || !record.reason ||
         typeof record.at !== 'string' || !record.at) {
-      throw new Error('IMPORT_INVALID_STATE：taskDeletionConflicts[' + gTaskId + '] 格式或 ID 無效。');
+      throw new Error('IMPORT_INVALID_STATE: taskDeletionConflicts[' + gTaskId + '] has an invalid format or ID.');
     }
   });
 }
@@ -7101,11 +7101,11 @@ function validateImportedListDeletionRecord_(field, key, record, requireRound) {
       ['google', 'microsoft', 'both'].indexOf(record.missingSide) < 0 ||
       typeof record.taskFingerprint !== 'string' || !Array.isArray(record.taskPairs) ||
       record.deletable !== true) {
-    throw new Error('IMPORT_INVALID_STATE：' + field + '[' + key + '] 格式或 list ID 無效。');
+    throw new Error('IMPORT_INVALID_STATE: ' + field + '[' + key + '] has an invalid format or list ID.');
   }
   if (requireRound && (!Number.isInteger(record.confirmations) || record.confirmations !== 1 ||
       typeof record.lastRoundId !== 'string' || !record.lastRoundId)) {
-    throw new Error('IMPORT_INVALID_STATE：pendingListDeletions[' + key + '] 缺少有效 round。');
+    throw new Error('IMPORT_INVALID_STATE: pendingListDeletions[' + key + '] has no valid round.');
   }
 }
 
@@ -7114,22 +7114,22 @@ function validateImportedListDeletionState_(state) {
     'listDeletionConflicts', 'listTombstones', 'listTombstoneNames'];
   fields.forEach(function(field) {
     if (!state[field] || typeof state[field] !== 'object' || Array.isArray(state[field])) {
-      throw new Error('IMPORT_INVALID_STATE：欄位 ' + field + ' 必須是物件。');
+      throw new Error('IMPORT_INVALID_STATE: Field ' + field + ' must be an object.');
     }
   });
   if (!state.listTombstones.g || typeof state.listTombstones.g !== 'object' || Array.isArray(state.listTombstones.g) ||
       !state.listTombstones.ms || typeof state.listTombstones.ms !== 'object' || Array.isArray(state.listTombstones.ms)) {
-    throw new Error('IMPORT_INVALID_STATE：listTombstones 必須包含 g/ms 物件。');
+    throw new Error('IMPORT_INVALID_STATE: listTombstones must contain g/ms objects.');
   }
   if (!state.listTombstoneNames.g || typeof state.listTombstoneNames.g !== 'object' || Array.isArray(state.listTombstoneNames.g) ||
       !state.listTombstoneNames.ms || typeof state.listTombstoneNames.ms !== 'object' || Array.isArray(state.listTombstoneNames.ms)) {
-    throw new Error('IMPORT_INVALID_STATE：listTombstoneNames 必須包含 g/ms 物件。');
+    throw new Error('IMPORT_INVALID_STATE: listTombstoneNames must contain g/ms objects.');
   }
   Object.keys(state.listPairMeta).forEach(function(key) {
     const meta = state.listPairMeta[key];
     if (!meta || typeof meta !== 'object' || key !== listPairKey_(meta.gListId, meta.msListId) ||
         typeof meta.autoBothLiveProvenAt !== 'string' || !meta.autoBothLiveProvenAt) {
-      throw new Error('IMPORT_INVALID_STATE：listPairMeta[' + key + '] 格式無效。');
+      throw new Error('IMPORT_INVALID_STATE: listPairMeta[' + key + '] has an invalid format.');
     }
   });
   Object.keys(state.pendingListDeletions).forEach(function(key) {
@@ -7140,7 +7140,7 @@ function validateImportedListDeletionState_(state) {
     validateImportedListDeletionRecord_('listDeletionJournal', key, record, false);
     if (['prepared', 'paused', 'blocked'].indexOf(record.phase) < 0 ||
         typeof record.preparedAt !== 'string' || !record.preparedAt) {
-      throw new Error('IMPORT_INVALID_STATE：listDeletionJournal[' + key + '] phase 無效。');
+      throw new Error('IMPORT_INVALID_STATE: listDeletionJournal[' + key + '] has an invalid phase.');
     }
   });
   Object.keys(state.listDeletionConflicts).forEach(function(key) {
@@ -7148,7 +7148,7 @@ function validateImportedListDeletionState_(state) {
     if (!record || typeof record !== 'object' || Array.isArray(record) ||
         typeof record.reason !== 'string' || !record.reason ||
         typeof record.at !== 'string' || !record.at) {
-      throw new Error('IMPORT_INVALID_STATE：listDeletionConflicts[' + key + '] 格式無效。');
+      throw new Error('IMPORT_INVALID_STATE: listDeletionConflicts[' + key + '] has an invalid format.');
     }
   });
   assertListTombstoneIntegrity_(state, 'IMPORT_INVALID_STATE');
@@ -7163,7 +7163,7 @@ function validateLoadedListDeletionState_(state) {
         typeof meta.gListId !== 'string' || typeof meta.msListId !== 'string' ||
         key !== listPairKey_(meta.gListId, meta.msListId) ||
         typeof meta.autoBothLiveProvenAt !== 'string' || !meta.autoBothLiveProvenAt) {
-      throw new Error('STATE_MALFORMED：listPairMeta[' + key + '] 無法安全使用。');
+      throw new Error('STATE_MALFORMED: listPairMeta[' + key + '] cannot be used safely.');
     }
   });
   Object.keys(state.pendingListDeletions).forEach(function(key) {
@@ -7173,7 +7173,7 @@ function validateLoadedListDeletionState_(state) {
         key !== listPairKey_(rec.gListId, rec.msListId) || rec.confirmations !== 1 ||
         typeof rec.lastRoundId !== 'string' || !rec.lastRoundId ||
         !Array.isArray(rec.taskPairs) || typeof rec.taskFingerprint !== 'string') {
-      throw new Error('STATE_MALFORMED：pendingListDeletions[' + key + '] 無法安全使用。');
+      throw new Error('STATE_MALFORMED: pendingListDeletions[' + key + '] cannot be used safely.');
     }
   });
   Object.keys(state.listDeletionJournal).forEach(function(key) {
@@ -7182,14 +7182,14 @@ function validateLoadedListDeletionState_(state) {
         key !== listPairKey_(rec.gListId, rec.msListId) ||
         ['prepared', 'paused', 'blocked'].indexOf(rec.phase) < 0 ||
         typeof rec.preparedAt !== 'string' || !rec.preparedAt || !Array.isArray(rec.taskPairs)) {
-      throw new Error('STATE_MALFORMED：listDeletionJournal[' + key + '] 無法安全使用。');
+      throw new Error('STATE_MALFORMED: listDeletionJournal[' + key + '] cannot be used safely.');
     }
   });
   Object.keys(state.listDeletionConflicts).forEach(function(key) {
     const rec = state.listDeletionConflicts[key];
     if (!rec || typeof rec !== 'object' || Array.isArray(rec) ||
         typeof rec.reason !== 'string' || !rec.reason || typeof rec.at !== 'string' || !rec.at) {
-      throw new Error('STATE_MALFORMED：listDeletionConflicts[' + key + '] 無法安全使用。');
+      throw new Error('STATE_MALFORMED: listDeletionConflicts[' + key + '] cannot be used safely.');
     }
   });
 }
@@ -7209,7 +7209,7 @@ function listSyncFaults() {
   if (loaded.corrupt) {
     console.log(JSON.stringify({
       error: 'STATE_CORRUPT',
-      note: '狀態存在但無法讀取。請執行 exportRawSyncState() 並暫停同步。'
+      note: 'State exists but cannot be read. Run exportRawSyncState() and pause syncing.'
     }, null, 2));
     return;
   }
@@ -7226,8 +7226,8 @@ function listSyncFaults() {
       googleListTitle: f.gListTitle || null,
       affectedMappings: countAffectedMappings_(state, f.gListId || null, msId),
       suggestion: f.gListId
-        ? '先設定 Script Property REPAIR_GOOGLE_LIST_ID=' + f.gListId + '，再執行 repairFaultedListFromProperty()。'
-        : '缺少 Google 清單 ID；先保留隔離並人工檢查狀態。'
+        ? 'Set Script Property REPAIR_GOOGLE_LIST_ID=' + f.gListId + ' first, then run repairFaultedListFromProperty().'
+        : 'Google list ID is missing; keep the list isolated and inspect state manually first.'
     });
   });
   Object.keys(state.listFaults.g).forEach(function(gId) {
@@ -7240,13 +7240,13 @@ function listSyncFaults() {
       microsoftListId: f.msListId || null,
       microsoftListTitle: f.msListTitle || null,
       affectedMappings: countAffectedMappings_(state, gId, f.msListId || null),
-      suggestion: '先設定 Script Property REPAIR_GOOGLE_LIST_ID=' + gId + '，再執行 repairFaultedListFromProperty()。'
+      suggestion: 'Set Script Property REPAIR_GOOGLE_LIST_ID=' + gId + ' first, then run repairFaultedListFromProperty().'
     });
   });
   console.log(JSON.stringify({
     faultCount: faults.length,
     faults: faults,
-    note: '清單隔離期間，syncAll 會跳過這些清單，不會刪除任務。'
+    note: 'While lists are isolated, syncAll skips them and does not delete tasks.'
   }, null, 2));
 }
 
@@ -7271,7 +7271,7 @@ function deletionJournalIdsForListPair_(state, gListId, msListId) {
 function assertNoDeletionJournalForListPair_(state, gListId, msListId) {
   const journalIds = deletionJournalIdsForListPair_(state, gListId, msListId);
   if (journalIds.length) {
-    throw new Error('REPAIR_DELETION_JOURNAL_PENDING：先完成或人工檢查 deletion journal，不能重設配對。task=' + journalIds.join(','));
+    throw new Error('REPAIR_DELETION_JOURNAL_PENDING: Complete or manually inspect the deletion journal before resetting the pair. task=' + journalIds.join(','));
   }
 }
 
@@ -7295,7 +7295,7 @@ function assertNoListLifecycleForPair_(state, gListId, msListId) {
   const records = listLifecycleRecordsForPair_(state, gListId, msListId)
     .filter(function(record) { return record !== 'listPairMeta'; });
   if (records.length) {
-    throw new Error('REPAIR_LIST_LIFECYCLE_PENDING：不能遺失清單刪除 provenance：' + records.join(','));
+    throw new Error('REPAIR_LIST_LIFECYCLE_PENDING: List-deletion provenance cannot be discarded: ' + records.join(','));
   }
 }
 
@@ -7327,7 +7327,7 @@ function assertNoAnyDeletionJournals_(state, code) {
   if (Object.keys(state.deletionJournal).length || Object.keys(state.taskMoveJournal).length ||
       Object.keys(state.listDeletionJournal).length) {
     throw new Error((code || 'STATE_CHANGE') +
-      '_DELETION_JOURNAL_PENDING：存在 task deletion、task move 或 list deletion journal，已拒絕覆寫。');
+      '_DELETION_JOURNAL_PENDING: A task-deletion, task-move, or list-deletion journal exists; overwrite refused.');
   }
 }
 
@@ -7374,8 +7374,8 @@ function resolveFaultedGoogleListPair_(state, gListId, fault) {
   });
   const ids = Object.keys(candidates).sort();
   if (ids.length > 1) {
-    throw new Error('REPAIR_LIST_PAIR_AMBIGUOUS：Google 清單 ' + gListId +
-      ' 對應多個歷史 Microsoft 清單，已拒絕變更。');
+    throw new Error('REPAIR_LIST_PAIR_AMBIGUOUS: Google list ' + gListId +
+      ' maps to multiple historical Microsoft lists; change refused.');
   }
   return ids.length === 1 ? ids[0] : null;
 }
@@ -7400,7 +7400,7 @@ function repairFaultedListByGoogleId(gListId) {
       });
     }
     if (!targets.length) {
-      console.warn('[Repair] 找不到 Google 清單 ID「' + gListId + '」的故障。請執行 listSyncFaults()。');
+      console.warn('[Repair] No fault found for Google list ID "' + gListId + '". Run listSyncFaults().');
       return;
     }
     const exactTargets = {};
@@ -7425,8 +7425,8 @@ function repairFaultedListByGoogleId(gListId) {
     });
     normalizeState_(state);
     saveState_(state);
-    console.log('[Repair] 已重設 Google 清單 ID「' + gListId + '」的配對。');
-    console.log('[Repair] 若已設定 SYNC_LIST_PAIRS_JSON，請重新驗證並套用；否則下一輪可能建立新清單。請先執行 dryRunReport()。');
+    console.log('[Repair] Reset pairing for Google list ID "' + gListId + '".');
+    console.log('[Repair] If SYNC_LIST_PAIRS_JSON is configured, validate and apply it again; otherwise the next round may create a new list. Run dryRunReport() first.');
   });
 }
 
@@ -7434,7 +7434,7 @@ function repairFaultedListFromProperty() {
   initializeExecutionBudget_();
   const gListId = PropertiesService.getScriptProperties().getProperty('REPAIR_GOOGLE_LIST_ID');
   if (!gListId) {
-    throw new Error('請先在 Script Properties 設定 REPAIR_GOOGLE_LIST_ID。');
+    throw new Error('Set REPAIR_GOOGLE_LIST_ID in Script Properties first.');
   }
   return repairFaultedListByGoogleId(gListId);
 }
@@ -7464,7 +7464,7 @@ function clearAllListFaultsAndPrepareResync() {
       const mapping = state.g2m[gTaskId];
       if (journal && (faultedG[journal.gListId] || faultedMs[journal.msListId] ||
           (mapping && (faultedG[mapping.gListId] || faultedMs[mapping.msListId])))) {
-        throw new Error('REPAIR_DELETION_JOURNAL_PENDING：先完成或人工檢查 deletion journal，不能清除所有 fault。task=' + gTaskId);
+        throw new Error('REPAIR_DELETION_JOURNAL_PENDING: Complete or manually inspect the deletion journal before clearing all faults. task=' + gTaskId);
       }
     });
     Object.keys(state.listMap).forEach(function(gListId) {
@@ -7495,8 +7495,8 @@ function clearAllListFaultsAndPrepareResync() {
     state.listFaults = { g: {}, ms: {} };
     normalizeState_(state);
     saveState_(state);
-    console.log('[Repair] 已清除所有清單故障標記，並重設受影響清單的配對。');
-    console.log('[Repair] 若已設定 SYNC_LIST_PAIRS_JSON，請重新驗證並套用；否則下一輪會以首次同步方式處理。');
-    console.log('[Repair] 未使用明確配對時可能建立新清單或產生重複任務。請先執行 dryRunReport() 確認。');
+    console.log('[Repair] Cleared all list-fault markers and reset pairing for affected lists.');
+    console.log('[Repair] If SYNC_LIST_PAIRS_JSON is configured, validate and apply it again; otherwise the next round will be handled as an initial sync.');
+    console.log('[Repair] Without explicit pairing, this may create new lists or duplicate tasks. Run dryRunReport() first to confirm.');
   });
 }

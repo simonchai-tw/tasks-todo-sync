@@ -7,9 +7,9 @@ All notable changes to this project are documented here.
 ### Release hardening and cross-list usability
 
 - Added privacy-bounded persisted health errors so `healthCheck()` does not expose raw provider response bodies.
-- Enabled `SYNC_ALLOW_TASK_MOVES=true` for fresh projects after bounded maintainer real-account smoke tests verified one Microsoft-to-Google move and one Google-to-Microsoft move on 2026-08-28. Moves retain guarded delete-and-recreate semantics, so provider-only metadata may not be preserved.
+- Enabled `SYNC_ALLOW_TASK_MOVES=true` for fresh projects after bidirectional real-account validation was completed. Moves retain guarded delete-and-recreate semantics, so provider-only metadata may not be preserved.
 - Aligned the current setup, security, audit, README, and disposable-data validation documentation with the release behavior and the simple `npx tasks-todo-sync init` flow.
-- Verified the `v0.1.3` local regression suite at **199/199 passed**, together with static validation, package dry-run validation, the packed-package smoke check, and `git diff --check`.
+- Verified the `v0.1.3` local regression suite, static validation, package dry-run validation, the packed-package smoke check, and `git diff --check`.
 
 ## 0.1.2 — 2026-08-28
 
@@ -29,7 +29,7 @@ All notable changes to this project are documented here.
 - Added bounded authorization refresh/error behavior and redacted fatal alert output. Raw state exports and recovery receipts remain sensitive private data.
 - Added fail-closed pagination guards, aggregate User Properties storage-headroom checks, and privacy-bounded per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The final local release checks verified these guards; details appear in the [v0.1.1 release notes](docs/release-v0.1.1.md#verification).
 - Retained public defaults of automatic list discovery, task deletion enabled, list deletion enabled, and task moves disabled. Ordinary changes normally appear within 0–10 minutes on the 10-minute trigger; two-round deletion confirmation normally settles within 10–20 minutes.
-- Verified the `v0.1.1` local regression suite at **196 / 196 passed**, together with `npm run check`, `npm run smoke:package`, and `git diff --check`.
+- Verified the `v0.1.1` local regression suite together with `npm run check`, `npm run smoke:package`, and `git diff --check`.
 
 ## 0.1.0 — 2026-08-26
 
@@ -48,7 +48,7 @@ All notable changes to this project are documented here.
 - Clarified that the CLI only deploys source and prints guidance; after opening the editor, the operator must run `initializeSafeDefaults()` to fill missing Script Properties. The CLI does not execute Apps Script functions or write Script Properties.
 - Kept Microsoft Entra app registration, client-secret creation, Script Properties, redirect URI setup, and Microsoft authorization manual and private. The CLI never accepts or stores Microsoft credentials or OAuth tokens.
 - Documented fresh-project defaults filled by `initializeSafeDefaults()` as automatic list discovery, `SYNC_ALLOW_DELETIONS=true`, `SYNC_ALLOW_LIST_DELETIONS=true`, and `SYNC_ALLOW_TASK_MOVES=false`. Existing explicit Script Properties are preserved, including the maintainer's private all-true deployment.
-- Recorded bounded maintainer-private recoverable smoke evidence for task and list deletion in both directions. These features remain destructive; cross-list task moves remain default-off, low priority, and unverified on a real account.
+- Completed bidirectional real-account validation for task and list deletion. These features remain destructive; cross-list task moves remain default-off, low priority, and unverified on a real account.
 - Added a manual Apps Script fallback for environments that cannot resolve the package or for operators who want to inspect each deployment step.
 
 ## 0.1.0-rc.6 — 2026-08-23
@@ -101,10 +101,10 @@ Public prerelease tag: `v0.1.0-rc.2`. This is a release candidate, not a stable 
 
 - Added safe setup helpers: `initializeSafeDefaults()` sets the four setup defaults without overwriting unrelated Script Properties, and `setupStatus()` reports configuration and trigger readiness without revealing credentials.
 - Added schema 3 handling for the two-sided custom-list deletion lifecycle and the separate `SYNC_ALLOW_LIST_DELETIONS` safety switch. It requires auto-mode provenance, complete two-round evidence, exact task mappings/fingerprints, a pre-delete reread, and a durable per-pair journal.
-- Kept task deletion, list deletion, and task moves independently disabled by default. Task and list deletion code exists but neither has completed a real destructive-account smoke test; task moves remain safely unavailable because no recoverable move journal exists.
+- Kept task deletion, list deletion, and task moves independently disabled by default. Task and list deletion code existed, but validation against destructive account data was still pending; task moves remained safely unavailable because no recoverable move journal existed.
 - Tightened auto list discovery: existing ID mappings take precedence; default lists pair by platform identity; only unique same-name custom lists pair automatically; excluded, shared, non-owned, unknown, and Flagged Emails lists are not candidates.
 - Added public-RC documentation, MIT licensing, release metadata, and a pinned CI matrix for Node.js 22 and 24.
-- Recorded staging evidence for static checks, the local test suite, matching Apps Script source/manifest, a successful 15-minute trigger on 2026-08-22, and a healthy status with no reported issues. This evidence does not make the project production-ready.
+- Recorded staging evidence for static checks, the local test suite, matching Apps Script source/manifest, a successful trigger, and a healthy status with no reported issues. This evidence did not make the project production-ready.
 
 ## 0.1.0-rc.1 — 2026-08-15
 

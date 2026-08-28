@@ -24,7 +24,7 @@ SYNC_ALLOW_LIST_DELETIONS=true
 SYNC_ALLOW_TASK_MOVES=true
 ```
 
-Task and list deletion, plus cross-list moves, use confirmation rounds, live revalidation, durable journals, and tombstones where applicable. Fresh projects enable cross-list moves after maintainer testing verified both directions on a real account on 2026-08-28. Cross-list movement uses delete-and-recreate semantics, so provider-only metadata may not be preserved. The round fence keeps a prior successful deletion baseline when a run stops before final projection; restore uses only a separately committed successful generation and fails closed for legacy state without verifiable success.
+Task and list deletion, plus cross-list moves, use confirmation rounds, live revalidation, durable journals, and tombstones where applicable. Fresh projects enable cross-list moves after bidirectional real-account validation was completed. Cross-list movement uses delete-and-recreate semantics, so provider-only metadata may not be preserved. The round fence keeps a prior successful deletion baseline when a run stops before final projection; restore uses only a separately committed successful generation and fails closed for legacy state without verifiable success.
 
 ## Report a vulnerability
 

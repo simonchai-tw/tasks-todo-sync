@@ -65,4 +65,4 @@ Apps Script allows one execution for at most six minutes. This project budgets 5
 
 Delete-and-recreate changes the provider task ID. Only title, plain-text notes, date-only due date, and completion state are rebuilt; reminders, importance, categories, recurrence, attachments, creation date, and completion history are not preserved during cross-list moves. A Google title, date, or completion-only edit does not rewrite an existing Microsoft rich-text body; a notes projection change does.
 
-For explicit list pairing, rollback, the deletion smoke procedure, or the full manual fallback, use the [deployment guide](deployment.md).
+For explicit list pairing, rollback, the deletion validation procedure, or the full manual fallback, use the [deployment guide](deployment.md).
