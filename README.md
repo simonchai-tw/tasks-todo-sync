@@ -68,6 +68,17 @@ The private trigger runs every 10 minutes. Ordinary changes normally appear with
 | Delete tasks and lists | Google ↔ Microsoft | Enabled by default with confirmation and recovery records |
 | Move tasks between lists | Google ↔ Microsoft | Available as an opt-in advanced feature while real-account validation continues |
 
+## A sync engine, not a chain of recipes
+
+General automation platforms such as [Zapier](https://zapier.com/apps/google-tasks/integrations/microsoft-todo) and [Make](https://www.make.com/en/integrations/microsoft-to-do) can connect Google Tasks and Microsoft To Do through configurable triggers and actions. That flexibility is useful when every workflow is different. Keeping two task systems aligned, however, is a state problem—not just a “when this happens, do that” recipe.
+
+- **One stateful loop.** Lists and tasks keep stable mappings across both services instead of relying on unrelated one-way automations.
+- **The full task lifecycle.** Creation, edits, completion, reopening, due dates, lists, and guarded deletion are handled together so one event does not start an automation loop or resurrect old work.
+- **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
+- **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
+
+The core loop is covered by automated checks, GitHub CI, CodeQL, and bounded real-account smoke tests. Detailed evidence and known limits are recorded in the [engineering audit](docs/audit.md).
+
 ## Get started
 
 Create your private Apps Script project:
@@ -86,23 +97,7 @@ You will need:
 
 You authorize Google and Microsoft separately. Each provider may show more than one sign-in or consent page depending on your existing browser session, but the project connects one account from each ecosystem.
 
-Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, and advanced options.
-
-## Private by design
-
-- The synchronizer runs in a Google Apps Script project you own.
-- Your Microsoft credentials and tokens stay in that private project.
-- There is no hosted Tasks–To Do Sync account, shared client secret, or task database.
-- Task and list deletion use confirmation, live revalidation, recovery journals, and 30-day tombstones.
-- Missing or ambiguous identities stop instead of being paired by guesswork.
-
-The everyday two-way sync and task/list deletion paths are covered by automated checks, GitHub CI, CodeQL, and bounded real-account smoke tests. Detailed evidence and known limits are recorded in the [engineering audit](docs/audit.md).
-
-## Cross-list moves
-
-Cross-list task moves are implemented with conflict checks and recovery journals, but remain off by default while real-account testing continues. Moving a task can recreate its provider-side identity, so Microsoft-only fields such as recurrence, importance, categories, or reminder details may not survive the move.
-
-If you want to try it, use two disposable lists and follow the [end-to-end validation guide](docs/e2e-validation.md) before enabling it for everyday tasks.
+Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, and advanced options—including the opt-in cross-list move validation.
 
 ## Documentation
 
