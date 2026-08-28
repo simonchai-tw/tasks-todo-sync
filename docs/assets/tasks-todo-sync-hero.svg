@@ -3,9 +3,9 @@
   <desc id="desc">A private Google Apps Script bridge connecting Google Tasks with Microsoft To Do.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#07111f"/>
-      <stop offset="0.55" stop-color="#0b1d33"/>
-      <stop offset="1" stop-color="#102b43"/>
+      <stop offset="0" stop-color="#050d19"/>
+      <stop offset="0.52" stop-color="#0a1c31"/>
+      <stop offset="1" stop-color="#171b3b"/>
     </linearGradient>
     <linearGradient id="bridge" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0" stop-color="#4285f4"/>
@@ -20,28 +20,33 @@
       <stop offset="0" stop-color="#25204c"/>
       <stop offset="1" stop-color="#111a34"/>
     </linearGradient>
-    <radialGradient id="glow">
-      <stop offset="0" stop-color="#70e1f5" stop-opacity="0.3"/>
-      <stop offset="1" stop-color="#70e1f5" stop-opacity="0"/>
+    <radialGradient id="glowBlue">
+      <stop offset="0" stop-color="#4285f4" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#4285f4" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowViolet">
+      <stop offset="0" stop-color="#8b5cf6" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/>
     </radialGradient>
     <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
-      <path d="M28 0H0V28" fill="none" stroke="#ffffff" stroke-opacity="0.035"/>
+      <path d="M28 0H0V28" fill="none" stroke="#ffffff" stroke-opacity="0.022"/>
     </pattern>
     <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#000000" flood-opacity="0.32"/>
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000000" flood-opacity="0.34"/>
     </filter>
   </defs>
 
   <rect width="1200" height="420" rx="30" fill="url(#bg)"/>
   <rect width="1200" height="420" rx="30" fill="url(#grid)"/>
-  <circle cx="600" cy="232" r="190" fill="url(#glow)"/>
+  <ellipse cx="340" cy="220" rx="360" ry="250" fill="url(#glowBlue)"/>
+  <ellipse cx="880" cy="230" rx="360" ry="260" fill="url(#glowViolet)"/>
 
-  <text x="600" y="66" text-anchor="middle" fill="#f7fbff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="34" font-weight="750" letter-spacing="5">TASKS ↔ TO DO</text>
-  <text x="600" y="102" text-anchor="middle" fill="#a9bdd3" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" letter-spacing="1.2">PRIVATE · SELF-HOSTED · BIDIRECTIONAL</text>
+  <text x="600" y="69" text-anchor="middle" fill="#ffffff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="39" font-weight="800" letter-spacing="3.5">TASKS ↔ TO DO</text>
+  <text x="600" y="105" text-anchor="middle" fill="#b9cbe0" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="15" font-weight="650" letter-spacing="1.7">TWO ECOSYSTEMS · ONE TASK LOOP</text>
 
   <g filter="url(#shadow)">
-    <rect x="72" y="138" width="390" height="176" rx="24" fill="url(#leftCard)" stroke="#4285f4" stroke-opacity="0.34"/>
-    <rect x="738" y="138" width="390" height="176" rx="24" fill="url(#rightCard)" stroke="#8b5cf6" stroke-opacity="0.4"/>
+    <rect x="72" y="138" width="390" height="176" rx="22" fill="url(#leftCard)" stroke="#5b9cff" stroke-opacity="0.46"/>
+    <rect x="738" y="138" width="390" height="176" rx="22" fill="url(#rightCard)" stroke="#9b7cff" stroke-opacity="0.48"/>
   </g>
 
   <g transform="translate(104 171)">
@@ -62,16 +67,21 @@
     <text x="0" y="120" fill="#d2d3ea" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="14" letter-spacing="0.45">LISTS  ·  TASKS  ·  DUE DATES</text>
   </g>
 
-  <g transform="translate(600 226)">
-    <circle r="76" fill="#091727" stroke="url(#bridge)" stroke-width="3"/>
-    <circle r="61" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
-    <path d="M-34-10h54l-12-12M34 10h-54l12 12" fill="none" stroke="url(#bridge)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-    <text x="0" y="48" text-anchor="middle" fill="#b9cadb" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="11" font-weight="700" letter-spacing="1.4">PRIVATE BRIDGE</text>
+  <g>
+    <path d="M458 226H528" fill="none" stroke="#55b8ff" stroke-width="4" stroke-linecap="round"/>
+    <path d="M672 226H742" fill="none" stroke="#9275ff" stroke-width="4" stroke-linecap="round"/>
   </g>
 
-  <g transform="translate(310 357)">
-    <rect width="580" height="34" rx="17" fill="#ffffff" fill-opacity="0.055" stroke="#ffffff" stroke-opacity="0.08"/>
+  <g transform="translate(600 226)" filter="url(#shadow)">
+    <circle r="72" fill="#071321" stroke="url(#bridge)" stroke-width="3.5"/>
+    <circle r="58" fill="none" stroke="#ffffff" stroke-opacity="0.09"/>
+    <path d="M-38-11h58L8-23M38 11h-58l12 12" fill="none" stroke="url(#bridge)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="0" y="47" text-anchor="middle" fill="#d4e2ef" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="11" font-weight="750" letter-spacing="1.55">PRIVATE BRIDGE</text>
+  </g>
+
+  <g transform="translate(310 356)">
+    <rect width="580" height="36" rx="18" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1"/>
     <circle cx="24" cy="17" r="5" fill="#42d392"/>
-    <text x="42" y="22" fill="#b9cada" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="13" letter-spacing="0.55">GOOGLE APPS SCRIPT  ·  10-MINUTE SYNC  ·  SAFE BY DEFAULT</text>
+    <text x="42" y="23" fill="#cfdae6" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="12.5" font-weight="600" letter-spacing="0.65">RUNS IN YOUR GOOGLE ACCOUNT  ·  NO HOSTED MIDDLEMAN</text>
   </g>
 </svg>
