@@ -192,6 +192,71 @@ test('state-save preflight counts the full property store and never writes parti
   assert.deepEqual(over.userStore.values, before);
 });
 
+test('state blob preflight accepts multi-chunk Unicode mappings by actual UTF-8 bytes and round-trips', () => {
+  const { context, userStore } = loadContext();
+  const g2m = {};
+  for (let i = 0; i < 60; i += 1) {
+    const marker = '工作事項-' + i + '-中文-😀';
+    g2m['g-' + marker] = {
+      msId: 'm-' + marker + '-🎯',
+      gListId: 'g-list-私人',
+      msListId: 'ms-list-待辦',
+      gUpdated: '2026-08-28T00:00:00.000Z',
+      msUpdated: '2026-08-28T00:00:00.000Z',
+      gFingerprint: (marker + '-詳細內容-漢字-🧪').repeat(12),
+      msFingerprint: (marker + '-同步證據-繁體中文-🚀').repeat(12)
+    };
+  }
+  const payload = {
+    version: 1,
+    title: '多段狀態驗證：中文、emoji 與 60 筆 mappings',
+    g2m: g2m
+  };
+
+  const baseKey = 'unicode_state';
+  assert.doesNotThrow(() => context.saveBlobAtomic_(baseKey, payload));
+  const chunks = Object.entries(userStore.values).filter(([key]) =>
+    key.indexOf(baseKey + '_gen_') === 0 && !key.endsWith('_count')
+  );
+  assert.ok(chunks.length > 1, 'fixture must span multiple state chunks');
+  assert.ok(chunks.every(([, value]) => context.utf8ByteLength_(value) <= 8 * 1024));
+  assert.ok(chunks.every(([, value]) => value.length <= 7000));
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.loadBlobAtomic_(baseKey))),
+    payload
+  );
+});
+
+test('property preflight rejects an actual UTF-8 overage before any write', () => {
+  const { context, userStore } = loadContext();
+  const before = { ...userStore.values };
+  let batchWrites = 0;
+  let singleWrites = 0;
+  const originalSetProperties = userStore.setProperties.bind(userStore);
+  const originalSetProperty = userStore.setProperty.bind(userStore);
+  userStore.setProperties = (...args) => {
+    batchWrites += 1;
+    originalSetProperties(...args);
+  };
+  userStore.setProperty = (...args) => {
+    singleWrites += 1;
+    originalSetProperty(...args);
+  };
+  const oversized = '中'.repeat(2731); // 2,731 * 3 UTF-8 bytes = 8,193 bytes.
+
+  assert.equal(context.utf8ByteLength_('ASCII'), 5);
+  assert.equal(context.utf8ByteLength_('中文😀'), 10);
+  assert.equal(context.utf8ByteLength_('\uD83D'), 3, 'lone surrogate becomes U+FFFD');
+  assert.equal(context.utf8ByteLength_(oversized), (8 * 1024) + 1);
+  assert.throws(
+    () => context.assertPropertyStorePreflight_(userStore, { oversized: oversized }),
+    /STATE_PROPERTY_VALUE_LIMIT/
+  );
+  assert.equal(batchWrites, 0);
+  assert.equal(singleWrites, 0);
+  assert.deepEqual(userStore.values, before);
+});
+
 test('sync summaries expose only bounded success, failure, and time-budget metrics', () => {
   function run(outcome) {
     const logs = [];

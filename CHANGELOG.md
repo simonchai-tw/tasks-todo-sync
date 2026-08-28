@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 — 2026-08-28
+
+### Hotfix
+
+- Fixed state-property preflight to measure actual UTF-8 bytes, avoiding false `STATE_PROPERTY_VALUE_LIMIT` failures for Unicode state and multi-chunk mappings.
+- Added Unicode and multi-chunk regression coverage, including the no-partial-write overage guard.
+
+
 All notable changes to this project are documented here.
 
 ## 0.1.1 — 2026-08-28

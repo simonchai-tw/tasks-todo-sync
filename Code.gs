@@ -1298,25 +1298,46 @@ function truncateLabel_(value, max) {
   return value.length <= max ? value : value.slice(0, max) + '…';
 }
 
-function conservativePropertyBytes_(key, value) {
-  // Percent encoding is an intentional overestimate for non-ASCII text and
-  // therefore remains conservative without requiring a platform-specific
-  // UTF-8 helper.
-  return encodeURIComponent(String(key)).length + encodeURIComponent(String(value)).length;
+function utf8ByteLength_(value) {
+  // Mirrors the UTF-8 byte length produced by TextEncoder without depending
+  // on TextEncoder, Utilities, or Buffer (Apps Script and Node differ here).
+  // Lone surrogate code units are encoded as U+FFFD, matching TextEncoder.
+  const text = String(value);
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const codeUnit = text.charCodeAt(i);
+    if (codeUnit < 0x80) {
+      bytes += 1;
+    } else if (codeUnit < 0x800) {
+      bytes += 2;
+    } else if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF &&
+        i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        bytes += 4;
+        i += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
 }
 
 function assertPropertyStorePreflight_(props, replacements) {
   const projected = Object.assign({}, props.getProperties() || {});
   Object.keys(replacements).forEach(function(key) {
     const value = String(replacements[key]);
-    const valueBytes = conservativePropertyBytes_('', value);
+    const valueBytes = utf8ByteLength_(value);
     if (valueBytes > PROPERTY_VALUE_SAFE_LIMIT_BYTES) {
       throw new Error('STATE_PROPERTY_VALUE_LIMIT: a state property would exceed the safe per-value limit.');
     }
     projected[key] = value;
   });
   const bytes = Object.keys(projected).reduce(function(total, key) {
-    return total + conservativePropertyBytes_(key, projected[key]);
+    return total + utf8ByteLength_(key) + utf8ByteLength_(projected[key]);
   }, 0);
   if (bytes > PROPERTY_STORE_SAFE_LIMIT_BYTES) {
     throw new Error('STATE_STORE_LIMIT: projected User Properties usage exceeds the safe storage limit.');
