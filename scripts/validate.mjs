@@ -149,7 +149,8 @@ for (const scope of [
   'https://www.googleapis.com/auth/tasks',
   'https://www.googleapis.com/auth/script.external_request',
   'https://www.googleapis.com/auth/script.send_mail',
-  'https://www.googleapis.com/auth/script.scriptapp'
+  'https://www.googleapis.com/auth/script.scriptapp',
+  'https://www.googleapis.com/auth/userinfo.email'
 ]) {
   if (!scopes.has(scope)) throw new Error(`Missing OAuth scope: ${scope}`);
 }

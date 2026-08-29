@@ -113,10 +113,10 @@ Follow the **[quick start](docs/quick-start.md)** for the guided installation, o
 
 Questions, ideas, or something not working? [Open an issue](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose).
 
-## Next
+## Current release
 
-- Backward-compatible gzip+Base64 state storage is planned for the next release.
-- Validation will target approximately 600 tracked task pairs.
-- Apps Script will send a one-time storage-pressure email to the effective Google account by default, with an optional `ALERT_EMAIL` override.
+`v0.2.0` is the current stable release. It includes compact state storage with automatic migration for existing deployments and validation of normal sync paths at 600 tracked pairs. For routine use, approximately 300 tracked pairs remains the recommended envelope; see the [engineering audit](docs/audit.md) for the full capacity boundary.
+
+Storage-pressure warnings go to the Google account that owns and authorized the private Apps Script project. To use a different inbox, set `ALERT_EMAIL` in Script Properties.
 
 Tasks–To Do Sync is open source under the [MIT License](LICENSE). GitHub hosts the source; synchronization runs in your private Google Apps Script project.

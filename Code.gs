@@ -33,6 +33,20 @@ let SYNC_ROUND_PROOF_BASELINE_ = null;
 const CHUNK_SIZE = 7000;
 const PROPERTY_VALUE_SAFE_LIMIT_BYTES = 8 * 1024;
 const PROPERTY_STORE_SAFE_LIMIT_BYTES = 450 * 1024;
+// Warn before the fail-closed 450 KiB preflight ceiling.  This intentionally
+// leaves roughly 20% of the safe store for OAuth2 and other private properties.
+const PROPERTY_STORE_WARNING_BYTES = 360 * 1024;
+const STORAGE_PRESSURE_ALERT_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_STATE_GENERATION_CHUNKS = 100;
+const MAX_STATE_UNCOMPRESSED_BYTES = 2 * 1024 * 1024;
+// State generations written by this version are gzip-compressed before being
+// Base64-encoded for PropertiesService.  The codec information lives in the
+// manifest, not in an implicit key name, so older URI-encoded generations
+// remain readable and a damaged or unknown generation can fail closed.
+const STATE_CODEC_GZIP_BASE64 = 'gzip-base64';
+const STATE_CODEC_VERSION = 1;
+const STATE_INTEGRITY_ALGORITHM = 'SHA-256';
+const STATE_INTEGRITY_ENCODING = 'base64';
 const PAGINATION_MAX_PAGES = 100;
 const PAGINATION_RESERVE_MS = 20000;
 const ALLOW_NAME_PAIRING = false;
@@ -89,6 +103,7 @@ const ALERT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const ALERT_KEYS = {
   reauth: 'alert_reauth_last_at',
   fatal: 'alert_fatal_last_at',
+  storagePressure: 'alert_storage_pressure_last_at',
   listFault: 'alert_listfault_last_at'
 };
 let RUN_STARTED_AT = 0;
@@ -103,7 +118,10 @@ function beginSyncObservability_(startedAt) {
   SYNC_OBSERVABILITY_ = {
     startedAt: startedAt,
     urlFetchCalls: 0,
-    stateSaveCalls: 0
+    stateSaveCalls: 0,
+    stateCodecMs: 0,
+    stateCodecEncodeCalls: 0,
+    stateCodecDecodeCalls: 0
   };
 }
 
@@ -117,6 +135,13 @@ function recordStateSaveCall_(baseKey) {
   }
 }
 
+function recordStateCodecCall_(direction, startedAt) {
+  if (!SYNC_OBSERVABILITY_) return;
+  SYNC_OBSERVABILITY_.stateCodecMs += Math.max(0, Date.now() - startedAt);
+  if (direction === 'encode') SYNC_OBSERVABILITY_.stateCodecEncodeCalls += 1;
+  if (direction === 'decode') SYNC_OBSERVABILITY_.stateCodecDecodeCalls += 1;
+}
+
 function logSyncSummary_(outcome) {
   if (!SYNC_OBSERVABILITY_) return;
   const summary = {
@@ -124,7 +149,10 @@ function logSyncSummary_(outcome) {
     outcome: outcome,
     durationMs: Math.max(0, Date.now() - SYNC_OBSERVABILITY_.startedAt),
     urlFetchCalls: SYNC_OBSERVABILITY_.urlFetchCalls,
-    stateSaveCalls: SYNC_OBSERVABILITY_.stateSaveCalls
+    stateSaveCalls: SYNC_OBSERVABILITY_.stateSaveCalls,
+    stateCodecMs: SYNC_OBSERVABILITY_.stateCodecMs,
+    stateCodecEncodeCalls: SYNC_OBSERVABILITY_.stateCodecEncodeCalls,
+    stateCodecDecodeCalls: SYNC_OBSERVABILITY_.stateCodecDecodeCalls
   };
   console.log(JSON.stringify(summary));
   SYNC_OBSERVABILITY_ = null;
@@ -258,6 +286,7 @@ function setupStatus() {
   const tenantIdConfigured = tenantIdRaw.length > 0;
   const usesCommonTenant = !tenantIdConfigured || tenantIdRaw.toLowerCase() === 'common';
   const alertEmailConfigured = configured('ALERT_EMAIL');
+  const effectiveAlertRecipientAvailable = !!effectiveAlertRecipient_();
   const triggerStatus = setupTriggerCount_();
   const nextSteps = [];
 
@@ -279,10 +308,10 @@ function setupStatus() {
       message: 'MS_TENANT_ID is not set; common will be used.'
     });
   }
-  if (!alertEmailConfigured) {
+  if (!effectiveAlertRecipientAvailable) {
     nextSteps.push({
-      code: 'ALERT_EMAIL_NOT_CONFIGURED',
-      message: 'Set ALERT_EMAIL to receive error notifications.'
+      code: 'ALERT_RECIPIENT_UNAVAILABLE',
+      message: 'The effective Google account email is unavailable; set ALERT_EMAIL to receive notifications.'
     });
   }
   if (!triggerStatus.available) {
@@ -324,7 +353,8 @@ function setupStatus() {
       msClientSecretPresent: clientSecretConfigured,
       msTenantIdPresent: tenantIdConfigured,
       usesCommonTenant: usesCommonTenant,
-      alertEmailPresent: alertEmailConfigured
+      alertEmailPresent: alertEmailConfigured,
+      effectiveAlertRecipientAvailable: effectiveAlertRecipientAvailable
     },
     syncAllTriggerCount: triggerStatus.count,
     nextSteps: nextSteps
@@ -338,7 +368,8 @@ function setupStatus() {
 function configureSync(config) {
   throw new Error(
     'CONFIGURE_SYNC_DEPRECATED: configureSync() no longer accepts secrets. ' +
-    'Set MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, and ALERT_EMAIL directly in Script Properties.'
+    'Set MS_CLIENT_ID, MS_CLIENT_SECRET, and MS_TENANT_ID directly in Script Properties. ' +
+    'ALERT_EMAIL is an optional recipient override.'
   );
 }
 
@@ -353,7 +384,8 @@ function getConfig_() {
   if (!config.clientId || !config.clientSecret) {
     throw new Error(
       'Microsoft Client ID/Secret is not configured. Set ' +
-      'MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, and ALERT_EMAIL in Project Settings → Script Properties.'
+      'MS_CLIENT_ID, MS_CLIENT_SECRET, and MS_TENANT_ID in Project Settings → Script Properties. ' +
+      'ALERT_EMAIL is optional.'
     );
   }
   return config;
@@ -1280,7 +1312,7 @@ function normalizeState_(state) {
     const validMovePhases = ['creating', 'retry_create', 'created'];
     if (!journal || !mapping || journal.gId !== gId || journal.oldMsId !== mapping.msId ||
         journal.oldMsListId !== mapping.msListId || !journal.targetMsListId ||
-        !journal.gListId || !journal.preparedAt || !journal.fingerprint ||
+      !journal.gListId || !journal.preparedAt || !validMoveFingerprint_(journal.fingerprint) ||
         validMovePhases.indexOf(journal.phase) < 0 ||
         (journal.phase === 'created' && !journal.newMsId) ||
         !Number.isInteger(Number(journal.uncertainConfirmations || 0)) ||
@@ -1345,23 +1377,253 @@ function assertPropertyStorePreflight_(props, replacements) {
   if (bytes > PROPERTY_STORE_SAFE_LIMIT_BYTES) {
     throw new Error('STATE_STORE_LIMIT: projected User Properties usage exceeds the safe storage limit.');
   }
+  return bytes;
+}
+
+function propertyStoreUsageBytes_(props) {
+  const values = props.getProperties() || {};
+  return Object.keys(values).reduce(function(total, key) {
+    return total + utf8ByteLength_(key) + utf8ByteLength_(values[key]);
+  }, 0);
+}
+
+function validStateGenerationId_(generation) {
+  // Generation IDs are used only as a suffix in Properties keys.  Keep the
+  // accepted legacy alphabet small enough that a manifest cannot redirect a
+  // read or cleanup toward an arbitrary key family.
+  return typeof generation === 'string' && /^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*$/.test(generation) &&
+    generation.length <= 128;
+}
+
+function validStateGenerationCount_(count) {
+  return Number.isInteger(Number(count)) && Number(count) >= 1 &&
+    Number(count) <= MAX_STATE_GENERATION_CHUNKS;
+}
+
+function parseStatePointerManifest_(raw, errorCode) {
+  const code = errorCode || 'STATE_MANIFEST_CORRUPT';
+  let manifest;
+  try {
+    manifest = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(code + ': State manifest cannot be parsed.');
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest) ||
+      !validStateGenerationId_(manifest.generation) || !validStateGenerationCount_(manifest.count) ||
+      (manifest.previousGeneration !== null && manifest.previousGeneration !== undefined &&
+        !validStateGenerationId_(manifest.previousGeneration))) {
+    throw new Error(code + ': State manifest has an invalid generation or chunk count.');
+  }
+  if (!hasLegacyStateCodec_(manifest)) assertStateCodecManifest_(manifest, code);
+  return manifest;
+}
+
+function requireStateUtilities_() {
+  if (typeof Utilities === 'undefined' || !Utilities ||
+      typeof Utilities.newBlob !== 'function' ||
+      typeof Utilities.gzip !== 'function' ||
+      typeof Utilities.ungzip !== 'function' ||
+      typeof Utilities.base64Encode !== 'function' ||
+      typeof Utilities.base64Decode !== 'function' ||
+      typeof Utilities.computeDigest !== 'function' ||
+      !Utilities.DigestAlgorithm || !Utilities.DigestAlgorithm.SHA_256) {
+    throw new Error('STATE_CODEC_UNAVAILABLE: Apps Script Utilities gzip and SHA-256 support is required.');
+  }
+}
+
+function stateDigest_(json) {
+  requireStateUtilities_();
+  const charset = Utilities.Charset && Utilities.Charset.UTF_8;
+  const digest = charset
+    ? Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, json, charset)
+    : Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, json);
+  return Utilities.base64Encode(digest);
+}
+
+function encodeStateGeneration_(value) {
+  const startedAt = Date.now();
+  requireStateUtilities_();
+  try {
+    const json = JSON.stringify(value);
+    const uncompressedUtf8Bytes = utf8ByteLength_(json);
+    if (uncompressedUtf8Bytes > MAX_STATE_UNCOMPRESSED_BYTES) {
+      throw new Error('STATE_UNCOMPRESSED_LIMIT: State JSON exceeds the safe decoded-size limit.');
+    }
+    const compressed = Utilities.gzip(Utilities.newBlob(json, 'application/json'));
+    return {
+      encoded: Utilities.base64Encode(compressed.getBytes()),
+      codec: STATE_CODEC_GZIP_BASE64,
+      codecVersion: STATE_CODEC_VERSION,
+      integrity: {
+        algorithm: STATE_INTEGRITY_ALGORITHM,
+        encoding: STATE_INTEGRITY_ENCODING,
+        value: stateDigest_(json)
+      },
+      uncompressedUtf8Bytes: uncompressedUtf8Bytes
+    };
+  } finally {
+    recordStateCodecCall_('encode', startedAt);
+  }
+}
+
+function hasLegacyStateCodec_(manifest) {
+  return !Object.prototype.hasOwnProperty.call(manifest, 'codec') &&
+    !Object.prototype.hasOwnProperty.call(manifest, 'codecVersion') &&
+    !Object.prototype.hasOwnProperty.call(manifest, 'integrity') &&
+    !Object.prototype.hasOwnProperty.call(manifest, 'uncompressedUtf8Bytes');
+}
+
+function assertStateCodecManifest_(manifest, errorCode) {
+  const code = errorCode || 'STATE_CODEC_CORRUPT';
+  if (manifest.codec !== STATE_CODEC_GZIP_BASE64 || manifest.codecVersion !== STATE_CODEC_VERSION ||
+      !manifest.integrity || typeof manifest.integrity !== 'object' || Array.isArray(manifest.integrity) ||
+      manifest.integrity.algorithm !== STATE_INTEGRITY_ALGORITHM ||
+      manifest.integrity.encoding !== STATE_INTEGRITY_ENCODING ||
+      typeof manifest.integrity.value !== 'string' || !manifest.integrity.value ||
+      !Number.isInteger(Number(manifest.uncompressedUtf8Bytes)) ||
+      Number(manifest.uncompressedUtf8Bytes) < 0 ||
+      Number(manifest.uncompressedUtf8Bytes) > MAX_STATE_UNCOMPRESSED_BYTES) {
+    throw new Error(code + ': State generation has an unknown or incomplete codec manifest.');
+  }
+}
+
+function stateCodecEvidenceMatches_(left, right) {
+  return !!left && !!right && left.codec === right.codec &&
+    left.codecVersion === right.codecVersion && !!left.integrity && !!right.integrity &&
+    left.integrity.algorithm === right.integrity.algorithm &&
+    left.integrity.encoding === right.integrity.encoding &&
+    left.integrity.value === right.integrity.value &&
+    Number(left.uncompressedUtf8Bytes) === Number(right.uncompressedUtf8Bytes);
+}
+
+function stateGenerationManifest_(props, prefix, pointerManifest, errorCode) {
+  const code = errorCode || 'STATE_CODEC_CORRUPT';
+  const raw = props.getProperty(prefix + 'meta');
+  if (!raw) {
+    if (!pointerManifest || hasLegacyStateCodec_(pointerManifest)) return pointerManifest || {};
+    throw new Error(code + ': State generation codec metadata is missing.');
+  }
+  let generationManifest;
+  try {
+    generationManifest = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(code + ': State generation codec metadata cannot be parsed.');
+  }
+  assertStateCodecManifest_(generationManifest, code);
+  // Restore targets intentionally have no mutable pointer manifest to compare:
+  // their own generation metadata is the complete codec contract.
+  if (!pointerManifest) return generationManifest;
+  if (!hasLegacyStateCodec_(pointerManifest) && !stateCodecEvidenceMatches_(pointerManifest, generationManifest)) {
+    throw new Error(code + ': State manifest codec evidence does not match its generation.');
+  }
+  if (hasLegacyStateCodec_(pointerManifest)) {
+    throw new Error(code + ': Legacy state manifest cannot point at a coded generation.');
+  }
+  return generationManifest;
+}
+
+function protectedStateGenerations_(props) {
+  const protectedGenerations = [];
+  const rawCurrent = props.getProperty(STATE_KEY + '_manifest');
+  if (rawCurrent) {
+    const current = parseStatePointerManifest_(rawCurrent, 'STATE_MANIFEST_CORRUPT');
+    protectedGenerations.push(current.generation);
+  }
+  const restoreGeneration = successfulRoundRestoreGeneration_(props);
+  if (restoreGeneration) protectedGenerations.push(restoreGeneration);
+  return protectedGenerations.filter(function(generation, index, all) {
+    return all.indexOf(generation) === index;
+  });
+}
+
+function reclaimOrphanedStateGenerations_(props) {
+  const generations = protectedStateGenerations_(props);
+  const keepPrefixes = generations.map(function(generation) {
+    return STATE_KEY + '_gen_' + generation + '_';
+  });
+  const orphanKeys = props.getKeys().filter(function(key) {
+    if (key.indexOf(STATE_KEY + '_gen_') !== 0) return false;
+    return !keepPrefixes.some(function(prefix) { return key.indexOf(prefix) === 0; });
+  });
+  orphanKeys.forEach(function(key) { props.deleteProperty(key); });
+}
+
+function assertCompleteStateGenerationKeys_(props, prefix, count, manifest, errorCode) {
+  const code = errorCode || 'STATE_CODEC_CORRUPT';
+  const expected = {};
+  for (let i = 0; i < count; i++) expected[prefix + i] = true;
+  expected[prefix + 'count'] = true;
+  const hasMeta = props.getProperty(prefix + 'meta') !== null;
+  if (hasMeta) expected[prefix + 'meta'] = true;
+  if (hasMeta === hasLegacyStateCodec_(manifest)) {
+    throw new Error(code + ': State generation codec metadata does not match its manifest.');
+  }
+  const unknown = props.getKeys().filter(function(key) {
+    return key.indexOf(prefix) === 0 && !expected[key];
+  });
+  if (unknown.length) {
+    throw new Error(code + ': State generation has unexpected or excess chunks.');
+  }
+}
+
+function decodeStateGeneration_(encoded, manifest, errorCode) {
+  const code = errorCode || 'STATE_CODEC_CORRUPT';
+  if (hasLegacyStateCodec_(manifest)) {
+    return JSON.parse(decodeURIComponent(encoded));
+  }
+  assertStateCodecManifest_(manifest, code);
+  const startedAt = Date.now();
+  requireStateUtilities_();
+  try {
+    let json;
+    try {
+      const compressed = Utilities.newBlob(Utilities.base64Decode(encoded), 'application/gzip');
+      json = Utilities.ungzip(compressed).getDataAsString();
+    } catch (e) {
+      throw new Error(code + ': State generation cannot be decompressed.');
+    }
+    if (utf8ByteLength_(json) !== Number(manifest.uncompressedUtf8Bytes)) {
+      throw new Error(code + ': State generation uncompressed length check failed.');
+    }
+    if (stateDigest_(json) !== manifest.integrity.value) {
+      throw new Error(code + ': State generation integrity check failed.');
+    }
+    try {
+      return JSON.parse(json);
+    } catch (e) {
+      throw new Error(code + ': State generation JSON cannot be parsed.');
+    }
+  } finally {
+    recordStateCodecCall_('decode', startedAt);
+  }
 }
 
 function saveBlobAtomic_(baseKey, value) {
   const props = PropertiesService.getUserProperties();
   // A successful-round recovery target can be older than the ordinary prior
   // checkpoint. Read it before any write so cleanup never deletes that target.
-  const retainedGenerations = baseKey === STATE_KEY ? successfulRoundGenerations_(props) : [];
   const oldManifestRaw = props.getProperty(baseKey + '_manifest');
   let previousGeneration = null;
   if (oldManifestRaw) {
     try {
-      previousGeneration = JSON.parse(oldManifestRaw).generation || null;
+      previousGeneration = baseKey === STATE_KEY
+        ? (parseStatePointerManifest_(oldManifestRaw, 'STATE_MANIFEST_CORRUPT'), null)
+        : JSON.parse(oldManifestRaw).generation || null;
     } catch (e) {
+      if (baseKey === STATE_KEY) throw e;
       previousGeneration = null;
     }
   }
-  const encoded = encodeURIComponent(JSON.stringify(value));
+  // Only the durable sync state uses the new codec.  This helper is also used
+  // by diagnostic/test blobs, whose legacy wire format remains intentionally
+  // unchanged so this migration cannot alter any unrelated storage contract.
+  const stateEncoding = baseKey === STATE_KEY ? encodeStateGeneration_(value) : null;
+  const encoded = stateEncoding ? stateEncoding.encoded : encodeURIComponent(JSON.stringify(value));
+  // A failed batch write can leave chunks whose manifest was never promoted.
+  // Remove only generations not protected by fully validated current/previous
+  // or successful-round pointers, before calculating the next peak usage.
+  // Encoding happens first so an invalid new state never changes storage.
+  if (baseKey === STATE_KEY) reclaimOrphanedStateGenerations_(props);
   let generation = String(Date.now()) + '_' + Math.floor(Math.random() * 1000000);
   let uniquenessAttempts = 0;
   while (props.getProperty(baseKey + '_gen_' + generation + '_count') !== null) {
@@ -1379,21 +1641,39 @@ function saveBlobAtomic_(baseKey, value) {
     count++;
   }
   batch[prefix + 'count'] = String(count);
-  const manifestValue = JSON.stringify({
+  const manifest = {
     generation: generation,
     count: count,
     previousGeneration: previousGeneration
-  });
+  };
+  if (stateEncoding) {
+    manifest.codec = stateEncoding.codec;
+    manifest.codecVersion = stateEncoding.codecVersion;
+    manifest.integrity = stateEncoding.integrity;
+    manifest.uncompressedUtf8Bytes = stateEncoding.uncompressedUtf8Bytes;
+    // Unlike the mutable pointer manifest, this follows the generation. It is
+    // required for successful-round restore, which may target a generation
+    // that stopped being current several saves ago.
+    batch[prefix + 'meta'] = JSON.stringify({
+      codec: stateEncoding.codec,
+      codecVersion: stateEncoding.codecVersion,
+      integrity: stateEncoding.integrity,
+      uncompressedUtf8Bytes: stateEncoding.uncompressedUtf8Bytes
+    });
+  }
+  const manifestValue = JSON.stringify(manifest);
   const prospectiveWrites = Object.assign({}, batch);
   prospectiveWrites[baseKey + '_manifest'] = manifestValue;
   // Cleanup only happens after a manifest has been durably replaced, so do
   // not subtract old chunks here. This rejects a write before any new chunk
   // when its short-lived peak would be unsafe.
-  assertPropertyStorePreflight_(props, prospectiveWrites);
+  const projectedStoreBytes = assertPropertyStorePreflight_(props, prospectiveWrites);
   recordStateSaveCall_(baseKey);
   props.setProperties(batch, false);
   props.setProperty(baseKey + '_manifest', manifestValue);
-  cleanupOldGenerations_(props, baseKey, generation, previousGeneration, retainedGenerations);
+  cleanupOldGenerations_(props, baseKey, generation, null,
+    baseKey === STATE_KEY ? successfulRoundGenerations_(props) : []);
+  if (baseKey === STATE_KEY) maybeSendStoragePressureAlert_(props, projectedStoreBytes);
   return generation;
 }
 
@@ -1402,15 +1682,25 @@ function loadBlobAtomic_(baseKey) {
   const rawManifest = props.getProperty(baseKey + '_manifest');
   if (!rawManifest) return null;
   try {
-    const manifest = JSON.parse(rawManifest);
+    const manifest = baseKey === STATE_KEY
+      ? parseStatePointerManifest_(rawManifest, 'STATE_MANIFEST_CORRUPT')
+      : JSON.parse(rawManifest);
     const prefix = baseKey + '_gen_' + manifest.generation + '_';
+    if (baseKey === STATE_KEY) {
+      assertCompleteStateGenerationKeys_(props, prefix, Number(manifest.count), manifest, 'STATE_CODEC_CORRUPT');
+    }
     const parts = [];
     for (let i = 0; i < manifest.count; i++) {
       const piece = props.getProperty(prefix + i);
       if (piece === null) throw new Error('missing chunk ' + i);
       parts.push(piece);
     }
-    return JSON.parse(decodeURIComponent(parts.join('')));
+    const generationManifest = baseKey === STATE_KEY
+      ? stateGenerationManifest_(props, prefix, manifest, 'STATE_CODEC_CORRUPT')
+      : manifest;
+    return baseKey === STATE_KEY
+      ? decodeStateGeneration_(parts.join(''), generationManifest, 'STATE_CODEC_CORRUPT')
+      : JSON.parse(decodeURIComponent(parts.join('')));
   } catch (e) {
     console.error('[Storage] Read failed: ' + e.message);
     return null;
@@ -1443,7 +1733,7 @@ function saveState_(state) {
 
 function validSuccessfulRoundEntry_(entry) {
   return !!entry && typeof entry === 'object' &&
-    typeof entry.generation === 'string' && !!entry.generation &&
+    validStateGenerationId_(entry.generation) &&
     typeof entry.roundId === 'string' && !!entry.roundId;
 }
 
@@ -1466,23 +1756,66 @@ function successfulRoundManifest_(props) {
 function successfulRoundGenerations_(props) {
   const manifest = successfulRoundManifest_(props);
   if (!manifest) return [];
-  return [manifest.current.generation, manifest.previous && manifest.previous.generation].filter(Boolean);
+  const target = successfulRoundRestoreGeneration_(props, manifest);
+  return target ? [target] : [];
+}
+
+function successfulRoundRestoreGeneration_(props, successful) {
+  const manifest = successful || successfulRoundManifest_(props);
+  if (!manifest) return null;
+  const rawCurrent = props.getProperty(STATE_KEY + '_manifest');
+  if (!rawCurrent) {
+    throw new Error('STATE_RESTORE_UNAVAILABLE: Current-state manifest is required to select a successful restore target.');
+  }
+  const current = parseStatePointerManifest_(rawCurrent, 'STATE_MANIFEST_CORRUPT');
+  const target = current.generation === manifest.current.generation
+    ? (manifest.previous && manifest.previous.generation)
+    : manifest.current.generation;
+  if (!target) return null;
+  if (!validStateGenerationId_(target)) {
+    throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_CORRUPT: Successful-round restore pointer has an invalid generation.');
+  }
+  const prefix = STATE_KEY + '_gen_' + target + '_';
+  const count = Number(props.getProperty(prefix + 'count'));
+  if (!validStateGenerationCount_(count)) {
+    throw new Error('STATE_RESTORE_CORRUPT: Successful-round restore target is missing or incomplete.');
+  }
+  for (let i = 0; i < count; i++) {
+    if (props.getProperty(prefix + i) === null) {
+      throw new Error('STATE_RESTORE_CORRUPT: Successful-round restore target is missing or incomplete.');
+    }
+  }
+  return target;
 }
 
 function loadStateGeneration_(props, generation, errorCode) {
+  if (!validStateGenerationId_(generation)) {
+    throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + ': Target generation has an invalid ID.');
+  }
   const prefix = STATE_KEY + '_gen_' + generation + '_';
   const count = Number(props.getProperty(prefix + 'count'));
-  if (!Number.isInteger(count) || count < 1) {
+  if (!validStateGenerationCount_(count)) {
     throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + ': Target generation has no valid count.');
   }
   const parts = [];
+  // Restore has no mutable base manifest to compare against. Its own metadata
+  // is nevertheless mandatory for gzip generations and prohibited for legacy.
+  const rawMeta = props.getProperty(prefix + 'meta');
+  const restoreManifest = rawMeta ? { codec: STATE_CODEC_GZIP_BASE64 } : {};
+  assertCompleteStateGenerationKeys_(props, prefix, count, restoreManifest,
+    errorCode || 'STATE_RESTORE_CORRUPT');
   for (let i = 0; i < count; i++) {
     const piece = props.getProperty(prefix + i);
     if (piece === null) throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + ': Target generation is missing chunk ' + i + '.');
     parts.push(piece);
   }
+  let manifest;
   try {
-    return normalizeState_(JSON.parse(decodeURIComponent(parts.join(''))));
+    // Codec metadata is generation-local because a successful-round pointer
+    // may deliberately target an older retained generation.
+    manifest = stateGenerationManifest_(props, prefix, null,
+      errorCode || 'STATE_RESTORE_CORRUPT');
+    return normalizeState_(decodeStateGeneration_(parts.join(''), manifest, errorCode || 'STATE_RESTORE_CORRUPT'));
   } catch (e) {
     if (String(e.message || '').indexOf(errorCode || 'STATE_RESTORE_CORRUPT') === 0) throw e;
     throw new Error((errorCode || 'STATE_RESTORE_CORRUPT') + ': Target generation cannot be read. ' + String(e && e.message ? e.message : e));
@@ -1492,15 +1825,7 @@ function loadStateGeneration_(props, generation, errorCode) {
 function currentStateGeneration_(props) {
   const raw = props.getProperty(STATE_KEY + '_manifest');
   if (!raw) throw new Error('STATE_RESTORE_UNAVAILABLE: Current-state manifest not found.');
-  let manifest;
-  try {
-    manifest = JSON.parse(raw);
-  } catch (e) {
-    throw new Error('STATE_RESTORE_CORRUPT: Current-state manifest cannot be parsed.');
-  }
-  if (!manifest || typeof manifest.generation !== 'string' || !manifest.generation) {
-    throw new Error('STATE_RESTORE_CORRUPT: Current-state manifest has no generation.');
-  }
+  const manifest = parseStatePointerManifest_(raw, 'STATE_RESTORE_CORRUPT');
   return manifest.generation;
 }
 
@@ -1526,12 +1851,14 @@ function recordSuccessfulSyncRound_(roundId, generation) {
   }
   // Drop obsolete ordinary checkpoints only after the new durable pointer was
   // verified. Its current and previous entries remain protected by cleanup.
-  const currentManifest = JSON.parse(props.getProperty(STATE_KEY + '_manifest') || 'null');
-  if (!currentManifest || !currentManifest.generation) {
+  const rawCurrentManifest = props.getProperty(STATE_KEY + '_manifest');
+  if (!rawCurrentManifest) {
     throw new Error('STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED: Current-state manifest is missing.');
   }
-  cleanupOldGenerations_(props, STATE_KEY, currentManifest.generation,
-    currentManifest.previousGeneration || null, successfulRoundGenerations_(props));
+  const currentManifest = parseStatePointerManifest_(rawCurrentManifest,
+    'STATE_SUCCESSFUL_ROUND_MANIFEST_WRITE_FAILED');
+ cleanupOldGenerations_(props, STATE_KEY, currentManifest.generation, null,
+ successfulRoundGenerations_(props));
   return true;
 }
 
@@ -2034,32 +2361,70 @@ function taskLabel_(id, title) {
   return id;
 }
 
-function canSendAlert_(key) {
+function canSendAlert_(key, cooldownMs) {
   const props = PropertiesService.getScriptProperties();
   const now = Date.now();
   const last = Number(props.getProperty(key) || 0);
-  return (now - last) >= ALERT_COOLDOWN_MS;
+  return (now - last) >= Number(cooldownMs || ALERT_COOLDOWN_MS);
 }
 
 function markAlertSent_(key) {
   PropertiesService.getScriptProperties().setProperty(key, String(Date.now()));
 }
 
+function effectiveAlertRecipient_() {
+  const configured = String(
+    PropertiesService.getScriptProperties().getProperty('ALERT_EMAIL') || ''
+  ).trim();
+  if (configured) return configured;
+  try {
+    if (typeof Session === 'undefined' || !Session ||
+        typeof Session.getEffectiveUser !== 'function') return '';
+    const user = Session.getEffectiveUser();
+    return user && typeof user.getEmail === 'function' ? String(user.getEmail() || '').trim() : '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function sendMailAlert_(subject, body) {
   try {
-    const c = getConfig_();
-    if (!c.alertEmail) {
-      console.error('[Alert] ALERT_EMAIL is not configured; cannot send alert.');
+    const recipient = effectiveAlertRecipient_();
+    if (!recipient) {
+      console.error('[Alert] No effective Google account email or ALERT_EMAIL override is available.');
       return false;
     }
     if (MailApp.getRemainingDailyQuota && MailApp.getRemainingDailyQuota() < 1) {
       console.warn('[Alert] MailApp quota is insufficient; email skipped.');
       return false;
     }
-    MailApp.sendEmail({ to: c.alertEmail, subject: subject, body: body });
+    MailApp.sendEmail({ to: recipient, subject: subject, body: body });
     return true;
   } catch (e) {
     console.error('[Alert] Send failed: ' + e.message);
+    return false;
+  }
+}
+
+function maybeSendStoragePressureAlert_(props, projectedStoreBytes) {
+  try {
+    const usageBytes = Math.max(
+      propertyStoreUsageBytes_(props),
+      Number(projectedStoreBytes || 0)
+    );
+    if (usageBytes < PROPERTY_STORE_WARNING_BYTES ||
+        !canSendAlert_(ALERT_KEYS.storagePressure, STORAGE_PRESSURE_ALERT_COOLDOWN_MS)) return false;
+    const sent = sendMailAlert_(
+      '[Sync engine] State storage is nearing its safety limit',
+      'Synchronization state is using at least 80% of the configured safe Apps Script property-store limit.\n\n' +
+      'Sync has not been stopped. Do not delete state properties manually. Run healthCheck() and keep a private ' +
+      'exportRawSyncState() backup before making changes.'
+    );
+    if (sent) markAlertSent_(ALERT_KEYS.storagePressure);
+    return sent;
+  } catch (e) {
+    // A best-effort warning must never make a successful state commit fail.
+    console.error('[Storage] Pressure alert failed: ' + e.message);
     return false;
   }
 }
@@ -4445,6 +4810,33 @@ function moveFingerprintFromMicrosoft_(task) {
   return moveFingerprintFromGoogle_(googlePayloadFromMs_(task || {}));
 }
 
+// Journal fingerprints written by current versions are compact, standard
+// Base64 SHA-256 digests. Existing journals may still carry the canonical raw
+// JSON fingerprint; those remain readable for backward compatibility.
+const MOVE_FINGERPRINT_PREFIX = 'sha256b64:';
+function moveFingerprintForJournal_(task) {
+  return MOVE_FINGERPRINT_PREFIX + stateDigest_(moveFingerprintFromGoogle_(task || {}));
+}
+
+function validMoveFingerprint_(value) {
+  if (typeof value !== 'string' || !value) return false;
+  if (value.indexOf(MOVE_FINGERPRINT_PREFIX) === 0) {
+    return /^sha256b64:[A-Za-z0-9+/]{43}=$/.test(value);
+  }
+  // Legacy fingerprints are canonical JSON strings in deployed state. Keep
+  // accepting any non-empty legacy value here; exact matching below is what
+  // prevents an arbitrary value from being treated as a match.
+  return true;
+}
+
+function moveFingerprintMatches_(canonicalFingerprint, journalFingerprint) {
+  if (!validMoveFingerprint_(journalFingerprint)) return false;
+  if (journalFingerprint.indexOf(MOVE_FINGERPRINT_PREFIX) === 0) {
+    return journalFingerprint === MOVE_FINGERPRINT_PREFIX + stateDigest_(canonicalFingerprint);
+  }
+  return journalFingerprint === canonicalFingerprint;
+}
+
 function moveJournalHasCorrelation_(journal) {
   return !!(journal && validMoveCorrelationId_(journal.correlationId));
 }
@@ -4489,7 +4881,7 @@ function legacyMoveJournalCandidates_(state, snap, journal) {
     const task = snap.msTasksById[msId];
     if (!task || snap.msListByTask[msId] !== journal.targetMsListId) return false;
     if (state.m2g[msId]) return false;
-    if (moveFingerprintFromMicrosoft_(task) !== journal.fingerprint) return false;
+    if (!moveFingerprintMatches_(moveFingerprintFromMicrosoft_(task), journal.fingerprint)) return false;
     const createdAt = validTimestampMs_(task.createdDateTime);
     return preparedAt !== null && createdAt !== null &&
       createdAt >= preparedAt - 60000 &&
@@ -4585,7 +4977,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
       gUpdated: gTask.updated || null,
       oldMsUpdated: freshBeforeCreate && freshBeforeCreate.lastModifiedDateTime || rec.msUpdated || null,
       preparedAt: new Date().toISOString(),
-      fingerprint: fingerprint,
+      fingerprint: moveFingerprintForJournal_(gTask),
       correlationId: newMoveCorrelationId_(),
       uncertainConfirmations: 0,
       lastRoundId: roundId || null
@@ -4596,7 +4988,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
     newJournal = true;
   } else if (journal.oldMsId !== rec.msId || journal.oldMsListId !== rec.msListId ||
       journal.gListId !== currentGListId || journal.targetMsListId !== targetMsListId ||
-      journal.fingerprint !== fingerprint) {
+      !moveFingerprintMatches_(fingerprint, journal.fingerprint)) {
     return blockTaskMove_(state, gId, rec, journal, 'MOVE_SOURCE_SCENARIO_CHANGED');
   }
 
@@ -4624,7 +5016,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
       return blockTaskMove_(state, gId, rec, journal, 'MOVE_CORRELATION_AMBIGUOUS');
     }
     if (correlationCandidates.length === 1) {
-      if (moveFingerprintFromMicrosoft_(correlationCandidates[0]) !== journal.fingerprint) {
+      if (!moveFingerprintMatches_(moveFingerprintFromMicrosoft_(correlationCandidates[0]), journal.fingerprint)) {
         return blockTaskMove_(state, gId, rec, journal, 'MOVE_DESTINATION_EDIT_CONFLICT');
       }
       movedMsTask = correlationCandidates[0];
@@ -4708,7 +5100,7 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
   if (!freshDestination) {
     return blockTaskMove_(state, gId, rec, journal, 'MOVE_DESTINATION_UNAVAILABLE');
   }
-  if (moveFingerprintFromMicrosoft_(freshDestination) !== journal.fingerprint) {
+  if (!moveFingerprintMatches_(moveFingerprintFromMicrosoft_(freshDestination), journal.fingerprint)) {
     return blockTaskMove_(state, gId, rec, journal, 'MOVE_DESTINATION_EDIT_CONFLICT');
   }
   movedMsTask = freshDestination;
@@ -6639,17 +7031,17 @@ function taskMoveOperationPlan_(operation, entry, evidence) {
   const failure = taskMoveOperationBaseFailure_(entry, evidence);
   if (failure) return { ok: false, code: failure };
   const expected = evidence.expectedGoogleTask;
-  const expectedMatches = !!expected && moveFingerprintFromGoogle_(expected) === journal.fingerprint &&
+  const expectedMatches = !!expected && moveFingerprintMatches_(moveFingerprintFromGoogle_(expected), journal.fingerprint) &&
     (expected.updated || null) === (journal.gUpdated || null);
   const correlationCandidates = evidence.correlationCandidates || [];
   const mismatchedCorrelationCandidate = correlationCandidates.length === 1 &&
-    moveFingerprintFromMicrosoft_(correlationCandidates[0]) !== journal.fingerprint;
+    !moveFingerprintMatches_(moveFingerprintFromMicrosoft_(correlationCandidates[0]), journal.fingerprint);
   if (operation.action === 'resume') {
     if (!expectedMatches) return { ok: false, code: 'MOVE_OPERATION_GOOGLE_SOURCE_CHANGED' };
     if (correlationCandidates.length > 1) return { ok: false, code: 'MOVE_CORRELATION_AMBIGUOUS' };
     if (mismatchedCorrelationCandidate) return { ok: false, code: 'MOVE_DESTINATION_EDIT_CONFLICT' };
     if (journal.newMsId && (!evidence.destinationTask ||
-        moveFingerprintFromMicrosoft_(evidence.destinationTask) !== journal.fingerprint)) {
+        !moveFingerprintMatches_(moveFingerprintFromMicrosoft_(evidence.destinationTask), journal.fingerprint))) {
       return { ok: false, code: 'MOVE_DESTINATION_EDIT_CONFLICT' };
     }
     return { ok: true, effect: 'RESUME_JOURNAL_ONLY', candidate: null };
@@ -6657,7 +7049,7 @@ function taskMoveOperationPlan_(operation, entry, evidence) {
   if (operation.action === 'cancel') {
     const original = evidence.originalGoogleTask;
     const returnedToOriginal = !!original && !expected &&
-      moveFingerprintFromGoogle_(original) === journal.fingerprint;
+      moveFingerprintMatches_(moveFingerprintFromGoogle_(original), journal.fingerprint);
     if (!returnedToOriginal || journal.newMsId) {
       return { ok: false, code: 'MOVE_OPERATION_CANCEL_PRECONDITION_FAILED' };
     }
@@ -6674,7 +7066,7 @@ function taskMoveOperationPlan_(operation, entry, evidence) {
         ? 'MOVE_CORRELATION_AMBIGUOUS' : 'MOVE_OPERATION_CORRELATION_CANDIDATE_REQUIRED' };
     }
     const candidate = correlationCandidates[0];
-    if (moveFingerprintFromMicrosoft_(candidate) !== journal.fingerprint) {
+    if (!moveFingerprintMatches_(moveFingerprintFromMicrosoft_(candidate), journal.fingerprint)) {
       return { ok: false, code: 'MOVE_DESTINATION_EDIT_CONFLICT' };
     }
     if (operation.candidateRef && taskMoveOperationCandidateRef_(candidate) !== operation.candidateRef) {
@@ -6691,7 +7083,7 @@ function taskMoveOperationPlan_(operation, entry, evidence) {
   } catch (e) {
     return { ok: false, code: 'MOVE_OPERATION_CANDIDATE_CHANGED' };
   }
-  if (moveFingerprintFromMicrosoft_(candidate) !== journal.fingerprint) {
+  if (!moveFingerprintMatches_(moveFingerprintFromMicrosoft_(candidate), journal.fingerprint)) {
     return { ok: false, code: 'MOVE_DESTINATION_EDIT_CONFLICT' };
   }
   return { ok: true, effect: 'ADOPT_LEGACY_DESTINATION_JOURNAL_ONLY', candidate: candidate };
@@ -6935,7 +7327,8 @@ function exportRawSyncState() {
   const all = props.getProperties();
   const raw = {};
   Object.keys(all).forEach(function(key) {
-    if (key === STATE_KEY + '_manifest' || key.indexOf(STATE_KEY + '_gen_') === 0) {
+    if (key === STATE_KEY + '_manifest' || key === SUCCESSFUL_ROUND_MANIFEST_KEY ||
+        key === ROUND_FENCE_KEY || key.indexOf(STATE_KEY + '_gen_') === 0) {
       raw[key] = all[key];
     }
   });

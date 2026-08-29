@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## 0.2.0 — 2026-08-30
+
+### Compressed state and capacity validation
+
+- Switched new `sync_state_main` generations to gzip+Base64 with a manifest-recorded codec version, UTF-8 decoded-size check, and SHA-256 integrity digest. Existing URI-encoded state remains readable and is migrated automatically on its next successful state save; malformed, truncated, or unknown generations fail closed.
+- Retained only the generations needed for current operation and successful-round recovery. A state save has a bounded three-generation peak while the new candidate is promoted, so successful-round recovery does not silently consume unbounded User Properties storage.
+- Changed new cross-list move-journal fingerprints to compact Base64 SHA-256 digests. Existing journals containing the canonical raw JSON fingerprint remain readable and continue to require an exact match.
+- Kept the installed trigger cadence at 10 minutes. Last-write-wins now gives Google precedence for equal provider timestamps; independent provider clocks can still skew, the winner is recorded only in the execution log, and the overwritten version is not retained separately.
+- Made storage-pressure alerts default to the Google account that owns and authorized the private Apps Script project. Set `ALERT_EMAIL` only when a different inbox is intended.
+- Added deterministic VM and capacity validation targeting 600 tracked pairs across normal-path scenarios. Approximately 300 tracked pairs remains the routine recommended envelope; 600 is a validation target, not a hard guarantee for every combination of content, journals, tombstones, and unrelated properties. A case with 600 move journals blocked at once fails closed during storage preflight and is recorded as a known limit.
+- Verified the local regression suite, package checks, deterministic 600-pair validation, and `git diff --check` for this release worktree.
+
 ## 0.1.3 — 2026-08-28
 
 ### Release hardening and cross-list usability

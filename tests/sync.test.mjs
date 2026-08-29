@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { gzipSync, gunzipSync } from 'node:zlib';
 
 test('healthCheck and dryRunReport fail closed on invalid safety settings without disclosure or mutation', () => {
   const logs = [];
@@ -114,7 +117,10 @@ test('second Microsoft 401 resets and alerts after one forced refresh without ex
 
 test('fatal alerts are bounded and raw state export explicitly warns about sensitivity', () => {
   const { context, userStore } = loadContext({ userValues: {
-    sync_state_main_manifest: 'raw-state-sentinel', unrelated: 'not-exported'
+    sync_state_main_manifest: 'raw-state-sentinel',
+    sync_state_main_successful_round_manifest: 'successful-round-sentinel',
+    sync_state_main_round_fence: 'round-fence-sentinel',
+    unrelated: 'not-exported'
   } });
   const redacted = context.redactFatalAlert_(
     'HTTP 500: https://private.invalid/lists/list-secret/tasks/task-secret token=token-secret request-id: req-123456'
@@ -129,6 +135,8 @@ test('fatal alerts are bounded and raw state export explicitly warns about sensi
   const bundle = context.exportRawSyncState();
   assert.match(bundle.warning, /SENSITIVE_STATE_EXPORT/);
   assert.equal(bundle.properties.sync_state_main_manifest, 'raw-state-sentinel');
+  assert.equal(bundle.properties.sync_state_main_successful_round_manifest, 'successful-round-sentinel');
+  assert.equal(bundle.properties.sync_state_main_round_fence, 'round-fence-sentinel');
   assert.equal(warnings.some((value) => value.includes('WARNING')), true);
   assert.equal(Object.hasOwn(bundle.properties, 'unrelated'), false);
   assert.equal(Object.hasOwn(userStore.values, 'unrelated'), true);
@@ -299,6 +307,211 @@ test('property preflight rejects an actual UTF-8 overage before any write', () =
   assert.deepEqual(userStore.values, before);
 });
 
+test('main sync state writes a versioned gzip generation with per-generation integrity evidence', () => {
+  const { context, userStore } = loadContext();
+  const logs = [];
+  context.console = { log: (value) => logs.push(String(value)), warn: () => {}, error: () => {} };
+  context.beginSyncObservability_(Date.now());
+  const state = context.newState_();
+  state.listMap['g-中文-😀-\uD83D'] = 'ms-🎯-\uD83D';
+  const generation = context.saveState_(state);
+  const manifest = JSON.parse(userStore.getProperty('sync_state_main_manifest'));
+  const prefix = 'sync_state_main_gen_' + generation + '_';
+  const generationMeta = JSON.parse(userStore.getProperty(prefix + 'meta'));
+
+  assert.equal(manifest.codec, 'gzip-base64');
+  assert.equal(manifest.codecVersion, 1);
+  assert.deepEqual(generationMeta, {
+    codec: 'gzip-base64',
+    codecVersion: 1,
+    integrity: manifest.integrity,
+    uncompressedUtf8Bytes: manifest.uncompressedUtf8Bytes
+  });
+  assert.match(manifest.integrity.value, /^[A-Za-z0-9+/]+={0,2}$/);
+  assert.equal(userStore.getProperty(prefix + '0').includes('%7B'), false);
+  const loaded = context.loadStateForSync_();
+  assert.equal(loaded.listMap['g-中文-😀-\uD83D'], 'ms-🎯-\uD83D');
+  context.logSyncSummary_('success');
+  const summary = JSON.parse(logs.at(-1));
+  assert.equal(summary.stateCodecEncodeCalls, 1);
+  assert.equal(summary.stateCodecDecodeCalls, 1);
+  assert.equal(Number.isInteger(summary.stateCodecMs), true);
+  assert.ok(summary.stateCodecMs >= 0);
+  assert.equal(JSON.stringify(summary).includes('g-中文'), false, 'codec metrics never include state data');
+});
+
+test('legacy URI state loads and the next successful save migrates it to gzip', () => {
+  const { context, userStore } = loadContext();
+  const legacy = context.newState_();
+  legacy.listMap['g-legacy'] = 'ms-legacy';
+  legacy.g2m['g-legacy-task'] = {
+    msId: 'ms-legacy-task', gListId: 'g-legacy', msListId: 'ms-legacy',
+    gUpdated: '2026-08-29T00:00:00.000Z', msUpdated: '2026-08-29T00:00:00.000Z'
+  };
+  legacy.m2g['ms-legacy-task'] = 'g-legacy-task';
+  userStore.setProperty('sync_state_main_manifest', JSON.stringify({
+    generation: 'legacy', count: 1, previousGeneration: null
+  }));
+  userStore.setProperty('sync_state_main_gen_legacy_count', '1');
+  userStore.setProperty('sync_state_main_gen_legacy_0', encodeURIComponent(JSON.stringify(legacy)));
+
+  const loaded = context.loadStateForSync_();
+  assert.equal(loaded.listMap['g-legacy'], 'ms-legacy');
+  const generation = context.saveState_(loaded);
+  const manifest = JSON.parse(userStore.getProperty('sync_state_main_manifest'));
+  assert.equal(manifest.generation, generation);
+  assert.equal(manifest.codec, 'gzip-base64');
+  assert.equal(manifest.codecVersion, 1);
+  assert.ok(userStore.getProperty('sync_state_main_gen_' + generation + '_meta'));
+});
+
+test('unknown, truncated, or tampered gzip state generations fail closed', () => {
+  const { context, userStore } = loadContext();
+  const generation = context.saveState_(context.newState_());
+  const prefix = 'sync_state_main_gen_' + generation + '_';
+  const manifestKey = 'sync_state_main_manifest';
+  const originalManifest = userStore.getProperty(manifestKey);
+  const originalChunk = userStore.getProperty(prefix + '0');
+  const originalMeta = userStore.getProperty(prefix + 'meta');
+
+  const unknown = JSON.parse(originalManifest);
+  unknown.codec = 'future-codec';
+  userStore.setProperty(manifestKey, JSON.stringify(unknown));
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null);
+
+  userStore.setProperty(manifestKey, originalManifest);
+  userStore.deleteProperty(prefix + 'meta');
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null);
+
+  userStore.setProperty(prefix + 'meta', originalMeta);
+  const oversizedCount = JSON.parse(originalManifest);
+  oversizedCount.count = 101;
+  userStore.setProperty(manifestKey, JSON.stringify(oversizedCount));
+  let chunkReads = 0;
+  const originalGetProperty = userStore.getProperty.bind(userStore);
+  userStore.getProperty = (key) => {
+    if (key.indexOf(prefix) === 0 && /^.+_\d+$/.test(key)) chunkReads += 1;
+    return originalGetProperty(key);
+  };
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null);
+  assert.equal(chunkReads, 0, 'invalid count is rejected before any chunk loop');
+  userStore.getProperty = originalGetProperty;
+  userStore.setProperty(manifestKey, originalManifest);
+  userStore.setProperty(prefix + '1', 'unexpected-extra-chunk');
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null);
+  userStore.deleteProperty(prefix + '1');
+
+  userStore.setProperty(prefix + '0', originalChunk.slice(0, -4));
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null);
+
+  userStore.setProperty(prefix + '0', originalChunk);
+  const tamperedMeta = JSON.parse(originalMeta);
+  tamperedMeta.integrity.value = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+  userStore.setProperty(prefix + 'meta', JSON.stringify(tamperedMeta));
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null);
+  assert.throws(() => context.loadStateForSync_(), /STATE_CORRUPT/);
+});
+
+test('failed batch chunks are reclaimed only after all recovery pointers validate', () => {
+  const { context, userStore } = loadContext();
+  const stable = context.newState_();
+  stable.listMap.stable = 'before';
+  context.saveState_(stable);
+  const originalSetProperties = userStore.setProperties.bind(userStore);
+  let partialKeys = [];
+  userStore.setProperties = (entries) => {
+    partialKeys = Object.keys(entries).slice(0, 2);
+    originalSetProperties(Object.fromEntries(partialKeys.map((key) => [key, entries[key]])));
+    throw new Error('simulated partial batch failure');
+  };
+  const changed = context.newState_();
+  changed.listMap.changed = 'after';
+  assert.throws(() => context.saveState_(changed), /simulated partial batch failure/);
+  assert.equal(context.loadStateForSync_().listMap.stable, 'before', 'old pointer remains readable');
+  userStore.setProperties = originalSetProperties;
+  context.saveState_(changed);
+  assert.ok(partialKeys.length);
+  assert.ok(partialKeys.every((key) => userStore.getProperty(key) === null), 'retry reclaimed orphan chunks');
+
+  const blockedOrphan = 'sync_state_main_gen_orphan_0';
+  userStore.setProperty(blockedOrphan, 'orphan');
+  const bad = JSON.parse(userStore.getProperty('sync_state_main_manifest'));
+  bad.count = 101;
+  userStore.setProperty('sync_state_main_manifest', JSON.stringify(bad));
+  let deletes = 0;
+  const originalDelete = userStore.deleteProperty.bind(userStore);
+  userStore.deleteProperty = (key) => { deletes += 1; originalDelete(key); };
+  assert.throws(() => context.saveState_(context.newState_()), /STATE_MANIFEST_CORRUPT/);
+  assert.equal(deletes, 0, 'corrupt pointer blocks orphan reclamation');
+  assert.equal(userStore.getProperty(blockedOrphan), 'orphan');
+});
+
+test('successful-round restore reads a retained legacy generation after gzip migration', () => {
+  const { context, userStore } = loadContext();
+  const legacy = context.newState_();
+  legacy.listMap['g-legacy'] = 'ms-legacy';
+  userStore.setProperty('sync_state_main_manifest', JSON.stringify({
+    generation: 'legacy', count: 1, previousGeneration: null
+  }));
+  userStore.setProperty('sync_state_main_gen_legacy_count', '1');
+  userStore.setProperty('sync_state_main_gen_legacy_0', encodeURIComponent(JSON.stringify(legacy)));
+  userStore.setProperty('sync_state_main_successful_round_manifest', JSON.stringify({
+    version: 1, current: { generation: 'legacy', roundId: 'legacy-round' }, previous: null
+  }));
+  const migrated = context.loadStateForSync_();
+  migrated.listMap.current = 'gzip-current';
+  context.saveState_(migrated);
+  context.withGlobalLock_ = (fn) => fn();
+  context.restorePreviousSyncState();
+  assert.equal(context.loadStateForSync_().listMap['g-legacy'], 'ms-legacy');
+  assert.equal(context.loadStateForSync_().listMap.current, undefined);
+});
+
+test('gzip metadata length evidence rejects claimed and actual decompression expansion', () => {
+  const { context, userStore } = loadContext();
+  const generation = context.saveState_(context.newState_());
+  const prefix = 'sync_state_main_gen_' + generation + '_';
+  const manifest = JSON.parse(userStore.getProperty('sync_state_main_manifest'));
+  const meta = JSON.parse(userStore.getProperty(prefix + 'meta'));
+  meta.uncompressedUtf8Bytes = (2 * 1024 * 1024) + 1;
+  manifest.uncompressedUtf8Bytes = meta.uncompressedUtf8Bytes;
+  userStore.setProperty(prefix + 'meta', JSON.stringify(meta));
+  userStore.setProperty('sync_state_main_manifest', JSON.stringify(manifest));
+  let ungzipCalls = 0;
+  const originalUngzip = context.Utilities.ungzip;
+  context.Utilities.ungzip = (...args) => { ungzipCalls += 1; return originalUngzip(...args); };
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null);
+  assert.equal(ungzipCalls, 0, 'over-limit metadata is rejected before decompression');
+
+  const hugeJson = JSON.stringify('x'.repeat((2 * 1024 * 1024) + 1));
+  const hugeCompressed = Buffer.from(gzipSync(Buffer.from(hugeJson))).toString('base64');
+  const hugeMeta = {
+    codec: 'gzip-base64', codecVersion: 1,
+    integrity: { algorithm: 'SHA-256', encoding: 'base64', value: context.stateDigest_(hugeJson) },
+    uncompressedUtf8Bytes: Buffer.byteLength(hugeJson, 'utf8')
+  };
+  const hugeManifest = { generation: 'huge', count: 1, previousGeneration: null, ...hugeMeta };
+  userStore.setProperty('sync_state_main_manifest', JSON.stringify(hugeManifest));
+  userStore.setProperty('sync_state_main_gen_huge_count', '1');
+  userStore.setProperty('sync_state_main_gen_huge_0', hugeCompressed);
+  userStore.setProperty('sync_state_main_gen_huge_meta', JSON.stringify(hugeMeta));
+  context.Utilities.ungzip = originalUngzip;
+  assert.equal(context.loadBlobAtomic_('sync_state_main'), null, 'actual expansion is bounded before JSON parsing');
+});
+
+test('oversized decoded state is rejected before any gzip generation write', () => {
+  const { context, userStore } = loadContext();
+  const before = { ...userStore.values };
+  const oversized = context.newState_();
+  oversized.listMap['g-' + 'x'.repeat((2 * 1024 * 1024) + 1)] = 'ms';
+  let writes = 0;
+  const originalSetProperties = userStore.setProperties.bind(userStore);
+  userStore.setProperties = (...args) => { writes += 1; originalSetProperties(...args); };
+  assert.throws(() => context.saveState_(oversized), /STATE_UNCOMPRESSED_LIMIT/);
+  assert.equal(writes, 0);
+  assert.deepEqual(userStore.values, before);
+});
+
 test('sync summaries expose only bounded success, failure, and time-budget metrics', () => {
   function run(outcome) {
     const logs = [];
@@ -393,8 +606,29 @@ function propertyStore(initial = {}) {
   };
 }
 
-function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, utilities, scriptApp,
-  urlFetchApp } = {}) {
+function appsScriptBlob(data) {
+  const bytes = Buffer.from(typeof data === 'string' ? data : data || []);
+  return {
+    getBytes: () => Array.from(bytes),
+    getDataAsString: () => bytes.toString('utf8')
+  };
+}
+
+function appsScriptUtilities() {
+  return {
+    DigestAlgorithm: { SHA_256: 'SHA-256' },
+    Charset: { UTF_8: 'UTF-8' },
+    newBlob: (data) => appsScriptBlob(data),
+    gzip: (blob) => appsScriptBlob(gzipSync(Buffer.from(blob.getBytes()))),
+    ungzip: (blob) => appsScriptBlob(gunzipSync(Buffer.from(blob.getBytes()))),
+    base64Encode: (data) => Buffer.from(typeof data === 'string' ? data : data).toString('base64'),
+    base64Decode: (data) => Array.from(Buffer.from(data, 'base64')),
+    computeDigest: (_algorithm, data) => Array.from(createHash('sha256').update(data, 'utf8').digest())
+  };
+}
+
+function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, effectiveUserEmail,
+  utilities, scriptApp, urlFetchApp, mailApp } = {}) {
   const scriptStore = propertyStore(scriptValues);
   const userStore = propertyStore(userValues);
   const context = vm.createContext({
@@ -404,12 +638,16 @@ function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, utili
       getUserProperties: () => userStore
     }
   });
-  if (scriptTimeZone) {
-    context.Session = { getScriptTimeZone: () => scriptTimeZone };
+  if (scriptTimeZone || effectiveUserEmail !== undefined) {
+    context.Session = {
+      getScriptTimeZone: () => scriptTimeZone,
+      getEffectiveUser: () => ({ getEmail: () => effectiveUserEmail || '' })
+    };
   }
-  if (utilities) context.Utilities = utilities;
+  context.Utilities = Object.assign(appsScriptUtilities(), utilities || {});
   if (scriptApp) context.ScriptApp = scriptApp;
   if (urlFetchApp) context.UrlFetchApp = urlFetchApp;
+  if (mailApp) context.MailApp = mailApp;
   new vm.Script(code, { filename: 'Code.gs' }).runInContext(context);
   return { context, scriptStore, userStore };
 }
@@ -538,7 +776,8 @@ test('setupStatus returns bounded public-default status without exposing credent
     msClientSecretPresent: true,
     msTenantIdPresent: true,
     usesCommonTenant: false,
-    alertEmailPresent: true
+    alertEmailPresent: true,
+    effectiveAlertRecipientAvailable: true
   });
   assert.equal(report.syncAllTriggerCount, 2);
   const serialized = JSON.stringify(report) + logs.join('\n');
@@ -613,12 +852,62 @@ test('setupStatus reports missing and invalid safety settings without exposing s
   assert.equal(report.credentials.msTenantIdPresent, false);
   assert.equal(report.credentials.usesCommonTenant, true);
   assert.equal(report.credentials.alertEmailPresent, false);
+  assert.equal(report.credentials.effectiveAlertRecipientAvailable, false);
   assert.equal(report.syncAllTriggerCount, 0);
   assert.ok(report.nextSteps.some((item) => item.code === 'SAFETY_SETTINGS_MISSING_OR_INVALID'));
   assert.ok(report.nextSteps.some((item) => item.code === 'SYNC_TRIGGER_STATUS_UNAVAILABLE'));
   const serialized = JSON.stringify(report);
   assert.equal(serialized.includes('invalid-discovery-sentinel'), false);
   assert.equal(serialized.includes('invalid-deletions-sentinel'), false);
+});
+
+test('alerts prefer an explicit override and otherwise use the effective Google account without disclosure', () => {
+  const sent = [];
+  const mailApp = {
+    getRemainingDailyQuota: () => 10,
+    sendEmail: (message) => sent.push({ ...message })
+  };
+  const fallback = loadContext({
+    effectiveUserEmail: 'effective-user@example.invalid', mailApp
+  });
+  fallback.context.console = { log: () => {}, warn: () => {}, error: () => {} };
+  assert.equal(fallback.context.sendMailAlert_('subject', 'body'), true);
+  assert.equal(sent.at(-1).to, 'effective-user@example.invalid');
+
+  const override = loadContext({
+    effectiveUserEmail: 'effective-user@example.invalid',
+    scriptValues: { ALERT_EMAIL: 'override@example.invalid' },
+    mailApp
+  });
+  override.context.console = { log: () => {}, warn: () => {}, error: () => {} };
+  assert.equal(override.context.sendMailAlert_('subject', 'body'), true);
+  assert.equal(sent.at(-1).to, 'override@example.invalid');
+  const report = override.context.setupStatus();
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes('effective-user@example.invalid'), false);
+  assert.equal(serialized.includes('override@example.invalid'), false);
+});
+
+test('storage pressure sends one best-effort alert per cooldown without blocking a successful save', () => {
+  const userValues = {};
+  for (let i = 0; i < 46; i += 1) userValues['other_' + i] = 'x'.repeat(8000);
+  const sent = [];
+  const { context, scriptStore } = loadContext({
+    effectiveUserEmail: 'effective-user@example.invalid',
+    userValues,
+    mailApp: {
+      getRemainingDailyQuota: () => 10,
+      sendEmail: (message) => sent.push({ ...message })
+    }
+  });
+  context.console = { log: () => {}, warn: () => {}, error: () => {} };
+
+  assert.doesNotThrow(() => context.saveState_(context.newState_()));
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].subject, /State storage/);
+  assert.ok(scriptStore.getProperty('alert_storage_pressure_last_at'));
+  assert.doesNotThrow(() => context.saveState_(context.newState_()));
+  assert.equal(sent.length, 1, 'the 30-day cooldown prevents repeated pressure mail');
 });
 
 function mappedTaskState(context, {
@@ -6568,4 +6857,75 @@ test('task and list deletion journal checkpoints retain fence marker and prior p
   assert.equal(durableList.pendingListDeletions[pair.key].confirmations, 1);
   assert.equal(durableList.pendingListDeletions[otherPair.key].confirmations, 1);
   assert.equal(durableList.listDeletionJournal[pair.key].phase, 'prepared');
+});
+test('new state manifests omit ordinary previousGeneration and retain at most three candidates', () => {
+  const { context, userStore } = loadContext();
+  let peak = 0;
+  const originalSetProperties = userStore.setProperties.bind(userStore);
+  userStore.setProperties = (entries) => {
+    originalSetProperties(entries);
+    const generations = new Set(Object.keys(userStore.values).map((key) => {
+      const match = key.match(/^sync_state_main_gen_(.+)_(?:\\d+|count|meta)$/);
+      return match && match[1];
+    }).filter(Boolean));
+    peak = Math.max(peak, generations.size);
+  };
+  for (let i = 0; i < 5; i += 1) context.saveState_(context.newState_());
+  const manifest = JSON.parse(userStore.getProperty('sync_state_main_manifest'));
+  assert.equal(manifest.previousGeneration, null);
+  assert.ok(peak <= 3, `candidate peak exceeded three generations: ${peak}`);
+});
+
+test('successful restore selector follows the current main generation transition', () => {
+  const { context, userStore } = loadContext();
+  const first = mappedTaskState(context); first.g2m['g-task'].gUpdated = '2026-08-01T00:00:00Z';
+  const firstGeneration = saveSuccessfulRoundForRestore_(context, first, 'retention-1');
+  const second = mappedTaskState(context); second.g2m['g-task'].gUpdated = '2026-08-02T00:00:00Z';
+  const secondGeneration = saveSuccessfulRoundForRestore_(context, second, 'retention-2');
+  assert.equal(context.successfulRoundRestoreGeneration_(userStore), firstGeneration);
+
+  const checkpoint = mappedTaskState(context); checkpoint.g2m['g-task'].gUpdated = 'checkpoint';
+  const checkpointGeneration = context.saveState_(checkpoint);
+  assert.equal(context.successfulRoundRestoreGeneration_(userStore), secondGeneration);
+  const generations = new Set(Object.keys(userStore.values).map((key) => {
+    const match = key.match(/^sync_state_main_gen_(.+)_(?:\\d+|count|meta)$/);
+    return match && match[1];
+  }).filter(Boolean));
+  assert.deepEqual([...generations].sort(), [checkpointGeneration, secondGeneration].sort());
+});
+
+test('retention fails closed when the selected successful restore target is missing', () => {
+  const { context, userStore } = loadContext();
+  const first = mappedTaskState(context); const firstGeneration = saveSuccessfulRoundForRestore_(context, first, 'retention-corrupt-1');
+  const second = mappedTaskState(context); saveSuccessfulRoundForRestore_(context, second, 'retention-corrupt-2');
+  userStore.deleteProperty('sync_state_main_gen_' + firstGeneration + '_0');
+  assert.throws(() => context.saveState_(context.newState_()), /STATE_RESTORE_CORRUPT/);
+});
+
+test('move journal fingerprints use strict SHA-256 Base64 while matching legacy raw values', () => {
+  const { context } = loadContext();
+  const task = { id: 'g-task', title: 'Moved', notes: 'payload', status: 'needsAction' };
+  const raw = context.moveFingerprintFromGoogle_(task);
+  const encoded = context.moveFingerprintForJournal_(task);
+  assert.match(encoded, /^sha256b64:[A-Za-z0-9+/]{43}=$/);
+  assert.equal(context.moveFingerprintMatches_(raw, encoded), true);
+  assert.equal(context.moveFingerprintMatches_(raw, raw), true);
+  assert.equal(context.moveFingerprintMatches_(raw + 'changed', raw), false);
+  assert.equal(context.moveFingerprintMatches_(raw, 'sha256b64:not-a-digest'), false);
+});
+
+test('malformed prefixed move fingerprints fail normalization while legacy values remain accepted', () => {
+  const { context } = loadContext();
+  const state = mappedTaskState(context);
+  const rec = state.g2m['g-task'];
+  state.taskMoveJournal['g-task'] = {
+    phase: 'creating', gId: 'g-task', oldMsId: rec.msId, newMsId: null,
+    gListId: 'g-new', oldMsListId: rec.msListId, targetMsListId: 'ms-new',
+    gUpdated: rec.gUpdated, oldMsUpdated: rec.msUpdated,
+    preparedAt: '2026-08-14T00:01:00Z', fingerprint: 'sha256b64:bad',
+    uncertainConfirmations: 0, lastRoundId: null
+  };
+  assert.throws(() => context.normalizeState_(state), /STATE_MALFORMED.*taskMoveJournal/);
+  state.taskMoveJournal['g-task'].fingerprint = 'legacy-fingerprint';
+  assert.doesNotThrow(() => context.normalizeState_(state));
 });

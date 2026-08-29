@@ -1,6 +1,6 @@
 {
   "name": "tasks-todo-sync",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "private": false,
   "description": "Self-hosted, bidirectional sync between Google Tasks and Microsoft To Do that runs on Google Apps Script.",
   "keywords": [
@@ -46,7 +46,8 @@
     "check": "node scripts/validate.mjs && node scripts/validate-package.mjs",
     "check:package": "node scripts/validate-package.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "stress:600": "node scripts/stress-600.mjs"
   },
   "dependencies": {
     "@google/clasp": "3.4.0"

@@ -8,7 +8,7 @@ For the current release history and verification boundary, see the [changelog](.
 
 ## 1. Create the private Apps Script project
 
-The `v0.1.3` productized flow is:
+The `v0.2.0` productized flow is:
 
 ```bash
 npx tasks-todo-sync init
@@ -29,6 +29,8 @@ SYNC_ALLOW_TASK_MOVES=true
 
 Existing explicit Script Properties are preserved. In particular, `init` does not rewrite a maintainer's private deployment whose three switches are already all `true`.
 
+When upgrading an existing deployment, no state export or manual conversion is required: v0.2.0 continues to read the previous URI-encoded state format and automatically writes gzip+Base64 state on the next successful save. Keep a private export before an upgrade if you need an independent recovery copy.
+
 Google Tasks due dates are date-only. The Microsoft due-time component is not preserved, so choose the project time zone deliberately and do not expect a time-of-day round trip.
 
 ## 2. Register Microsoft OAuth manually
@@ -46,7 +48,7 @@ In Apps Script **Project Settings → Script Properties**, add:
 | `MS_CLIENT_ID` | Your Entra Application (client) ID |
 | `MS_CLIENT_SECRET` | Your new client-secret value |
 | `MS_TENANT_ID` | Optional; leave unset to use `common`, or use your intended tenant setting |
-| `ALERT_EMAIL` | Optional private alert address |
+| `ALERT_EMAIL` | Optional override; alerts otherwise go to the Google account that owns and authorized this Apps Script project |
 
 Then run `showRedirectUri()`. Copy the displayed address to Entra **Authentication → Add a platform → Web → Redirect URI**. Run `startAuthorization()`, open its URL, and sign in to your Microsoft account.
 
@@ -61,7 +63,7 @@ If you use `restorePreviousSyncState()` after upgrading, first complete and veri
 
 Cross-list task moves are enabled for fresh projects and protected by a durable move journal and live revalidation. Movement uses delete-and-recreate semantics, so provider-only reminders, recurrence, importance, categories, attachments, and history may not be preserved. The deployment guide documents the move preview, metadata boundary, and recovery controls.
 
-Apps Script allows one execution for at most six minutes. This project budgets 5.25 minutes and schedules every 10 minutes, so ordinary changes normally take 0–10 minutes and two-round cleanup about 10–20 minutes. Pagination has bounded page-token and page-count guards, and each run records privacy-bounded duration, URL-fetch, and state-save metrics. A time-budget exit starts a full inventory again on the next trigger; there is no saved page cursor, delta token, or shard checkpoint, so consistently oversized inventories need an architectural change rather than a longer trigger interval. Storage-headroom and metrics checks are recorded in the [engineering audit](audit.md).
+Apps Script allows one execution for at most six minutes. This project budgets 5.25 minutes and schedules every 10 minutes, so ordinary changes normally take 0–10 minutes and two-round cleanup about 10–20 minutes. Approximately 300 tracked task pairs is the routine recommended envelope. The 600-pair VM and capacity checks validate normal-path scenarios, but are not a hard guarantee for every combination of content, tombstones, journals, or unrelated properties; 600 simultaneously blocked move journals fail closed during storage preflight. Pagination has bounded page-token and page-count guards, and each run records privacy-bounded duration, URL-fetch, and state-save metrics. A time-budget exit starts a full inventory again on the next trigger; there is no saved page cursor, delta token, or shard checkpoint, so consistently oversized inventories need an architectural change rather than a longer trigger interval. Storage-headroom and metrics checks are recorded in the [engineering audit](audit.md).
 
 Delete-and-recreate changes the provider task ID. Only title, plain-text notes, date-only due date, and completion state are rebuilt; reminders, importance, categories, recurrence, attachments, creation date, and completion history are not preserved during cross-list moves. A Google title, date, or completion-only edit does not rewrite an existing Microsoft rich-text body; a notes projection change does.
 

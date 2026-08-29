@@ -1,10 +1,10 @@
-# v0.1.3 release audit
+# v0.2.0 release audit
 
-Audit scope: 0.1.3 — 2026-08-28
+Audit scope: 0.2.0 — 2026-08-30
 
 ## Release decision
 
-`v0.1.3` extends the stable personal, single-operator synchronization release with deployment, integrity, recovery, UTF-8 storage, privacy-bounded health reporting, and cross-list move safeguards. It retains the documented two-way task and list deletion paths. Fresh projects enable cross-list task moves after bidirectional real-account validation was completed.
+`v0.2.0` is the stable personal, single-operator synchronization release with compressed and integrity-checked state, backward-compatible migration, capacity validation, deployment, recovery, privacy-bounded health reporting, and cross-list move safeguards. It retains the documented two-way task and list deletion paths. Fresh projects enable cross-list task moves after bidirectional real-account validation was completed.
 
 Fresh-project setup uses these values:
 
@@ -17,13 +17,16 @@ Existing explicit Script Properties are preserved. This is intentional: a mainta
 
 Task and list deletion are implemented, enabled for fresh projects, and covered by bidirectional real-account validation. They use independent evidence, two-round confirmation, live revalidation, journals, and tombstones. Cross-list task moves are enabled for fresh projects after bidirectional real-account validation was completed, without establishing a universal guarantee. Movement uses delete-and-recreate semantics, so provider-only metadata may not be preserved.
 
-## v0.1.3 scope and verification boundary
+## v0.2.0 scope and verification boundary
 
 - **CLI time zone:** The manifest is parsed and updated as JSON, so non-`Asia/Taipei` IANA zones do not depend on pretty-printing.
 - **Round fence:** An incomplete run removes only its current-round proof and retains the previous successful task/list-deletion baseline.
 - **Successful-round restore:** Restore reads a separately committed successful generation. An upgraded deployment must first complete and verify one successful sync; legacy state without a verifiable generation fails closed.
 - **Rich body preservation:** Metadata-only Google edits leave an existing Microsoft rich-text body unchanged; a changed notes text projection updates the body.
 - **Authorization, alert, and health safety:** Refresh/retry and fatal-error behavior are bounded, fatal alerts are redacted, and persisted health error messages are privacy-bounded before `healthCheck()` exposes them.
+- **State codec and migration:** New main-state generations are gzip-compressed and Base64-encoded. The manifest records codec version, decoded UTF-8 byte length, and a Base64 SHA-256 digest. Legacy URI-encoded generations remain readable; the next successful save migrates them automatically. Corrupt, truncated, or unknown codec data fails closed.
+- **Generation retention:** The save protocol retains the current generation and successful-round recovery target while staging the next candidate, for a bounded three-generation peak. Cleanup runs only after the new manifest is promoted and never deletes a protected recovery target.
+- **Move-journal integrity:** New move journals use `sha256b64:` Base64 SHA-256 fingerprints. Existing journals with canonical raw JSON fingerprints remain readable and are accepted only on an exact match.
 - **Pagination, storage, and metrics:** Page-token/page-count guards, aggregate User Properties headroom checks, UTF-8 byte accounting, and content-free per-round metrics are implemented and verified by the final local release checks. The preceding [v0.1.1 release notes](release-v0.1.1.md#verification) provide the historical baseline.
 
 ## Deployment productization boundary
@@ -40,7 +43,7 @@ Microsoft Entra app registration, client-secret creation, Script Properties, red
 
 ## Evidence reviewed
 
-- Static validation, the local automated suite, `npm run check`, `npm run smoke:package`, and `git diff --check` passed in the `v0.1.3` release worktree.
+- Static validation, the local automated suite, `npm run check`, the deterministic 600-pair VM/capacity suite, `npm run smoke:package`, and `git diff --check` passed in the `v0.2.0` release worktree. The 600-pair suite is provider-free and synthetic; it is a normal-path validation target, not an Apps Script wall-clock or every-workload guarantee.
 - The `v0.1.2` package and its UTF-8 hotfix checks remain historical evidence. The earlier `v0.1.1` and `v0.1.0` package checks, including the pre-`v0.1.0` `tasks-todo-sync@0.1.0-rc.7` guided-deployment checks, remain historical evidence.
 - Prior Apps Script, CI, and release evidence is bounded; deployment and publication are separate release steps and are not inferred from source inspection.
 - Bidirectional real-account validation covered task deletion and list deletion.
@@ -74,17 +77,24 @@ The supported trigger cadence is 10 minutes. Apps Script's single-execution ceil
 
 Pagination uses bounded page-token/page-count and execution-budget guards; it fails closed on repeated tokens or unreasonable page counts. There is no persistent Google page cursor, Graph next-link/delta token, or sharded inventory checkpoint. A time-budget exit saves durable state but the next invocation starts a complete inventory. If a complete inventory always exceeds the internal budget, a longer trigger interval cannot make that inventory complete. User Properties writes check estimated aggregate headroom, including retained generations and other user properties. Each round records privacy-bounded `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics without task/list content. The final local release checks verified these guards; the preceding [v0.1.1 release notes](release-v0.1.1.md#verification) remain the historical baseline.
 
-When both providers report a change, last-write-wins compares Google's `updated` timestamp with Microsoft's `lastModifiedDateTime`. These are independent provider clocks and can have a small clock-skew or commit-latency window, so a simultaneous edit may not always select the intuitively expected winner. This is a known limitation of the current timestamp-based conflict model, not a universal data-loss guarantee.
+When both providers report a change, last-write-wins compares Google's `updated` timestamp with Microsoft's `lastModifiedDateTime`; equal timestamps select Google. These timestamps come from independent provider clocks and can have a small clock-skew or commit-latency window, so a simultaneous edit can rarely retain the older content. The selected side is recorded only in the execution log, and the overwritten version is not retained separately.
 
-## Validation backlog after `v0.1.3`
+## Storage and capacity boundary
+
+Approximately 300 tracked task pairs is the routine recommended envelope. The release's deterministic VM and capacity validation targets 600 pairs on normal paths, including dense and sparse pagination, steady-state reads, bidirectional edits, completions, long Unicode notes, injected provider failures, and time-budget exits. Those checks establish a tested target for the modeled paths; they do not guarantee every combination of long content, tombstones, deletion journals, move journals, OAuth properties, User Properties contention, or Apps Script runtime timing.
+
+The state writer measures UTF-8 bytes, checks the aggregate User Properties projection before writing, and keeps the transient generation peak to three generations. The storage model's hard ceiling is still shared with OAuth and other private properties. In the exact 600-pair saturation probe with 600 simultaneously blocked move journals, the projected write fails closed at storage preflight (`STATE_STORE_LIMIT`) before provider mutation. This is an intentional known limit, not a supported all-moves-at-once scenario. A separate 1,200-pair storage-only cliff also exceeds the safe ceiling and is not a support claim. The 600-pair suite remains a validation target; operators should use the 300-pair routine envelope unless they have measured their own workload and property headroom.
+
+Storage-pressure warnings are sent by default to the Google account that owns and authorized the private Apps Script project. `ALERT_EMAIL` is an optional recipient override. The warning path is cooldown-limited and does not include task content, provider IDs, credentials, or raw state.
+
+## Validation backlog after `v0.2.0`
 
 - Interrupted cross-list recovery, Microsoft-only metadata loss, and a concurrent Microsoft edit remain follow-up validation after the completed bidirectional real-account validation.
 - A complete field matrix for title, notes/content, date-only due dates, and completion state.
 - OAuth refresh, reauthorization, and recovery exercises.
 - A rehearsed source rollback and separately rehearsed state rollback.
 - Provider APIs do not make the cross-cloud move atomic. Conditional writes/ETags should be revisited if the Microsoft task endpoint adds a documented contract; current protection is a fresh reread and fail-closed recovery, whose safe residue can be a temporary duplicate.
-- Capacity behavior for large state, long content, many tasks, and long-running scheduled use.
 - Persistent cursor/delta or sharding design for an account whose complete inventory cannot finish within 5.25 minutes.
 - A complete per-task mutation plan if a future dry-run safety guarantee beyond the current move preview is needed.
 
-These items remain important follow-up validation, but they do not expand the documented `v0.1.3` scope. Cross-list moves are enabled for fresh projects after bidirectional real-account validation; that validation is evidence for this deployment, not a universal safety guarantee.
+These items remain important follow-up validation, but they do not expand the documented `v0.2.0` scope. Cross-list moves are enabled for fresh projects after bidirectional real-account validation; that validation is evidence for this deployment, not a universal safety guarantee.
