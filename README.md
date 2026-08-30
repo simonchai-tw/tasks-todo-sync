@@ -56,8 +56,6 @@ The project directly synchronizes **Google Tasks ↔ Microsoft To Do**. The surr
 
 The private trigger runs every 10 minutes. Ordinary changes normally appear within 0–10 minutes; operations that require two complete confirmation rounds normally settle within 10–20 minutes.
 
-The current release is recommended for approximately 300 tracked task pairs or fewer. Completed tasks remain part of the synchronized state until they are deleted and the sync converges, so they continue to count toward that guidance until cleanup finishes.
-
 ## What stays in sync
 
 | Capability | Direction | Notes |
@@ -113,10 +111,6 @@ Follow the **[quick start](docs/quick-start.md)** for the guided installation, o
 
 Questions, ideas, or something not working? [Open an issue](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose).
 
-## Current release
+## License
 
-`v0.2.0` is the current stable release. It includes compact state storage with automatic migration for existing deployments and validation of normal sync paths at 600 tracked pairs. For routine use, approximately 300 tracked pairs remains the recommended envelope; see the [engineering audit](docs/audit.md) for the full capacity boundary.
-
-Storage-pressure warnings go to the Google account that owns and authorized the private Apps Script project. To use a different inbox, set `ALERT_EMAIL` in Script Properties.
-
-Tasks–To Do Sync is open source under the [MIT License](LICENSE). GitHub hosts the source; synchronization runs in your private Google Apps Script project.
+Tasks–To Do Sync is available under the [MIT License](LICENSE).
