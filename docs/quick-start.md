@@ -55,6 +55,9 @@ Then run `showRedirectUri()`. Copy the displayed address to Entra **Authenticati
 ## 3. Inspect, then schedule
 
 1. In the Apps Script editor, run `initializeSafeDefaults()` and complete any remaining Google authorization prompt. Then run `setupStatus()` and resolve every unexpected warning. It reports configuration, authorization, time zone, and trigger readiness without showing secret values.
+
+   > **Expected Google warning:** A personal deployment may show **“Google hasn't verified this app”** because the Apps Script project belongs to you and has not been submitted as a public Google application. Confirm that the browser is on `script.google.com` and that this is the project you just created, then choose **Advanced → Go to the project → Allow**. A fresh installation normally includes this in its first Google consent flow; an existing installation may ask once again after an update adds a permission. A managed work or school account can require administrator approval. [Why Google shows this warning](https://developers.google.com/apps-script/guides/client-verification)
+
 2. Run `dryRunReport()`. Review its warnings, exclusions, faults, list information, and structured `pendingMoves[]` entries. The report is read-only and point-in-time; unexpanded Graph relationships are reported as uninspected, not absent.
 3. Create a small test list you can inspect, then run `syncAll()` twice. Task and list deletion are enabled for fresh projects and have been verified in both directions; two-round confirmation, live revalidation, journals, and tombstones protect the deletion paths.
 4. Run `createTrigger()` only after the first two rounds are understood, then use `healthCheck()` to confirm the 10-minute schedule.
