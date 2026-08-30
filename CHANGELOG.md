@@ -2,6 +2,8 @@
 
 All notable changes to this project are documented here.
 
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.2.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
+
 ## 0.2.0 — 2026-08-30
 
 ### Compressed state and capacity validation
@@ -39,7 +41,7 @@ All notable changes to this project are documented here.
 - Separated successful-round manifests from intra-round checkpoints. `restorePreviousSyncState()` now restores only a verifiable successful generation; after an upgrade, complete one successful sync before relying on restore, and legacy state without that evidence fails closed.
 - Preserved Microsoft rich-text task bodies when a Google-side change affects only title, date, or completion state. A body update is limited to a changed notes text projection.
 - Added bounded authorization refresh/error behavior and redacted fatal alert output. Raw state exports and recovery receipts remain sensitive private data.
-- Added fail-closed pagination guards, aggregate User Properties storage-headroom checks, and privacy-bounded per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The final local release checks verified these guards; details appear in the [v0.1.1 release notes](docs/release-v0.1.1.md#verification).
+- Added fail-closed pagination guards, aggregate User Properties storage-headroom checks, and privacy-bounded per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The final local release checks verified these guards.
 - Retained public defaults of automatic list discovery, task deletion enabled, list deletion enabled, and task moves disabled. Ordinary changes normally appear within 0–10 minutes on the 10-minute trigger; two-round deletion confirmation normally settles within 10–20 minutes.
 - Verified the `v0.1.1` local regression suite together with `npm run check`, `npm run smoke:package`, and `git diff --check`.
 

@@ -2,7 +2,7 @@
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.2.0` adds compressed, integrity-checked state storage, backward-compatible migration, capacity validation, and the existing recovery and cross-list move safeguards. Fresh projects enable cross-list task moves after bidirectional real-account validation was completed. See the [changelog](../CHANGELOG.md) and [v0.1.1 release notes](release-v0.1.1.md) for the current and historical release history.
+This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.2.0` adds compressed, integrity-checked state storage, backward-compatible migration, capacity validation, and the existing recovery and cross-list move safeguards. Fresh projects enable cross-list task moves after bidirectional real-account validation was completed. See the [changelog](../CHANGELOG.md) for the version history; current behavior is defined by this guide and the current source.
 
 Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been validated in both directions and are protected by confirmation, revalidation, journals, and tombstones. Fresh projects also enable cross-list task movement after bidirectional real-account validation was completed; this does not establish a universal guarantee.
 
