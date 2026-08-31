@@ -6,6 +6,8 @@ Historical entries below describe each release at the time it shipped, including
 
 ## Unreleased
 
+- Restored `LICENSE` to the standard MIT template for GitHub license detection and moved the independent-project notice to `NOTICE`.
+
 ## 0.2.2 — 2026-08-31
 
 - Added a public roadmap item for a reusable, local Microsoft setup and recovery wizard that preserves self-hosting and keeps credentials private.
