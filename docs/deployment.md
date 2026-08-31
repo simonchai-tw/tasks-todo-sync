@@ -2,231 +2,116 @@
 
 ## Scope and release boundary
 
-This guide deploys a personal Google Apps Script sync engine. The 10-minute Apps Script trigger is the running service; GitHub hosts the source and release history. `v0.2.0` adds compressed, integrity-checked state storage, backward-compatible migration, capacity validation, and the existing recovery and cross-list move safeguards. Fresh projects enable cross-list task moves after bidirectional real-account validation was completed. See the [changelog](../CHANGELOG.md) for the version history; current behavior is defined by this guide and the current source.
+This guide is the operational source of truth for the personal Google Apps Script synchronizer. A private Apps Script trigger runs every 10 minutes; GitHub hosts the source and release history. Fresh projects enable automatic list discovery, task deletion, list deletion, and cross-list task moves. Existing explicit Script Properties are preserved. See the [changelog](../CHANGELOG.md) for history and the [engineering audit](audit.md) for evidence and limits.
 
-Use a private project and a small test list for the first rounds so you can confirm the pairing before scheduling. Fresh projects enable task and list deletion, which have been validated in both directions and are protected by confirmation, revalidation, journals, and tombstones. Fresh projects also enable cross-list task movement after bidirectional real-account validation was completed; this does not establish a universal guarantee.
+Google and Microsoft authorization are separate sign-ins. The CLI deploys source only; Entra registration, client-secret creation, Script Properties, redirect URI setup, and Microsoft authorization remain manual and private.
 
-The productized entry point is `npx tasks-todo-sync init`. The manual Apps Script route below is the fallback when the published npm package cannot be resolved or when an operator wants to inspect each deployment step.
+## Productized `init` flow
 
-## What you need
-
-- A Google account that can use Google Tasks and Apps Script.
-- A Microsoft account and permission to register an Entra application for it.
-- No Azure pay-as-you-go subscription, VM, database, or other Azure runtime resource. Entra's account-type choice is a sign-in audience, not a chargeable hosting choice.
-- Node.js **22 or later** for the `npx` flow, local checks, and `clasp` operations.
-
-Google Apps Script authorization and Microsoft OAuth are separate sign-ins. Authorize one Google account and one Microsoft account during setup. The exact number of pages depends on current sign-in sessions and provider consent prompts, so do not expect exactly two prompts. The CLI handles only the private Apps Script project and source deployment; Microsoft Entra registration, client-secret creation, and Microsoft authorization remain manual and private.
-
-## Productized `init` flow (`v0.2.0`)
-
-Run:
+Use Node.js 22 or later:
 
 ```bash
 npx tasks-todo-sync init
 ```
 
-The command uses `clasp` to:
+The CLI uses `clasp` to create a private standalone Apps Script project, apply the computer's IANA time zone (or `--timezone <IANA>`), push the exact `Code.gs` and `appsscript.json` release sources, and print the editor URL and remaining steps. Open the URL and run `initializeSafeDefaults()` in the editor. The CLI does not open the editor, execute Apps Script functions, write Script Properties, or accept, store, print, or transmit Microsoft credentials or OAuth tokens.
 
-1. Create a new private standalone Apps Script project.
-2. Default to this computer's resolved IANA time zone, or accept `--timezone <IANA>` to override it, then apply that value in `appsscript.json`.
-3. Push the exact `Code.gs` and `appsscript.json` sources from this release.
-4. Print the Apps Script editor URL and the post-deploy steps for Entra setup, Script Properties, authorization, validation, and trigger creation.
+Fresh-project values are:
 
-5. Open the printed editor URL and run `initializeSafeDefaults()` in the Apps Script editor. The CLI does not open the editor, execute Apps Script functions, or write Script Properties.
-
-The CLI never accepts, stores, prints, or transmits `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, OAuth tokens, or other Microsoft credentials. Complete Entra registration and secret creation yourself in Microsoft Entra, then enter the values only in the private Apps Script editor. If `npx` cannot resolve the published npm package, use the manual fallback below.
-
-After you open the editor and run `initializeSafeDefaults()`, the helper fills missing properties for a fresh project with:
-
-| Key | Fresh-project value |
+| Key | Value |
 | --- | --- |
 | `SYNC_LIST_DISCOVERY_MODE` | `auto` |
 | `SYNC_ALLOW_DELETIONS` | `true` |
 | `SYNC_ALLOW_LIST_DELETIONS` | `true` |
 | `SYNC_ALLOW_TASK_MOVES` | `true` |
 
-`initializeSafeDefaults()` preserves existing explicit Script Properties. In particular, an existing private maintainer deployment with all three switches set to `true` is not changed.
+`initializeSafeDefaults()` fills missing values and preserves explicit existing values. If the published package cannot be resolved, use the [manual Apps Script fallback](#manual-apps-script-fallback).
 
-## v0.2.0 release behavior
+## Microsoft Entra and Script Properties
 
-The release enables cross-list moves for fresh projects, compresses and authenticates durable state, and extends bounded diagnostics while preserving the existing recovery model:
+Register an application for the Microsoft account you will connect:
 
-| Area | Behavior | Release status |
-| --- | --- | --- |
-| CLI time zone | Applies the requested IANA time zone to the manifest after parsing JSON, independent of whitespace formatting. | Included and verified by the packed-package smoke check. |
-| Round fence | Keeps the previous successful task/list-deletion baseline when a run exits before its final projection; only the incomplete round's proof is discarded. | Included and verified by the final source tests. |
-| Successful-round restore | Restores from a separately committed successful generation, never from an intra-round checkpoint. An upgraded deployment needs one verifiable successful sync first; legacy state without that evidence fails closed. | Included and verified by the final source tests; see [state rollback](#sync-state-rollback). |
-| Rich body | A Google title, date, or completion-only change does not rewrite an existing Microsoft rich-text body. A changed notes text projection does update the body. | Included and verified by provider payload tests. |
-| Authorization and errors | Authorization refresh/retry and fatal alerts have bounded behavior. Fatal alert email is redacted and excludes task/list content, provider IDs, and full responses. | Included and verified by the final 401 and alert assertions. |
-| Persisted health errors | Stores only HTTP status, a recognized internal error code, and a bounded request/correlation code instead of raw provider response bodies. | Included and verified by privacy regression tests. |
-| Cross-list moves | Fresh projects enable the guarded move journal after bidirectional real-account validation. Existing explicit settings remain unchanged. | Included; delete-and-recreate metadata limits remain documented below. |
-| State storage and migration | New main-state generations use gzip+Base64 with a manifest codec version, UTF-8 decoded-size check, and SHA-256 integrity digest. Existing URI-encoded generations remain readable and migrate automatically on the next successful save; malformed or unknown generations fail closed. | Included and covered by codec, corruption, and migration tests. |
-| Generation retention | State saves retain the current state, the successful-round recovery target, and the candidate being promoted at most transiently: three generations at peak. | Included; aggregate User Properties headroom still applies. |
-| Move-journal fingerprints | New journals store a compact Base64 SHA-256 digest; legacy canonical raw JSON fingerprints remain readable and require exact matching. | Included and covered by legacy-compatibility tests. |
-| Capacity boundary | Approximately 300 tracked pairs is the routine recommended envelope. Normal-path VM/capacity validation targets 600 pairs, not every content or journal combination. Six hundred simultaneously blocked move journals fail closed during storage preflight. | Included; the 600-journal case is a known limit recorded in the [audit](audit.md). |
-| Pagination, storage, and metrics | Page-token/page-count and execution-budget guards fail closed. User Properties headroom and per-round `durationMs`, `urlFetchCalls`, and `stateSaveCalls` are tracked without storing task/list content. | Included and verified by the final local release checks. |
+1. Choose the personal-account audience, or organization-and-personal only when both are required.
+2. Add delegated Microsoft Graph permission `Tasks.ReadWrite` only. Do not add application permissions or `User.Read`; `offline_access` is requested by the program's OAuth flow.
+3. Create a client secret and copy its **Value**, not its ID. Keep it private.
+4. In Apps Script **Project Settings → Script Properties**, add `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, and optionally `MS_TENANT_ID` and `ALERT_EMAIL`.
+5. Run `showRedirectUri()`. Add the displayed address in Entra **Authentication → Web → Redirect URI**.
+6. Run `startAuthorization()`, open its URL, and sign in to Microsoft.
 
-## Manual Apps Script fallback
+Google Tasks due dates are date-only. Microsoft due-time components do not round-trip, so choose the project time zone deliberately.
 
-### 1. Create the private project
+## Rotate a Microsoft client secret
 
-1. Create a private standalone project at [script.google.com](https://script.google.com/).
-2. In Project Settings, enable display of the `appsscript.json` manifest.
-3. Copy this repository's `Code.gs` and `appsscript.json` into the project. Change `appsscript.json`'s `timeZone` to your own IANA time zone before saving; do not inherit `Asia/Taipei` unless it is correct for you.
-4. Run `initializeSafeDefaults()` and complete the Google authorization prompts. For a fresh project it fills `SYNC_LIST_DISCOVERY_MODE=auto`, `SYNC_ALLOW_DELETIONS=true`, `SYNC_ALLOW_LIST_DELETIONS=true`, and `SYNC_ALLOW_TASK_MOVES=true` without overwriting existing explicit Script Properties.
+If the tenant UI or policy permits it, create secrets with a 24-month expiry and set a private calendar reminder 30 days before expiry. Rotate with overlap:
 
-Google Tasks due dates are date-only. Microsoft due times are not preserved, so changing the project time zone affects date interpretation but does not create time-of-day round trips.
+1. Before expiry, create a second secret in Entra. Copy its **Value**, not its Secret ID, and keep the old secret active.
+2. Replace only `MS_CLIENT_SECRET` in Apps Script **Project Settings → Script Properties**.
+3. Wait for any running sync to finish; optionally run `deleteSyncTriggers()` while rotating.
+4. Run `resetMicrosoftAuthorization()`, then `startAuthorization()`. Open the URL and complete Microsoft sign-in and consent.
+5. Run `setupStatus()` and a small manual `syncAll()` to verify the new authorization.
+6. If the trigger was removed, run `createTrigger()` again. After successful verification, delete the old Entra secret.
 
-### 2. Register Microsoft OAuth manually
+Rotation does not change the client ID, redirect URI, mappings, tombstones, move or deletion journals, Google authorization, or required Graph permissions. If the old secret has already expired, follow the same procedure; synchronization remains paused until the new authorization succeeds.
 
-In Microsoft Entra admin center, create an application registration for your own account:
+## First validation and scheduling
 
-- Choose the personal-account sign-in audience when only a personal Microsoft account will use the app. Choose the organization-and-personal audience only when that wider access is needed.
-- In Microsoft Graph, add **Delegated** `Tasks.ReadWrite`. Do not add application permissions or `User.Read`.
-- The program requests `offline_access` through its OAuth scope; it is not a separate Graph permission to add.
-- Create a client secret and keep the **secret value** private. The Secret ID is not the secret value.
+1. Run `setupStatus()` and resolve unexpected configuration or authorization results. A first Google consent screen may show **Advanced → Go project → Allow**; managed accounts may require administrator approval.
+2. Run `dryRunReport()` and review warnings, exclusions, faults, list pairing, and `pendingMoves[]`. It is read-only and point-in-time.
+3. Create a small disposable test list and run `syncAll()` twice. Confirm pairing and the expected two-round deletion safeguards.
+4. Run `createTrigger()` and use `healthCheck()` to confirm the 10-minute schedule.
 
-Use Apps Script **Project Settings → Script Properties** for configuration:
+## Runtime and capacity boundary
 
-| Key | Required | Value |
-| --- | --- | --- |
-| `MS_CLIENT_ID` | Yes | Your Entra Application (client) ID |
-| `MS_CLIENT_SECRET` | Yes | Your client-secret value |
-| `MS_TENANT_ID` | No | Leave unset for `common`, or use your intended tenant setting |
-| `ALERT_EMAIL` | No | Optional override; alerts otherwise go to the Google account that owns and authorized this Apps Script project |
-| `SYNC_LIST_DISCOVERY_MODE` | Yes | `auto` for a fresh project; preserve an existing explicit value |
-| `SYNC_EXCLUDED_LIST_NAMES` | No | List names to exclude, one per line or comma-separated |
-| `SYNC_ALLOW_DELETIONS` | Yes | `true` for a fresh project; preserve an existing explicit value |
-| `SYNC_ALLOW_LIST_DELETIONS` | Yes | `true` for a fresh project; preserve an existing explicit value |
-| `SYNC_ALLOW_TASK_MOVES` | Yes | `true` for a fresh project; preserve an existing explicit value |
+Apps Script permits at most six minutes per execution. The script budgets 5.25 minutes, leaving a 45-second platform reserve. Destructive task, list, and move-journal paths reserve additional time before live revalidation, durable journal writes, or remote deletion. A global lock skips overlapping invocations. Ordinary changes normally appear in 0–10 minutes; operations requiring two complete confirmation rounds normally settle in 10–20 minutes.
 
-Storage-pressure email is sent by default to the Google account that owns and authorized this private Apps Script project. Set `ALERT_EMAIL` only to route the warning to a different inbox; it is an override, not a required setup value.
+Pagination uses bounded page-token and page-count guards and fails closed on repeated tokens, unreasonable page counts, or insufficient execution time. A time-budget exit starts a complete inventory on the next trigger; no page cursor, delta token, or shard checkpoint is persisted. See the [audit](audit.md) for the measured storage model and exact limits.
 
-Never put these values, OAuth tokens, raw state, or IDs in the repository, issues, or screenshots. The CLI does not collect or store them.
+## Cross-list moves
 
-### 3. Set the redirect URI and authorize
+Cross-list moves use a destination-first replacement: the new counterpart is created and verified under a durable recovery journal before the old counterpart is retired. Provider IDs change, and provider-only metadata without a cross-platform equivalent may not transfer.
 
-1. Run `showRedirectUri()` and copy the URL from the execution log.
-2. In Entra, open **Authentication**, choose **Add a platform**, choose **Web**, and add that exact URL as a redirect URI.
-3. Run `startAuthorization()`, open the returned URL, and sign in with the intended Microsoft account.
-4. Run `setupStatus()` and resolve unexpected warnings. It reports readiness without showing credential values.
+For a Google-origin move, the durable move journal is written before the destination Microsoft task is posted. The destination task receives a correlation extension; recovery accepts only the exact supported extension identities, name, UUID, target list, and fingerprint. The destination is read back and verified before the old Microsoft counterpart is retired. A changed source, incomplete inventory, ambiguous marker, or multiple candidate stops safely.
 
-### 4. Verify before adding the schedule
+For a Microsoft-origin move, the new Google counterpart is created first. Retirement of the old Google counterpart follows the ordinary two-round deletion confirmation and live-revalidation path; a temporary duplicate is expected while that evidence accumulates. With task deletion disabled, the old counterpart remains by design.
 
-1. Run `dryRunReport()` and review its warnings, exclusions, faults, list information, and `pendingMoves[]` entries. It is read-only and point-in-time; attachments, checklist items, linked resources, and extensions are relationships that the current inventory does not expand, so the report must not claim that they are absent.
-2. With a small test list, run `syncAll()` twice and inspect both services. The second run should not make unexpected duplicates.
-3. Task and list deletion are enabled for fresh projects and have been verified in both directions. Review the two-round confirmation and tombstone results before adding the schedule.
-4. Run `createTrigger()` only after the staging results are acceptable. It deletes earlier `syncAll` triggers and creates one 10-minute trigger.
-5. After it runs, use `healthCheck()` and `setupStatus()` to check health and trigger state.
-
-Cross-list task moves use `SYNC_ALLOW_TASK_MOVES=true` for fresh projects. Bidirectional real-account validation is complete; this is not a universal guarantee. Movement uses delete-and-recreate semantics, so provider-only metadata such as reminders, recurrence, importance, categories, attachments, and history may not be preserved. Review the move notes below and the separate validation runbook before making large-scale changes.
-
-### Task and list deletion behavior
-
-Task deletion uses independent snapshots, delete-versus-edit checks, durable journals, and 30-day tombstones. List deletion additionally requires auto-mode provenance, complete inventory evidence, exact task fingerprints, a pre-delete reread, and a durable per-pair journal. Bidirectional real-account validation covers both deletion directions with recoverable test data.
-
-If an existing deployment explicitly has `SYNC_ALLOW_DELETIONS=false`, Microsoft-origin movement can leave the new Google counterpart alongside the old one. With the fresh-project value `true`, a later complete confirmation round normally retires the old counterpart after a temporary duplicate.
-
-## Runtime cadence and capacity boundary
-
-Google Apps Script enforces a six-minute limit for one execution. The script's own `RUN_LIMIT_MS` is 5.25 minutes, leaving 45 seconds before the platform ceiling. Destructive task, list, and move-journal paths reserve another 45 seconds inside that budget and fail fast before live revalidation, durable journal writes, or remote deletion; an existing durable journal remains for the next full-inventory run. Ten minutes is the first supported Apps Script minute-trigger cadence above the platform ceiling. A global lock skips an overlapping invocation instead of running two syncs concurrently.
-
-- Ordinary changes normally appear in 0–10 minutes.
-- A two-complete-round deletion or Microsoft-origin old-task cleanup normally converges in 10–20 minutes.
-- Throttling, authorization failure, an incomplete inventory, or a skipped overlapping trigger can make either longer.
-
-Pagination has a bounded page-token/page-count guard and stops safely on repeated tokens, unreasonable page counts, or insufficient execution time. Time-budget recovery does not resume a partially fetched page set. Neither the Google nor Microsoft inventory stores a page cursor, delta token, or shard checkpoint. The next trigger begins a complete inventory again. If one full inventory consistently takes more than 5.25 minutes, a longer trigger interval does not fix it; persistent cursors/delta state or workload sharding must be implemented first. Approximately 300 tracked task pairs is the routine recommended envelope. The 600-pair VM and capacity suite is a normal-path validation target, not a hard guarantee for every content, tombstone, journal, or unrelated-property combination. Six hundred simultaneously blocked move journals exceed the storage preflight envelope and fail closed; this is a known limit, not a partial-mutation mode. User Properties writes check estimated aggregate headroom, including retained generations and other private properties, before saving a new generation. Each round records bounded, content-free `durationMs`, `urlFetchCalls`, and `stateSaveCalls` metrics. The current [engineering audit](audit.md) records the final local verification.
-
-## Cross-list move notes
-
-Google-origin movement intentionally creates a fresh provider task ID in the destination list. Before the destination POST, the script durably stores a UUID move journal; the same Microsoft task POST adds a `com.tasksTodoSync.move` open type extension containing that UUID. Only unresolved target lists use the documented `$expand=extensions($filter=id eq 'com.tasksTodoSync.move')` short-name query. Graph To Do can normalize the returned ID to `microsoft.graph.openTypeExtension.com.tasksTodoSync.move` or legacy `Microsoft.OutlookServices.OpenTypeExtension.com.tasksTodoSync.move`; recovery validates that exact two-value allowlist, the exact extension name, and UUID locally. Bare names, suffix matches, and other prefixes are rejected. A changed source, incomplete inventory, ambiguous marker, or multiple candidate stops safely.
-
-Microsoft-origin movement normally arrives as a new Microsoft ID plus a missing old ID. If an existing deployment explicitly has `SYNC_ALLOW_DELETIONS=false`, sync creates the new Google counterpart but retains the old Google counterpart. With `SYNC_ALLOW_DELETIONS=true`, the first complete round creates the new counterpart and records the old one as missing; a later complete round normally retires the old counterpart. If Graph reports the same Microsoft task ID in a different list, the script keeps both sides unchanged and records `MOVE_MICROSOFT_SAME_ID_LIST_CHANGED`.
-
-The move rebuilds only title, plain-text notes, date-only due date, and completion state. Microsoft-only reminders, importance, categories, recurrence, start dates, creation date, completion history, and other provider metadata are not preserved. `dryRunReport()` does not expand attachment, checklist, linked-resource, or extension relationships, so those details are uninspected rather than absent.
+Moves project the supported title, plain-text notes, date-only due date, and completion state. Provider-only metadata without a cross-platform equivalent may not transfer. `dryRunReport()` does not expand attachment, checklist, linked-resource, or unrelated extension relationships; uninspected is not the same as absent.
 
 ## Move-journal operations runbook
 
-Use this only when `healthCheck()` reports blocked or legacy task-move journals. These helpers never create, update, or delete a Google or Microsoft task; provider mutation remains deferred to a later `syncAll()` after another complete verification.
+Use this only when `healthCheck()` reports a blocked legacy move journal. These helpers do not create, update, or delete provider tasks; provider mutation remains deferred to a later verified `syncAll()`.
 
-1. Run `deleteSyncTriggers()` and verify no sync execution is active. Preserve `exportRawSyncState()` privately.
-2. Run `inspectTaskMoveJournals()`. It returns deterministic opaque `journalRef` and `revision` values, bounded reasons, phases, and evidence flags; it does not return provider IDs, task content, or correlation UUIDs.
-3. Set Script Property `SYNC_TASK_MOVE_OPERATION_JSON` to a JSON object such as:
+1. Run `deleteSyncTriggers()` and preserve a private `exportRawSyncState()` copy.
+2. Run `inspectTaskMoveJournals()`. Use its opaque `journalRef`, `revision`, bounded reason, phase, and evidence flags; never share IDs, content, or UUIDs.
+3. Set `SYNC_TASK_MOVE_OPERATION_JSON` to an object such as `{"action":"resume","journalRef":"moveJournal_…","revision":"moveRevision_…"}`. Supported actions are `resume`, `cancel`, and `reconcile`.
+4. Run `previewTaskMoveJournalOperation()`. Apply only an `ok=true` preview whose opaque token and intent still match.
+5. Run `applyTaskMoveJournalOperation()`. It takes the global lock, rejects an active sync fence, rereads both providers, validates live evidence, and requires private before-image receipt read-back. It performs no provider mutation.
+6. Run `inspectTaskMoveJournals()` and `healthCheck()`, review the result, run one manual `syncAll()`, and recreate the trigger.
 
-   ```json
-   {"action":"resume","journalRef":"moveJournal_…","revision":"moveRevision_…"}
-   ```
+Never clear `taskMoveJournal`, edit provider IDs, force-import state, or use cancel as blind cleanup. Missing-source, changed-source, move-versus-edit conflicts, and ambiguous winners remain fail closed unless one exact operation is supported by live evidence.
 
-   Supported actions are `resume`, `cancel`, and `reconcile`. `reconcile` requires the exact candidate and confirmation returned by preview; never paste raw provider IDs.
-4. Run `previewTaskMoveJournalOperation()`. Copy its opaque `previewToken` only when the intended operation reports `ok=true`; changing any effect-bearing field requires another preview.
-5. Run `applyTaskMoveJournalOperation()`. It takes the global lock, rejects an active sync fence, rereads related Google/Microsoft data, validates the exact intent and live evidence, and requires a private before-image receipt read-back before changing one local journal. It never performs provider mutation.
-6. Run `inspectTaskMoveJournals()` and `healthCheck()` again, review the result, and then run one manual `syncAll()` before recreating the 10-minute trigger.
+## Manual Apps Script fallback
 
-Never clear `taskMoveJournal`, edit provider IDs, force-import state, or use cancel as blind cleanup. `MOVE_VS_EDIT_CONFLICT`, missing-source, changed-source, and ambiguous-winner situations remain fail closed unless the live evidence meets one exact operation.
+Use this route when the package cannot be resolved or when each deployment step must be reviewed manually:
 
-## Low-level `clasp` fallback details
+```bash
+npx --yes @google/clasp@3.4.0 login
+npx --yes @google/clasp@3.4.0 create --title "Tasks-ToDo Sync staging" --type standalone
+npx --yes @google/clasp@3.4.0 pull
+npx --yes @google/clasp@3.4.0 push
+```
 
-The productized command wraps this sequence. Use it only when inspecting or recovering a private project manually:
+Keep a private backup before `pull` or `push`, review the exact `Code.gs` and `appsscript.json`, and verify the intended private project in `.clasp.json`. Run `setupStatus()` and `dryRunReport()` before creating a trigger.
 
-1. Enable the Apps Script API in Apps Script user settings and authenticate with the pinned clasp package:
+## Source and sync-state rollback
 
-   ```bash
-   npx --yes @google/clasp@3.4.0 login
-   ```
+Source rollback does not roll back mappings, tombstones, move/deletion journals, or OAuth state. Before changing source, privately run `inspectSyncState()` and `exportRawSyncState()`. Restore only a separately committed successful generation with `restorePreviousSyncState()`; it refuses an active sync fence, active mutation journal, or missing tombstone evidence. It never restores an intra-round checkpoint. After an upgrade, verify one successful sync before relying on restore. After any restore, run `dryRunReport()` and review it before resuming.
 
-2. If this folder has no `.clasp.json`, make a private backup and create a standalone project:
+Legacy URI-encoded state is read compatibly and migrates to gzip+Base64 with codec metadata and SHA-256 integrity on the next successful save. A failed or corrupt read is not rewritten. New move-journal fingerprints use Base64 SHA-256; legacy canonical raw JSON fingerprints remain readable only on exact match.
 
-   ```bash
-   npx --yes @google/clasp@3.4.0 create --title "Tasks-ToDo Sync staging" --type standalone
-   ```
+## Release readiness checklist
 
-   If `.clasp.json` already exists, verify that it names the intended private project and preserve a private backup before changing it.
-
-3. Pull and compare before writing, then push only the reviewed exact sources:
-
-   ```bash
-   npx --yes @google/clasp@3.4.0 pull
-   npx --yes @google/clasp@3.4.0 push
-   ```
-
-   `pull` can overwrite local source. Use a private backup or separate checkout for comparison, and do not use a delete-unused-files option during a recovery.
-
-## Explicit list pairing (advanced)
-
-New personal projects should use `auto`. For an existing deployment requiring fully manual pairing, set `SYNC_LIST_DISCOVERY_MODE=explicit`, configure `SYNC_GOOGLE_LIST_IDS` and optionally `SYNC_LIST_PAIRS_JSON`, then use the documented validation/apply functions in the Apps Script editor. Explicit pairing never guesses from titles. Stop the trigger and preserve state privately before changing modes.
-
-## Rollback is two different operations
-
-### Source rollback
-
-1. Run `deleteSyncTriggers()` first, so no new sync starts while investigating.
-2. Preserve the current Code/manifest and execution evidence privately.
-3. Restore source from a known-good private backup or immutable Apps Script version. A trigger runs the project head, so an older version must be carefully brought back to the head before resuming. With `clasp`, retrieve an old version into a separate backup working copy using `pull --versionNumber`, compare it, and push only the reviewed `Code.gs` and `appsscript.json` to the intended project.
-4. Run `setupStatus()` and `dryRunReport()` before creating a new trigger.
-
-Do not depend on a Git tag that may not exist. Keep private source/version records before each staging change.
-
-### Sync-state rollback
-
-Source rollback does not roll back mappings, tombstones, move/deletion journals, or OAuth state. First export and retain state privately with `inspectSyncState()` and `exportRawSyncState()`. `restorePreviousSyncState()` refuses an active sync-round fence, active task move/deletion/list-deletion journals, and loss of tombstone evidence. It restores only a separately committed successful generation, never an intra-round checkpoint. After upgrading, complete and verify at least one successful sync before relying on restore; legacy state without a verifiable successful generation fails closed. Never clear properties or force-import state merely to bypass those safeguards. After any state restore, run `dryRunReport()` and manually review before resuming.
-
-The v0.2.0 state codec migration is automatic. A legacy URI-encoded generation is decoded by the compatibility reader; the next successful save writes gzip+Base64, records the codec metadata and SHA-256 digest, and retains the recovery boundary. A failed or corrupt read does not get rewritten. New move-journal fingerprints are SHA-256 digests; legacy raw JSON fingerprints remain valid and are checked by exact canonical comparison.
-
-## v0.2.0 release readiness check
-
-- [ ] `npm run check` and `npm test` pass locally, including the round-fence, restore, rich-body, bounded-auth/error, pagination, storage, and metrics coverage.
-- [ ] CI passes on Node.js 22 and 24.
-- [ ] The `npx tasks-todo-sync init` flow has been exercised from the packed package in a disposable private project, the printed editor URL was opened, and `initializeSafeDefaults()` was run in the editor; or the manual fallback has been followed and checked.
-- [ ] The project time zone is the operator's intended IANA value, and the CLI output includes the editor URL and post-deploy steps.
-- [ ] `setupStatus()` shows `auto`, task/list deletion `true`, and task moves `true` for a fresh project; existing explicit properties are recorded and preserved.
-- [ ] Microsoft Entra registration, client secret, redirect URI, and OAuth authorization were completed manually and remain private.
-- [ ] Two staging `syncAll()` runs are understood and have no unexpected duplicates.
-- [ ] `dryRunReport()` warnings, exclusions, faults, and list information are understood; it has not been mistaken for a mutation plan.
-- [ ] Bidirectional real-account validation covers recoverable task and list deletion evidence; it is not treated as universal safety evidence.
-- [ ] Cross-list moves are enabled by default for fresh projects; bidirectional real-account validation is recorded without treating it as universal safety evidence, and the delete-and-recreate metadata boundary is understood.
-- [ ] The deterministic 600-pair normal-path validation has been reviewed as a capacity target, while approximately 300 tracked pairs remains the routine envelope; the 600-simultaneous-move-journal storage-preflight known limit is understood.
-- [ ] Existing state migration, three-generation peak retention, SHA-256 move-journal digesting, and legacy raw-fingerprint compatibility are understood.
-- [ ] Source and state rollback procedures are documented separately, including the successful-generation restore boundary, and the operator understands the risks and limits of each.
-- [ ] Private vulnerability reporting is enabled before public use.
-
-Passing this list establishes release readiness for the documented `v0.2.0` scope. Publishing the package, tag, and GitHub release remains a separate step.
+- [ ] The packed `npx tasks-todo-sync init` flow or the manual fallback was exercised in a disposable private project.
+- [ ] The intended IANA time zone, editor URL, Script Properties, Entra redirect URI, and authorization were verified privately.
+- [ ] Two staging `syncAll()` runs and `dryRunReport()` were reviewed with no unexpected changes.
+- [ ] Trigger cadence, deletion safeguards, move-journal recovery, state migration, and rollback boundaries are understood.
+- [ ] The [engineering audit](audit.md) was reviewed for evidence and limitations.

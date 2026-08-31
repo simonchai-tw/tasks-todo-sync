@@ -77,7 +77,7 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The core loop is covered by automated checks, GitHub CI, CodeQL, and bidirectional real-account validation. Detailed evidence and known limits are recorded in the [engineering audit](docs/audit.md).
+The core loop is covered by 229 automated tests, GitHub CI, CodeQL, and recorded real-account validation. Local deterministic validation exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. Detailed evidence and runtime boundaries are recorded in the [engineering audit](docs/audit.md).
 
 ## Get started
 
@@ -97,7 +97,7 @@ You will need:
 
 You authorize Google and Microsoft separately. Each provider may show more than one sign-in or consent page depending on your existing browser session, but the project connects one account from each ecosystem.
 
-Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, and cross-list move details, including the delete-and-recreate metadata boundary.
+Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, cross-list moves, and the safe destination-first replacement order.
 
 ## Documentation
 

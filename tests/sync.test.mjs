@@ -905,6 +905,12 @@ test('storage pressure sends one best-effort alert per cooldown without blocking
   assert.doesNotThrow(() => context.saveState_(context.newState_()));
   assert.equal(sent.length, 1);
   assert.match(sent[0].subject, /State storage/);
+  assert.match(sent[0].body, /small batch of old completed tasks/);
+  assert.match(sent[0].body, /two complete sync rounds/);
+  assert.match(sent[0].body, /deletion safety records remain for 30 days/);
+  assert.match(sent[0].body, /genuinely be approaching its capacity boundary/);
+  assert.match(sent[0].body, /Expired deletion records are cleaned automatically/);
+  assert.match(sent[0].body, /do not clear tombstones or state properties manually/);
   assert.ok(scriptStore.getProperty('alert_storage_pressure_last_at'));
   assert.doesNotThrow(() => context.saveState_(context.newState_()));
   assert.equal(sent.length, 1, 'the 30-day cooldown prevents repeated pressure mail');

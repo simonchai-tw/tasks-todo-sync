@@ -2417,8 +2417,12 @@ function maybeSendStoragePressureAlert_(props, projectedStoreBytes) {
     const sent = sendMailAlert_(
       '[Sync engine] State storage is nearing its safety limit',
       'Synchronization state is using at least 80% of the configured safe Apps Script property-store limit.\n\n' +
-      'Sync has not been stopped. Do not delete state properties manually. Run healthCheck() and keep a private ' +
-      'exportRawSyncState() backup before making changes.'
+      'Sync has not been stopped. If deletion synchronization is enabled, first delete a small batch of old ' +
+      'completed tasks you no longer need from either service, then allow two complete sync rounds before ' +
+      'repeating. Completed tasks still count until deleted, and deletion safety records remain for 30 days.\n\n' +
+      'If you already clean up completed tasks regularly, this deployment may genuinely be approaching its ' +
+      'capacity boundary. Expired deletion records are cleaned automatically; do not clear tombstones or state ' +
+      'properties manually. Keep a private exportRawSyncState() backup before making further changes.'
     );
     if (sent) markAlertSent_(ALERT_KEYS.storagePressure);
     return sent;

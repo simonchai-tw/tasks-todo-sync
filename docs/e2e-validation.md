@@ -1,95 +1,49 @@
 # Cross-list move E2E validation
 
-This runbook validates cross-list moves against disposable data. Fresh projects enable the feature after bidirectional real-account validation was completed, but movement still uses guarded delete-and-recreate semantics and may not preserve Microsoft-only metadata. Keep this runbook separate from valuable personal data: do not point it at valuable lists, and do not intentionally create a real Microsoft Graph 429. Fault-injection tests cover throttling and interrupted responses locally.
+This runbook validates cross-list moves with disposable Google Tasks and Microsoft To Do data. Run it against a private staging project, never valuable lists. Each scenario is repeatable: create fresh disposable lists and tasks, record only the bounded report outcome privately, and remove the disposable residue after the scenario.
 
-## Safety boundary
+## Preconditions
 
-Use a separate Google account and Microsoft account when practical. If that is not possible, use uniquely named disposable lists and explicit list pairing. Keep these settings until the ordinary non-destructive checks are complete:
+1. Complete the [quick start](quick-start.md) in a private staging project and confirm `SYNC_ALLOW_TASK_MOVES=true` with `setupStatus()`.
+2. Create two eligible lists on each provider and let automatic pairing settle. Do not use shared, non-owned, excluded, or special lists.
+3. Run `syncAll()` twice, then run `dryRunReport()`. Save the report privately; do not share provider IDs, task content, or raw state.
+4. Create one disposable task in a paired Google list and one in a paired Microsoft list. Record their initial counterpart relationships privately.
 
-```properties
-SYNC_ALLOW_DELETIONS=false
-SYNC_ALLOW_LIST_DELETIONS=false
-SYNC_ALLOW_TASK_MOVES=true
-```
+## Google-origin move: create, verify, retire
 
-Cross-list moves are enabled for fresh projects. Keep both deletion switches `false` while running this move-focused validation so ordinary deletion propagation cannot add noise. Never enable list deletion for this runbook.
+1. Move the disposable Google task to the other Google list.
+2. Run `dryRunReport()`. Observe one move candidate and its bounded `pendingMoves[]` evidence; the report is read-only.
+3. Run one complete `syncAll()`.
+4. Verify that the Microsoft counterpart now appears in the paired destination list, the old Microsoft counterpart is no longer in the source list, and no duplicate was created. Its provider ID is expected to change.
+5. Run `syncAll()` again and confirm the result remains one mapped counterpart with no repeated create or delete.
+6. If source evidence changed, inventory was incomplete, or marker evidence was ambiguous, confirm a fail-closed result and retained journal rather than a guessed retirement. Resolve only through the [move-journal operations runbook](deployment.md#move-journal-operations-runbook).
 
-## Prepare disposable lists
+The live-account check validates convergence. Automated and fault-injection coverage verifies the internal order: durable journal → destination create → destination read-back and live verification → old counterpart retirement. Provider-only metadata without a cross-platform equivalent may not transfer.
 
-1. Create two uniquely named lists on each service, for example:
-   - `E2E-Move-Source`
-   - `E2E-Move-Target`
-2. Pair only those lists through the normal explicit-pairing procedure, or confirm that auto discovery selected exactly those lists.
-3. Run `setupStatus()` and `dryRunReport()`. The report must contain no unexpected lists, faults, or credentials. Record the disposable list IDs privately; do not put them in GitHub issues, screenshots, or this repository.
+## Microsoft-origin move: counterpart creation, then two-round retirement
 
-## Read-only preview
+1. Set `SYNC_ALLOW_DELETIONS=false` and move the disposable Microsoft task to the other Microsoft list.
+2. Run one complete `syncAll()` and verify a new Google counterpart is created while the old Google counterpart remains. This residue is intentional when deletion is disabled.
+3. Set `SYNC_ALLOW_DELETIONS=true` and run one complete `syncAll()`. Observe the first missing-old observation and retained deletion evidence.
+4. Run a later complete `syncAll()` and verify the ordinary two-round deletion confirmation and live revalidation retire the old Google counterpart. Confirm the new counterpart remains mapped.
+5. If the same Microsoft task ID is reported in another list, verify `MOVE_MICROSOFT_SAME_ID_LIST_CHANGED` and no silent remapping. Restore the intended setting after the scenario.
 
-1. Add one disposable task to the Google source list with a title, notes, due date, and completion state.
-2. Run `syncAll()` once while the task is still in the Google source list. Confirm that its Microsoft counterpart and mapping exist before adding provider-only metadata.
-3. On that Microsoft counterpart, add representative provider fields when available: `importance`, `categories`, reminder fields, recurrence, and a start date. `hasAttachments` can indicate an attachment, but the current task inventory does not expand attachment relationships.
-4. Run `syncAll()` again while the task is still mapped to the source list. This refreshes the mapping baseline after the Microsoft-side metadata edit.
-5. Move the Google task from the disposable source list to the disposable target list, then run `dryRunReport()`.
-6. Confirm the JSON contains a deterministic `pendingMoves` array. Check that each entry identifies the source/target lists, execution state, and metadata detection status. Check that unexpanded relationships are not claimed to be absent.
-7. Confirm that the report does not create, update, or delete lists/tasks and that the persisted sync state is unchanged.
-
-## Google-origin move
-
-1. Confirm `SYNC_ALLOW_TASK_MOVES=true` for the disposable staging project. Leave both deletion switches `false`.
-2. Run `syncAll()` once after the move. Inspect both services and the private mapping/state export.
-3. Run `syncAll()` a second time. Expected result:
-   - exactly one Microsoft counterpart exists in the target list;
-   - the old Microsoft counterpart is retired as part of the move transaction;
-   - the mapping points to the new Microsoft task ID;
-   - the old Microsoft ID has a move tombstone;
-   - the second run creates no duplicate;
-   - no non-disposable list or task changed.
-5. Run `dryRunReport()` again. It should not report the completed move as a fresh candidate.
-6. In the private raw state, confirm the move journal used a UUID while it was active. Do not paste that UUID, provider IDs, or raw state into shared evidence. If fault injection left an unresolved correlated journal, that target-list Graph request should use the URL-encoded form of `$expand=extensions($filter=id eq 'com.tasksTodoSync.move')`; ordinary target lists should not expand extensions. Confirm local recovery accepts the exact `microsoft.graph.openTypeExtension.` and legacy `Microsoft.OutlookServices.OpenTypeExtension.` identities for the exact extension name, while rejecting bare names, suffix matches, and other prefixes.
+The Microsoft-origin order is: new Google counterpart creation → first missing-old observation → second complete confirmation round and live revalidation → old Google counterpart retirement.
 
 ## Blocked move
 
 1. Set `SYNC_ALLOW_TASK_MOVES=false`.
-2. Move a second disposable Google task across the two disposable lists.
+2. Move a second disposable Google task between the two disposable Google lists.
 3. Run `dryRunReport()` and `syncAll()`.
-4. Confirm the candidate is reported as blocked, the old Microsoft task remains, and no destination Microsoft task is created.
-5. Restore `SYNC_ALLOW_TASK_MOVES=true` before continuing or returning the fresh project to normal use.
+4. Verify the candidate is blocked, the old Microsoft task remains, and no destination Microsoft task is created.
+5. Restore `SYNC_ALLOW_TASK_MOVES=true` before continuing.
 
-## Microsoft-origin observation
+## Fault-injection and recovery observations
 
-The Microsoft-origin path is a separate, more destructive disposable-data check because Graph normally assigns a new task ID and the old Google counterpart is handled by the ordinary task-deletion confirmation path. Do not perform it during a normal personal run.
+The local fault-injection suite covers throttling-shaped failures, interrupted responses, duplicate prevention, exact marker identities, and journal recovery. It verifies that repeated HTTP 429 responses make exactly `HTTP_MAX_RETRIES + 1` attempts, that an exhausted move-create error retains the old source and persists a `creating` journal without an immediate duplicate, and that ambiguous or changed marker evidence is not adopted.
 
-1. With `SYNC_ALLOW_DELETIONS=false`, move one disposable Microsoft task and run one complete sync. Verify the new Google counterpart appears and the old Google counterpart remains. This persistent two-task result is the intentional no-deletion behavior.
-2. Remove the disposable residue manually, then repeat with `SYNC_ALLOW_DELETIONS=true`. After the first complete round, expect a temporary duplicate/new counterpart plus a first missing-old observation. After a later complete round, verify the old Google counterpart is retired.
-3. If the same Microsoft task ID is ever reported in another list, expect `MOVE_MICROSOFT_SAME_ID_LIST_CHANGED` and no automatic rebinding.
+The local suite uses fake providers and a fake clock. It does not reproduce real provider throttling, Apps Script termination, or network timing. For a real-account interruption or concurrent edit, preserve the private journal, run `inspectTaskMoveJournals()`, and follow the deployment runbook; never clear the journal or edit provider IDs manually.
 
-Keep `SYNC_ALLOW_LIST_DELETIONS=false` throughout.
+## Cleanup and record
 
-## Failure and recovery coverage
-
-Do not provoke real throttling. The local suite has deterministic offline coverage for these cases only:
-
-- one `HTTP 429` followed by success honors `Retry-After` through a captured
-  `Utilities.sleep` call, without a real wait;
-- repeated `HTTP 429` responses make exactly `HTTP_MAX_RETRIES + 1` attempts,
-  then throw without a real wait;
-- an exhausted-429-shaped move-create error retains the old source, persists a
-  `taskMoveJournal` in `creating` state, and does not immediately create a
-  duplicate;
-- one exact destination with the intended list, either exact service-normalized
-  Graph extension ID, exact extension name, valid matching correlation UUID, unmapped identity, and
-  fingerprint can be adopted without a duplicate;
-- a same-fingerprint task without the marker is not adopted, duplicate exact
-  markers stop as ambiguous, and a marker whose content changed stops as a
-  destination edit conflict;
-- a legacy unresolved journal cannot auto-adopt or recreate a task.
-
-If the journal remains blocked, follow the [move-journal operations runbook](deployment.md#move-journal-operations-runbook). Verify that inspect/preview output contains only opaque references and bounded evidence, that changing the action/candidate/confirmation invalidates the preview token, that apply requires an exact private before-image read-back, and that apply itself performs no provider mutation. Never clear the journal blindly.
-
-The offline suite uses a fake clock to verify that task/list deletion recovery,
-confirmed deletion apply, and completed-move deletion stop before the destructive
-reserve with no remote delete and with durable journals retained. It does not
-simulate a real provider throttle, Apps Script termination, or network timing;
-verify those boundaries with the disposable-list procedure above and record the
-outcome as private validation evidence.
-
-After the run, export the state privately and remove test data manually if desired. Restore the deployment's chosen switch values after reviewing the evidence.
+After each scenario, run a final `dryRunReport()`, remove disposable tasks and lists manually where appropriate, and confirm a subsequent `syncAll()` has no unexpected candidates. Keep private notes of direction, observed ordering, whether deletion was enabled, and the bounded outcome. Do not publish raw state, task content, provider IDs, correlation UUIDs, or screenshots containing them.

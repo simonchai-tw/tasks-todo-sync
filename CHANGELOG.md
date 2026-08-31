@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.2.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
 
+## Unreleased
+
+- Refined the public documentation around destination-first cross-list moves, deterministic 600-pair evidence, real-account validation boundaries, and Microsoft client-secret rotation.
+- Improved the storage-pressure email with safe, end-user cleanup guidance while preserving automatic tombstone expiry and fail-closed storage behavior.
+
 ## 0.2.0 — 2026-08-30
 
 ### Compressed state and capacity validation
@@ -13,7 +18,7 @@ Historical entries below describe each release at the time it shipped, including
 - Changed new cross-list move-journal fingerprints to compact Base64 SHA-256 digests. Existing journals containing the canonical raw JSON fingerprint remain readable and continue to require an exact match.
 - Kept the installed trigger cadence at 10 minutes. Last-write-wins now gives Google precedence for equal provider timestamps; independent provider clocks can still skew, the winner is recorded only in the execution log, and the overwritten version is not retained separately.
 - Made storage-pressure alerts default to the Google account that owns and authorized the private Apps Script project. Set `ALERT_EMAIL` only when a different inbox is intended.
-- Added deterministic VM and capacity validation targeting 600 tracked pairs across normal-path scenarios. Approximately 300 tracked pairs remains the routine recommended envelope; 600 is a validation target, not a hard guarantee for every combination of content, journals, tombstones, and unrelated properties. A case with 600 move journals blocked at once fails closed during storage preflight and is recorded as a known limit.
+- Added deterministic validation with 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. See the [engineering audit](docs/audit.md) for the measured model and limits.
 - Verified the local regression suite, package checks, deterministic 600-pair validation, and `git diff --check` for this release worktree.
 
 ## 0.1.3 — 2026-08-28
@@ -21,7 +26,7 @@ Historical entries below describe each release at the time it shipped, including
 ### Release hardening and cross-list usability
 
 - Added privacy-bounded persisted health errors so `healthCheck()` does not expose raw provider response bodies.
-- Enabled `SYNC_ALLOW_TASK_MOVES=true` for fresh projects after bidirectional real-account validation was completed. Moves retain guarded delete-and-recreate semantics, so provider-only metadata may not be preserved.
+- Enabled `SYNC_ALLOW_TASK_MOVES=true` for fresh projects after bidirectional real-account validation was completed. Cross-list moves use a destination-first replacement: the new counterpart is created and verified under a durable recovery journal before the old counterpart is retired. Provider-only metadata without a cross-platform equivalent may not transfer.
 - Aligned the current setup, security, audit, README, and disposable-data validation documentation with the release behavior and the simple `npx tasks-todo-sync init` flow.
 - Verified the `v0.1.3` local regression suite, static validation, package dry-run validation, the packed-package smoke check, and `git diff --check`.
 
@@ -96,14 +101,14 @@ Public prerelease tag: `v0.1.0-rc.4`. This is a release candidate, not a stable 
 - Added move-versus-edit protection before mutation and a fresh Microsoft source reread before deletion. A newer or concurrently changed Microsoft task is preserved and reported as a conflict.
 - Decoupled `SYNC_ALLOW_TASK_MOVES` from general task-deletion propagation. Google-origin movement can be tested without enabling ordinary missing-task deletion.
 - Added fail-closed handling for the unusual same-ID Microsoft cross-list observation and a read-only move preview in `dryRunReport()`.
-- Documented provider-ID replacement and the Microsoft-only metadata that delete-and-recreate cannot preserve.
+- Documented provider-ID replacement and the Microsoft-only metadata that cross-provider movement cannot preserve.
 - Public destructive-feature defaults remain `false`; the maintainer's private Apps Script settings are not repository defaults.
 
 ## 0.1.0-rc.3 — 2026-08-22
 
 Public prerelease tag: `v0.1.0-rc.3`. This is a release candidate, not a stable or production-ready release.
 
-- Added bidirectional cross-list convergence using delete-and-recreate semantics instead of preserving provider task IDs.
+- Historical pre-rc.4 behavior: added bidirectional cross-list convergence using delete-and-recreate semantics instead of preserving provider task IDs.
 - Google-origin moves retire the old Microsoft mapping, recreate the counterpart in the newly mapped list, and tombstone the old Microsoft task ID.
 - Microsoft-origin moves converge through the existing new-task path plus two-round deletion confirmation for the old counterpart.
 - Added regression coverage for both move directions, retry after an already-missing source counterpart, and complete deletion-state cleanup.
