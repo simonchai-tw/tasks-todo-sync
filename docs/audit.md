@@ -1,10 +1,10 @@
-# v0.2.0 engineering audit
+# v0.2.1 engineering audit
 
-Audit scope: 0.2.0 — 2026-08-30
+Audit scope: 0.2.1 — 2026-08-31
 
 ## Release decision
 
-`v0.2.0` is a stable personal, single-operator synchronization release. It includes compressed and integrity-checked state, backward-compatible migration, guarded deletion, recovery journals, tombstones, bounded diagnostics, and destination-first cross-list moves. Fresh projects enable automatic list discovery, task deletion, list deletion, and task moves; existing explicit Script Properties are preserved.
+`v0.2.1` is a stable personal, single-operator synchronization release. It includes compressed and integrity-checked state, backward-compatible migration, guarded deletion, recovery journals, tombstones, bounded diagnostics, and destination-first cross-list moves. Fresh projects enable automatic list discovery, task deletion, list deletion, and task moves; existing explicit Script Properties are preserved.
 
 The core implementation is covered by 229 automated tests, CI, and CodeQL. Recorded bidirectional real-account checks cover task deletion, list deletion, and cross-list moves in the maintainer's private deployment. Local deterministic validation also exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. The 600-pair validation is provider-free and does not establish a universal provider or Apps Script runtime guarantee.
 

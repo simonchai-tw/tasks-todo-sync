@@ -2,9 +2,11 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.2.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.2.1` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
 
 ## Unreleased
+
+## 0.2.1 — 2026-08-31
 
 - Refined the public documentation around destination-first cross-list moves, deterministic 600-pair evidence, real-account validation boundaries, and Microsoft client-secret rotation.
 - Improved the storage-pressure email with safe, end-user cleanup guidance while preserving automatic tombstone expiry and fail-closed storage behavior.
