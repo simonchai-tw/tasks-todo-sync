@@ -109,8 +109,12 @@ Follow the **[quick start](docs/quick-start.md)** for the guided installation, o
 | [Security policy](SECURITY.md) | Reporting a vulnerability privately |
 | [Changelog](CHANGELOG.md) | Release history |
 
+## Roadmap
+
+- **Reusable setup and recovery wizard.** A local assistant for first-time Microsoft Entra setup, client-secret rotation, and Microsoft reauthorization. It will preserve the self-hosted model and will not collect or host credentials.
+
 Questions, ideas, or something not working? [Open an issue](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose).
 
 ## License
 
-Tasks–To Do Sync is available under the [MIT License](LICENSE).
+MIT. See [LICENSE](LICENSE).

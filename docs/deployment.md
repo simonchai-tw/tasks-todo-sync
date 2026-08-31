@@ -1,4 +1,4 @@
-# Deployment guide — 0.2.1
+# Deployment guide — 0.2.2
 
 ## Scope and release boundary
 
