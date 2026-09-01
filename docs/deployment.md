@@ -29,7 +29,9 @@ Fresh-project values are:
 
 ## Microsoft Entra and Script Properties
 
-Register an application for the Microsoft account you will connect:
+Create the app registration in a Microsoft Entra tenant you can administer. The account that owns the app registration may be different from the Microsoft account whose To Do data you later authorize.
+
+> **No Entra tenant yet?** A new Outlook.com, Hotmail, or Live account may not have access to **App registrations**. First create or join a tenant by following [Microsoft's Entra tenant setup guide](https://learn.microsoft.com/en-us/entra/fundamentals/create-new-tenant). Microsoft may require identity verification, including a phone number or payment method, during account setup. Tasks–To Do Sync uses Entra only to configure OAuth; it does not deploy or require paid Azure compute resources.
 
 1. Choose the personal-account audience, or organization-and-personal only when both are required.
 2. Add delegated Microsoft Graph permission `Tasks.ReadWrite` only. Do not add application permissions or `User.Read`; `offline_access` is requested by the program's OAuth flow.

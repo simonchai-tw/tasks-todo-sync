@@ -25,7 +25,7 @@ Existing explicit Script Properties are preserved. Google Tasks due dates are da
 
 ## 2. Register Microsoft OAuth
 
-In Microsoft Entra admin center, register an application for the Microsoft account you will connect:
+In Microsoft Entra admin center, create an app registration in a tenant you can administer. The app owner may be different from the Microsoft account whose To Do data you later authorize. If a new Outlook.com account has no access to **App registrations**, see the [Entra tenant note in the deployment guide](deployment.md#microsoft-entra-and-script-properties).
 
 - Choose personal-account sign-in, or organization-and-personal only when both are required.
 - Add delegated Microsoft Graph permission `Tasks.ReadWrite` only. Do not add application permissions or `User.Read`; the program requests `offline_access` as part of OAuth.
