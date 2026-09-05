@@ -2,9 +2,16 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.2.2` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.3.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
 
-## Unreleased
+## 0.3.0 — 2026-09-06
+
+- Added a private, responsive setup page for secretless Microsoft Personal Device Code authorization, reconnection, cancellation, and disconnection.
+- Kept Advanced Entra OAuth available as an explicit compatibility mode and made Personal-mode switching transactional and live-verified against Microsoft To Do.
+- Added a centralized field-compatibility guide and clarified supported installation environments, the conservative 300-pair operating envelope, and the separate 600-pair stress boundary.
+- Expanded authorization, packaging, and synchronization coverage to 265 automated tests.
+- Pseudonymized default task and list diagnostics so automatic synchronization logs do not expose raw provider IDs.
+- Recorded a real-account 600-task observation: the initial create workload stopped safely at the internal budget, converged on the following round, and then completed repeated steady-state rounds well within budget.
 
 - Restored `LICENSE` to the standard MIT template for GitHub license detection and moved the independent-project notice to `NOTICE`.
 

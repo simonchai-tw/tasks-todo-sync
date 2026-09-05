@@ -5,6 +5,7 @@ import vm from 'node:vm';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const code = readFileSync(new URL('../Code.gs', import.meta.url), 'utf8');
+const setup = readFileSync(new URL('../Setup.html', import.meta.url), 'utf8');
 const manifest = JSON.parse(readFileSync(new URL('../appsscript.json', import.meta.url), 'utf8'));
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const packageLock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
@@ -41,6 +42,10 @@ new vm.Script(code, { filename: 'Code.gs' });
 const requiredFunctions = [
   'initializeSafeDefaults',
   'setupStatus',
+  'doGet',
+  'setupWizardBeginPersonalAuthorization',
+  'setupWizardPollPersonalAuthorization',
+  'setupWizardPersonalAuthorizationStatus',
   'showRedirectUri',
   'startAuthorization',
   'authCallback',
@@ -159,6 +164,18 @@ const oauth2 = manifest.dependencies?.libraries?.find((item) => item.userSymbol 
 if (!oauth2 || oauth2.version !== '43' || oauth2.developmentMode !== false) {
   throw new Error('OAuth2 library must be pinned to version 43 with developmentMode=false');
 }
+
+assert(manifest.webapp?.access === 'MYSELF', 'setup web app access must remain MYSELF');
+assert(manifest.webapp?.executeAs === 'USER_DEPLOYING',
+  'setup web app must execute as USER_DEPLOYING');
+assert(code.includes("const MS_PERSONAL_CLIENT_ID_ = '1139ef4a-297c-4c4f-b414-6393aec2ee31';"),
+  'Personal Device Flow public client ID must remain explicit');
+assert(!/\.innerHTML\s*=/.test(setup), 'Setup wizard must not render dynamic data with innerHTML');
+for (const forbidden of ['device_code', 'access_token', 'refresh_token', 'MS_CLIENT_SECRET']) {
+  if (setup.includes(forbidden)) throw new Error(`Setup wizard exposes forbidden field: ${forbidden}`);
+}
+assert(setup.includes('microsoft.com/link') && setup.includes('microsoft.com/devicelogin'),
+  'Setup wizard must identify current and legacy official Microsoft device sign-in pages');
 
 for (const forbidden of ['MS_CLIENT_SECRET=', 'CLASPRC_JSON=', 'Bearer eyJ']) {
   if (code.includes(forbidden)) throw new Error(`Possible committed secret: ${forbidden}`);

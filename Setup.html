@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <base target="_blank">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tasks–To Do Sync — Easy Setup</title>
+    <style>
+      :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      body { margin: 0; background: #f5f7fa; color: #172033; }
+      main { box-sizing: border-box; max-width: 680px; margin: 48px auto; padding: 0 20px; }
+      section { background: #fff; border: 1px solid #dfe4ec; border-radius: 14px; padding: 28px; box-shadow: 0 8px 28px rgba(20, 35, 60, .07); }
+      h1 { margin: 0 0 8px; font-size: 1.65rem; }
+      p { line-height: 1.55; }
+      .muted { color: #5d687a; }
+      .warning { border-left: 4px solid #c97700; background: #fff8e8; padding: 12px 14px; }
+      .status { margin: 20px 0; padding: 12px 14px; border-radius: 8px; background: #eef3f9; }
+      .code-panel { margin: 18px 0; padding: 20px; text-align: center; border: 1px solid #cbd4e1; border-radius: 10px; }
+      .code { display: block; margin: 8px 0 16px; font: 700 2rem ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; overflow-wrap: anywhere; }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+      button, .link-button { box-sizing: border-box; min-height: 44px; border: 0; border-radius: 8px; padding: 10px 15px; font: inherit; cursor: pointer; }
+      button { background: #1769e0; color: white; }
+      button.secondary, .link-button.secondary { background: #e8edf4; color: #263247; }
+      button.danger { background: #a33030; }
+      button:disabled { cursor: wait; opacity: .6; }
+      button:focus-visible, a:focus-visible { outline: 3px solid #f0a500; outline-offset: 2px; }
+      .link-button { display: inline-flex; align-items: center; justify-content: center; background: #1769e0; color: white; text-decoration: none; }
+      [hidden] { display: none !important; }
+      @media (max-width: 420px) { main { margin: 20px auto; padding: 0 10px; } section { padding: 20px 16px; } .actions > * { flex: 1 1 100%; } }
+      @media (min-width: 421px) { .actions > * { flex: 1 1 0; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section aria-labelledby="title">
+        <h1 id="title">Connect Microsoft To Do</h1>
+        <p class="muted">This private setup page connects your Apps Script deployment to Microsoft To Do. Existing Advanced Entra settings and task data are kept.</p>
+        <p class="warning"><strong>Enter your Microsoft password only on Microsoft’s official sign-in page.</strong> This project never asks for, receives, or stores your password. Use only <code>microsoft.com/link</code> or <code>microsoft.com/devicelogin</code> before entering the code.</p>
+        <div class="status" role="status" aria-live="polite" aria-atomic="true"><strong>Status:</strong> <span id="statusText">Checking…</span><div id="expiryRow" hidden>Code expires in <span id="expiryText"></span>.</div></div>
+        <div id="codePanel" class="code-panel" hidden aria-live="polite"><span>One-time Microsoft code</span><span id="userCode" class="code" aria-label="Microsoft one-time code"></span><div class="actions"><button id="copyButton" class="secondary" type="button">Copy code</button><a id="verificationLink" class="link-button" rel="noopener noreferrer">Open Microsoft sign-in</a></div></div>
+        <div class="actions" aria-label="Connection actions"><button id="connectButton" type="button">Connect</button><button id="cancelButton" class="secondary" type="button" hidden>Cancel</button><button id="disconnectButton" class="danger" type="button" hidden>Disconnect</button></div>
+      </section>
+    </main>
+    <script>
+      'use strict';
+      const OFFICIAL_URIS = new Set(['https://microsoft.com/link', 'https://www.microsoft.com/link', 'https://microsoft.com/devicelogin', 'https://www.microsoft.com/devicelogin']);
+      const ACTIONABLE_ERRORS = {
+        MICROSOFT_DEVICE_CODE_REQUEST_FAILED: 'Microsoft could not start sign-in. Try Connect again.',
+        MICROSOFT_DEVICE_CODE_RESPONSE_INVALID: 'Microsoft returned an unusable sign-in code. Try Connect again.',
+        MICROSOFT_OAUTH_NETWORK_FAILED: 'Microsoft could not be reached. Check the connection and try again.',
+        MICROSOFT_DEVICE_AUTH_FAILED: 'Microsoft sign-in could not be completed. Try Connect again.',
+        MICROSOFT_PERSONAL_REAUTH_REQUIRED: 'The Microsoft authorization needs to be connected again.',
+        MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED: 'Microsoft did not accept the authorization. Connect again.',
+        MICROSOFT_PERSONAL_VERIFY_FORBIDDEN: 'This authorization cannot access Microsoft To Do. Check the Microsoft account and connect again.',
+        MICROSOFT_PERSONAL_VERIFY_NETWORK_FAILED: 'Microsoft could not be reached to verify access. Try Connect again.',
+        MICROSOFT_PERSONAL_VERIFY_RETRY: 'Microsoft asked us to try verification later. Try Connect again.',
+        MICROSOFT_PERSONAL_VERIFY_FAILED: 'Microsoft To Do access could not be verified. Try Connect again.',
+        MICROSOFT_PERSONAL_SWITCH_CONFIRMATION_REQUIRED: 'Confirm the switch from Advanced Entra to Personal before connecting.'
+      };
+      const statusText = document.getElementById('statusText'), expiryRow = document.getElementById('expiryRow'), expiryText = document.getElementById('expiryText'), codePanel = document.getElementById('codePanel'), userCode = document.getElementById('userCode'), verificationLink = document.getElementById('verificationLink'), copyButton = document.getElementById('copyButton'), connectButton = document.getElementById('connectButton'), cancelButton = document.getElementById('cancelButton'), disconnectButton = document.getElementById('disconnectButton');
+      let pollTimer = null, countdownTimer = null, expiresAt = 0;
+      function setStatus(message) { statusText.textContent = message; }
+      function setBusy(busy) { connectButton.disabled = busy; cancelButton.disabled = busy; disconnectButton.disabled = busy; copyButton.disabled = busy; }
+      function clearTimers() { if (pollTimer !== null) window.clearTimeout(pollTimer); if (countdownTimer !== null) window.clearInterval(countdownTimer); pollTimer = null; countdownTimer = null; }
+      function hideCode() { codePanel.hidden = true; userCode.textContent = ''; verificationLink.removeAttribute('href'); expiryRow.hidden = true; expiresAt = 0; }
+      function showFailure(error) { clearTimers(); hideCode(); setBusy(false); const raw = String(error && error.message || error || ''), match = raw.match(/^(MICROSOFT_[A-Z0-9_]+)/); setStatus(ACTIONABLE_ERRORS[match && match[1]] || 'Setup could not continue. Try again.'); renderButtons('error'); }
+      function updateCountdown() { if (!expiresAt) return; const remaining = Math.max(0, expiresAt - Date.now()); expiryText.textContent = Math.floor(remaining / 60000) + ':' + String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); if (!remaining) { clearTimers(); hideCode(); setStatus('The code expired. Start again to get a new code.'); renderButtons('expired'); } }
+      function showCode(result) { const uri = String(result.verificationUri || '').replace(/\/$/, ''); if (!result.userCode || !OFFICIAL_URIS.has(uri)) { showFailure('MICROSOFT_DEVICE_CODE_RESPONSE_INVALID'); return false; } userCode.textContent = String(result.userCode); verificationLink.href = uri; codePanel.hidden = false; expiresAt = Number(result.expiresAt) || 0; expiryRow.hidden = !expiresAt; if (countdownTimer !== null) window.clearInterval(countdownTimer); updateCountdown(); countdownTimer = window.setInterval(updateCountdown, 1000); return true; }
+      function schedulePoll(result) { if (pollTimer !== null) window.clearTimeout(pollTimer); pollTimer = window.setTimeout(poll, Math.max(1000, Math.min(Number(result.retryAfterMs) || 5000, 300000))); }
+      function renderButtons(status) { connectButton.hidden = status === 'authorized'; cancelButton.hidden = status !== 'pending'; disconnectButton.hidden = status !== 'authorized'; connectButton.textContent = 'Connect'; }
+      function render(result, allowPolling) {
+        setBusy(false); const status = String(result && result.status || 'unknown'); if (result && result.userCode && !showCode(result)) return;
+        if (status === 'authorized' && result.verified === true) { clearTimers(); hideCode(); setStatus('Connected and verified.'); renderButtons('authorized'); return; }
+        if (status === 'confirmation_required') { clearTimers(); hideCode(); renderButtons('ready'); if (window.confirm('Switch from Advanced Entra to Personal Microsoft sign-in? Advanced credentials stay saved, but the active connection mode will change only after a verified sign-in.')) confirmConnection(); else setStatus('Personal connection was not started.'); return; }
+        if (status === 'pending') { setStatus('Waiting for Microsoft sign-in…'); renderButtons('pending'); if (allowPolling) schedulePoll(result || {}); return; }
+        clearTimers(); hideCode(); renderButtons(status);
+        if (status === 'advanced') setStatus('Advanced Entra is active. Connect Personal only after confirming the mode change.');
+        else if (status === 'verification_required') setStatus('Microsoft authorization is present but not yet verified. Connect to verify it.');
+        else if (status === 'verification_failed') setStatus(ACTIONABLE_ERRORS[String(result.errorCode)] || 'Microsoft To Do access could not be verified. Try Connect again.');
+        else if (status === 'not_started') setStatus(result.messageCode === 'CANCEL_ONLY_STOPS_LOCAL_POLLING' ? 'No local sign-in session exists. Cancel only stops local polling; an issued code expires naturally.' : 'Not connected.');
+        else if (status === 'expired') setStatus('The code expired. Start again to get a new code.');
+        else if (status === 'declined') setStatus('Microsoft sign-in was declined. Connect again if you want to connect.');
+        else if (status === 'cancelled') setStatus('Local polling stopped. The Microsoft code will expire naturally.');
+        else if (status === 'cleared') setStatus('Personal tokens were deleted locally. Microsoft consent, task data, and Advanced credentials were unchanged.');
+        else setStatus('Setup could not continue. Try again.');
+      }
+      function begin() { clearTimers(); setBusy(true); setStatus('Starting connection…'); google.script.run.withSuccessHandler(function(result) { if (result && result.status === 'verification_required') verifyStored(); else render(result, true); }).withFailureHandler(showFailure).setupWizardBeginPersonalAuthorization(); }
+      function confirmConnection() { clearTimers(); setBusy(true); setStatus('Starting Personal connection…'); google.script.run.withSuccessHandler(function(result) { render(result, true); }).withFailureHandler(showFailure).setupWizardConfirmPersonalAuthorization(); }
+      function poll() { pollTimer = null; google.script.run.withSuccessHandler(function(result) { render(result, true); }).withFailureHandler(showFailure).setupWizardPollPersonalAuthorization(); }
+      function cancel() { clearTimers(); setBusy(true); google.script.run.withSuccessHandler(function(result) { render(result, false); }).withFailureHandler(showFailure).setupWizardCancelPersonalAuthorization(); }
+      function verifyStored() { clearTimers(); setBusy(true); setStatus('Verifying Microsoft To Do access…'); google.script.run.withSuccessHandler(function(result) { render(result, false); }).withFailureHandler(showFailure).setupWizardVerifyPersonalAuthorization(); }
+      function disconnect() { if (!window.confirm('Delete only the locally stored Personal Microsoft tokens? Microsoft consent, task data, and Advanced credentials will remain unchanged.')) return; clearTimers(); setBusy(true); google.script.run.withSuccessHandler(function(result) { render(result, false); }).withFailureHandler(showFailure).setupWizardForgetPersonalAuthorization(); }
+      function copyCode() { const value = userCode.textContent; if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function() { setStatus('Code copied. Open Microsoft sign-in and enter it.'); }).catch(function() { fallbackCopy(value); }); else fallbackCopy(value); }
+      function fallbackCopy(value) { const input = document.createElement('textarea'); input.value = value; input.setAttribute('readonly', ''); input.style.position = 'fixed'; input.style.opacity = '0'; document.body.appendChild(input); input.select(); let copied = false; try { copied = document.execCommand('copy'); } catch (e) { copied = false; } document.body.removeChild(input); setStatus(copied ? 'Code copied. Open Microsoft sign-in and enter it.' : 'Select and copy the code manually: ' + value); }
+      connectButton.addEventListener('click', begin); cancelButton.addEventListener('click', cancel); disconnectButton.addEventListener('click', disconnect); copyButton.addEventListener('click', copyCode); renderButtons('unknown');
+      google.script.run.withSuccessHandler(function(result) { render(result, result && result.status === 'pending'); }).withFailureHandler(showFailure).setupWizardPersonalAuthorizationStatus();
+    </script>
+  </body>
+</html>

@@ -68,6 +68,12 @@ The private trigger runs every 10 minutes. Ordinary changes normally appear with
 | Delete tasks and lists | Google ↔ Microsoft | Enabled by default with confirmation and recovery records |
 | Move tasks between lists | Google ↔ Microsoft | Enabled by default with a durable move journal and live revalidation |
 
+See the [field compatibility matrix](docs/field-compatibility.md) for verified projections, provider-specific or unverified fields, and planned research.
+
+## Supported environments
+
+Initial installation and source updates require a Windows, macOS, or Linux desktop/laptop with Node.js 22+, a terminal, and a modern browser. Chromebook Linux is best effort. npm installation is not supported on phones; the Microsoft connection wizard remains mobile-responsive for reauthorization.
+
 ## A sync engine, not a chain of recipes
 
 General automation platforms such as [Zapier](https://zapier.com/apps/google-tasks/integrations/microsoft-todo) and [Make](https://www.make.com/en/integrations/microsoft-to-do) can connect Google Tasks and Microsoft To Do through configurable triggers and actions. That flexibility is useful when every workflow is different. Keeping two task systems aligned, however, is a state problem—not just a “when this happens, do that” recipe.
@@ -77,7 +83,7 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The core loop is covered by 229 automated tests, GitHub CI, CodeQL, and recorded real-account validation. Local deterministic validation exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. Detailed evidence and runtime boundaries are recorded in the [engineering audit](docs/audit.md).
+The core loop is covered by 265 automated tests, GitHub CI, CodeQL, and recorded real-account validation. Local deterministic validation exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. Detailed evidence and runtime boundaries are recorded in the [engineering audit](docs/audit.md).
 
 ## Get started
 
@@ -92,10 +98,11 @@ The installer deploys the sync code to a standalone Google Apps Script project i
 You will need:
 
 - one Google account to own and run the Apps Script project;
-- one Microsoft account to connect Microsoft To Do;
-- your own Microsoft Entra application registration, following the guided setup.
+- one personal Microsoft account to connect Microsoft To Do.
 
 You authorize Google and Microsoft separately. Each provider may show more than one sign-in or consent page depending on your existing browser session, but the project connects one account from each ecosystem.
+
+The standard personal setup uses Microsoft Device Code Flow. It does not require you to register an Entra application, create a client secret, or configure a redirect URI. Advanced self-managed Entra credentials remain supported for existing and specialized deployments.
 
 Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, cross-list moves, and the safe destination-first replacement order.
 
@@ -104,14 +111,10 @@ Follow the **[quick start](docs/quick-start.md)** for the guided installation, o
 | Guide | Use it for |
 |---|---|
 | [Quick start](docs/quick-start.md) | The shortest personal setup path |
-| [Deployment guide](docs/deployment.md) | Entra registration, Apps Script, OAuth, upgrades, and rollback |
+| [Deployment guide](docs/deployment.md) | Personal and Advanced Microsoft authorization, Apps Script, upgrades, and rollback |
 | [Engineering audit](docs/audit.md) | Verified behavior, limitations, and deferred work |
 | [Security policy](SECURITY.md) | Reporting a vulnerability privately |
 | [Changelog](CHANGELOG.md) | Release history |
-
-## Roadmap
-
-- **Reusable setup and recovery wizard.** A local assistant for first-time Microsoft Entra setup, client-secret rotation, and Microsoft reauthorization. It will preserve the self-hosted model and will not collect or host credentials.
 
 Questions, ideas, or something not working? [Open an issue](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose).
 

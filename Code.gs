@@ -1,5 +1,25 @@
 const GTASKS_BASE = 'https://tasks.googleapis.com/tasks/v1';
 const MS_TODO_BASE = 'https://graph.microsoft.com/v1.0/me/todo/lists';
+const MS_AUTH_MODE_PROPERTY_ = 'MS_AUTH_MODE';
+const MS_AUTH_MODE_PERSONAL_ = 'personal_device';
+const MS_AUTH_MODE_ADVANCED_ = 'advanced_entra';
+// Public application identifiers are not credentials. This app registration
+// is a personal-account-only public client and has no secret or redirect URI.
+const MS_PERSONAL_CLIENT_ID_ = '1139ef4a-297c-4c4f-b414-6393aec2ee31';
+const MS_PERSONAL_AUTHORITY_ = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
+const MS_PERSONAL_SCOPE_ = 'Tasks.ReadWrite offline_access';
+const MS_PERSONAL_DEVICE_SESSION_KEY_ = 'MS_PERSONAL_DEVICE_SESSION_V1';
+const MS_PERSONAL_ACCESS_TOKEN_KEY_ = 'MS_PERSONAL_ACCESS_TOKEN';
+const MS_PERSONAL_REFRESH_TOKEN_KEY_ = 'MS_PERSONAL_REFRESH_TOKEN';
+const MS_PERSONAL_ACCESS_EXPIRES_AT_KEY_ = 'MS_PERSONAL_ACCESS_EXPIRES_AT';
+const MS_PERSONAL_GRANTED_SCOPE_KEY_ = 'MS_PERSONAL_GRANTED_SCOPE';
+const MS_PERSONAL_VERIFIED_KEY_ = 'MS_PERSONAL_VERIFIED';
+// An Advanced-to-Personal change is a small transaction.  This evidence is
+// deliberately user-scoped, short-lived, and consumed only after the new
+// Personal token set has passed a live Graph probe.
+const MS_PERSONAL_MODE_SWITCH_APPROVAL_KEY_ = 'MS_PERSONAL_MODE_SWITCH_PENDING_V1';
+const MS_PERSONAL_MODE_SWITCH_APPROVAL_TTL_MS_ = 30 * 60 * 1000;
+const MS_PERSONAL_REFRESH_MARGIN_MS_ = 5 * 60 * 1000;
 const STATE_KEY = 'sync_state_main';
 const ROUND_FENCE_KEY = STATE_KEY + '_round_fence';
 // This small manifest points at complete main-state generations only.  It is
@@ -194,7 +214,7 @@ function initializeSafeDefaults() {
       },
       {
         code: 'CONFIGURE_MICROSOFT_PROPERTIES',
-        message: 'Set Microsoft OAuth properties in Script Properties; the summary never shows credential, email, or ID values.'
+        message: 'Use the private setup page to connect a personal Microsoft account. Script Properties are needed only for optional Advanced Entra OAuth.'
       }
     ]
   };
@@ -289,6 +309,28 @@ function setupStatus() {
   const effectiveAlertRecipientAvailable = !!effectiveAlertRecipient_();
   const triggerStatus = setupTriggerCount_();
   const nextSteps = [];
+  let microsoftMode = null;
+  let microsoftModeValid = true;
+  try {
+    microsoftMode = resolveMicrosoftAuthMode_();
+  } catch (e) {
+    microsoftModeValid = false;
+  }
+  const personalAuthorizationPresent = personalMicrosoftAuthorizationPresent_();
+  let personalAuthorizationStatus = null;
+  let microsoftAuthorized = false;
+  if (microsoftModeValid && microsoftMode === MS_AUTH_MODE_PERSONAL_) {
+    personalAuthorizationStatus = personalAuthorizationPresent ?
+      verifyStoredPersonalMicrosoftAuthorization_() : { status: 'not_started' };
+    microsoftAuthorized = personalAuthorizationStatus.status === 'authorized';
+  } else if (microsoftModeValid && clientIdConfigured && clientSecretConfigured &&
+      typeof OAuth2 !== 'undefined') {
+    try {
+      microsoftAuthorized = !!microsoftService_().hasAccess();
+    } catch (e) {
+      microsoftAuthorized = false;
+    }
+  }
 
   if (!allSafetySettingsValid) {
     nextSteps.push({
@@ -296,13 +338,30 @@ function setupStatus() {
       message: 'Set SYNC_LIST_DISCOVERY_MODE to auto or explicit and every SYNC_ALLOW_* switch to true or false, then run setupStatus() again.'
     });
   }
-  if (!clientIdConfigured || !clientSecretConfigured) {
+  if (!microsoftModeValid) {
+    nextSteps.push({
+      code: 'MICROSOFT_AUTH_MODE_INVALID',
+      message: 'Set MS_AUTH_MODE to personal_device or advanced_entra, then run setupStatus() again.'
+    });
+  } else if (microsoftMode === MS_AUTH_MODE_ADVANCED_ &&
+      (!clientIdConfigured || !clientSecretConfigured)) {
     nextSteps.push({
       code: 'MICROSOFT_CREDENTIALS_MISSING',
       message: 'Set MS_CLIENT_ID and MS_CLIENT_SECRET in Script Properties; this summary never shows their values.'
     });
+  } else if (microsoftMode === MS_AUTH_MODE_PERSONAL_ && !personalAuthorizationPresent) {
+    nextSteps.push({
+      code: 'MICROSOFT_PERSONAL_AUTH_REQUIRED',
+      message: 'Connect a personal Microsoft account with the setup wizard or run startAuthorization().'
+    });
+  } else if (!microsoftAuthorized) {
+    nextSteps.push({
+      code: microsoftMode === MS_AUTH_MODE_ADVANCED_ ?
+        'MICROSOFT_ADVANCED_AUTH_REQUIRED' : 'MICROSOFT_PERSONAL_AUTH_REQUIRED',
+      message: 'Microsoft authorization is not ready; run startAuthorization().'
+    });
   }
-  if (!tenantIdConfigured) {
+  if (microsoftMode === MS_AUTH_MODE_ADVANCED_ && !tenantIdConfigured) {
     nextSteps.push({
       code: 'MS_TENANT_DEFAULT_COMMON',
       message: 'MS_TENANT_ID is not set; common will be used.'
@@ -339,7 +398,7 @@ function setupStatus() {
   if (!nextSteps.length) {
     nextSteps.push({
       code: 'SETUP_SUMMARY_READY',
-      message: 'The safety summary is ready; if Microsoft is not authorized, run startAuthorization().'
+      message: 'The safety summary and Microsoft authorization are ready.'
     });
   }
 
@@ -348,6 +407,15 @@ function setupStatus() {
     safetyDefaults: safetyDefaults,
     allSafetyDefaultsCorrect: allSafetyDefaultsCorrect,
     allSafetySettingsValid: allSafetySettingsValid,
+    microsoft: {
+      mode: microsoftModeValid ? microsoftMode : 'invalid',
+      configured: microsoftMode === MS_AUTH_MODE_PERSONAL_ ? true :
+        (clientIdConfigured && clientSecretConfigured),
+      authorized: microsoftAuthorized,
+      reauthorizationRequired: microsoftModeValid && !microsoftAuthorized,
+      authorizationStatus: personalAuthorizationStatus ?
+        personalAuthorizationStatus.status : undefined
+    },
     credentials: {
       msClientIdPresent: clientIdConfigured,
       msClientSecretPresent: clientSecretConfigured,
@@ -371,6 +439,634 @@ function configureSync(config) {
     'Set MS_CLIENT_ID, MS_CLIENT_SECRET, and MS_TENANT_ID directly in Script Properties. ' +
     'ALERT_EMAIL is an optional recipient override.'
   );
+}
+
+function resolveMicrosoftAuthMode_() {
+  const properties = PropertiesService.getScriptProperties();
+  const explicitMode = String(properties.getProperty(MS_AUTH_MODE_PROPERTY_) || '').trim();
+  if (explicitMode) {
+    if (explicitMode !== MS_AUTH_MODE_PERSONAL_ && explicitMode !== MS_AUTH_MODE_ADVANCED_) {
+      throw new Error('MICROSOFT_AUTH_MODE_INVALID');
+    }
+    return explicitMode;
+  }
+  // Preserve every legacy or partially configured BYO Entra installation.
+  // A fresh installation has neither property and therefore uses Easy Setup.
+  const hasLegacyClientId = !!String(properties.getProperty('MS_CLIENT_ID') || '').trim();
+  const hasLegacySecret = !!String(properties.getProperty('MS_CLIENT_SECRET') || '').trim();
+  return hasLegacyClientId || hasLegacySecret ? MS_AUTH_MODE_ADVANCED_ : MS_AUTH_MODE_PERSONAL_;
+}
+
+function personalMicrosoftAuthorizationPresent_() {
+  return !!String(PropertiesService.getUserProperties()
+    .getProperty(MS_PERSONAL_REFRESH_TOKEN_KEY_) || '').trim();
+}
+
+function personalMicrosoftVerificationPresent_() {
+  return PropertiesService.getUserProperties().getProperty(
+    MS_PERSONAL_VERIFIED_KEY_
+  ) === 'true';
+}
+
+function personalMicrosoftTokensPresent_() {
+  return personalMicrosoftAuthorizationPresent_();
+}
+
+function personalMicrosoftModeSwitchApproval_() {
+  const properties = PropertiesService.getUserProperties();
+  let approval;
+  try {
+    approval = JSON.parse(String(
+      properties.getProperty(MS_PERSONAL_MODE_SWITCH_APPROVAL_KEY_) || ''
+    ));
+  } catch (e) {
+    approval = null;
+  }
+  const approvedAt = Number(approval && approval.approvedAt);
+  const expiresAt = Number(approval && approval.expiresAt);
+  if (!approval || approval.schema !== 2 || approval.approved !== true ||
+      approval.from !== MS_AUTH_MODE_ADVANCED_ || approval.to !== MS_AUTH_MODE_PERSONAL_ ||
+      !Number.isFinite(approvedAt) || !Number.isFinite(expiresAt) ||
+      expiresAt !== approvedAt + MS_PERSONAL_MODE_SWITCH_APPROVAL_TTL_MS_ ||
+      approvedAt > Date.now() || Date.now() >= expiresAt) {
+    if (properties.getProperty(MS_PERSONAL_MODE_SWITCH_APPROVAL_KEY_)) {
+      properties.deleteProperty(MS_PERSONAL_MODE_SWITCH_APPROVAL_KEY_);
+    }
+    return null;
+  }
+  return approval;
+}
+
+function clearPersonalMicrosoftModeSwitchApproval_() {
+  PropertiesService.getUserProperties().deleteProperty(
+    MS_PERSONAL_MODE_SWITCH_APPROVAL_KEY_
+  );
+}
+
+function sessionHasActivePersonalModeSwitchApproval_(session) {
+  const embedded = session && session.switchApproval;
+  if (!embedded || !Number.isFinite(Number(embedded.approvedAt)) ||
+      !Number.isFinite(Number(embedded.expiresAt)) ||
+      Date.now() >= Number(embedded.expiresAt)) {
+    return false;
+  }
+  const approval = personalMicrosoftModeSwitchApproval_();
+  return !!approval && Number(approval.approvedAt) === Number(embedded.approvedAt) &&
+    Number(approval.expiresAt) === Number(embedded.expiresAt);
+}
+
+function preparePersonalMicrosoftModeSwitch_() {
+  if (resolveMicrosoftAuthMode_() !== MS_AUTH_MODE_ADVANCED_) {
+    return { status: 'ready', mode: MS_AUTH_MODE_PERSONAL_ };
+  }
+  // Reading also removes any stale evidence.  The confirmation action—not
+  // merely opening this prompt—is what records approval server-side.
+  personalMicrosoftModeSwitchApproval_();
+  return {
+    status: 'confirmation_required',
+    mode: MS_AUTH_MODE_ADVANCED_,
+    confirmationRequired: true
+  };
+}
+
+function confirmPersonalMicrosoftModeSwitch_() {
+  if (resolveMicrosoftAuthMode_() !== MS_AUTH_MODE_ADVANCED_) {
+    return { status: 'ready', mode: MS_AUTH_MODE_PERSONAL_ };
+  }
+  const approvedAt = Date.now();
+  const approval = {
+    schema: 2,
+    from: MS_AUTH_MODE_ADVANCED_,
+    to: MS_AUTH_MODE_PERSONAL_,
+    approved: true,
+    approvedAt: approvedAt,
+    expiresAt: approvedAt + MS_PERSONAL_MODE_SWITCH_APPROVAL_TTL_MS_
+  };
+  PropertiesService.getUserProperties().setProperty(
+    MS_PERSONAL_MODE_SWITCH_APPROVAL_KEY_, JSON.stringify(approval)
+  );
+  return { status: 'ready', mode: MS_AUTH_MODE_ADVANCED_ };
+}
+
+function verifyPersonalMicrosoftAccessToken_(accessToken) {
+  if (!accessToken) return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_NO_TOKEN' };
+  let response;
+  try {
+    recordUrlFetchCall_();
+    response = UrlFetchApp.fetch(MS_TODO_BASE + '?$top=1&$select=id', {
+      method: 'get',
+      headers: { Authorization: 'Bearer ' + accessToken },
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_NETWORK_FAILED' };
+  }
+  const status = Number(response.getResponseCode());
+  if (status === 401) return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED' };
+  if (status === 403) return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_FORBIDDEN' };
+  if (status === 429 || status === 408 || (status >= 500 && status < 600)) {
+    return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_RETRY' };
+  }
+  if (status < 200 || status >= 300) {
+    return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_FAILED' };
+  }
+  let body;
+  try {
+    body = JSON.parse(String(response.getContentText() || ''));
+  } catch (e) {
+    return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_FAILED' };
+  }
+  if (!body || typeof body !== 'object' || !Array.isArray(body.value)) {
+    return { ok: false, code: 'MICROSOFT_PERSONAL_VERIFY_FAILED' };
+  }
+  return { ok: true };
+}
+
+function verifyStoredPersonalMicrosoftAuthorization_() {
+  if (resolveMicrosoftAuthMode_() !== MS_AUTH_MODE_PERSONAL_) {
+    // A stored token alone must never turn an Advanced installation into
+    // Personal mode.  Only the device-session transaction may do that.
+    return preparePersonalMicrosoftModeSwitch_();
+  }
+  let accessToken;
+  try {
+    accessToken = getPersonalMicrosoftAccessToken_();
+  } catch (e) {
+    return { status: 'verification_failed', errorCode: 'MICROSOFT_PERSONAL_REAUTH_REQUIRED' };
+  }
+  const verified = verifyPersonalMicrosoftAccessToken_(accessToken);
+  if (!verified.ok) {
+    PropertiesService.getUserProperties().deleteProperty(MS_PERSONAL_VERIFIED_KEY_);
+    if (verified.code === 'MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED' ||
+        verified.code === 'MICROSOFT_PERSONAL_VERIFY_FORBIDDEN') {
+      clearPersonalMicrosoftTokens_();
+    }
+    return { status: 'verification_failed', errorCode: verified.code };
+  }
+  PropertiesService.getUserProperties().setProperty(MS_PERSONAL_VERIFIED_KEY_, 'true');
+  return { status: 'authorized', verified: true };
+}
+
+function formEncode_(fields) {
+  return Object.keys(fields || {}).filter(function(key) {
+    return fields[key] !== null && typeof fields[key] !== 'undefined';
+  }).map(function(key) {
+    return encodeURIComponent(key) + '=' + encodeURIComponent(String(fields[key]));
+  }).join('&');
+}
+
+function microsoftOAuthPost_(url, fields) {
+  let response;
+  try {
+    recordUrlFetchCall_();
+    response = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/x-www-form-urlencoded',
+      payload: formEncode_(fields),
+      muteHttpExceptions: true
+    });
+  } catch (e) {
+    throw new Error('MICROSOFT_OAUTH_NETWORK_FAILED');
+  }
+  const status = Number(response.getResponseCode());
+  let body = null;
+  try {
+    body = JSON.parse(String(response.getContentText() || ''));
+  } catch (e) {
+    body = null;
+  }
+  return {
+    ok: status >= 200 && status < 300,
+    status: status,
+    body: body && typeof body === 'object' ? body : null
+  };
+}
+
+function safeMicrosoftOAuthErrorCode_(body) {
+  const raw = String(body && body.error || 'unknown_error').trim().toLowerCase();
+  const allowed = {
+    authorization_pending: true,
+    authorization_declined: true,
+    access_denied: true,
+    slow_down: true,
+    expired_token: true,
+    bad_verification_code: true,
+    invalid_client: true,
+    invalid_scope: true,
+    invalid_grant: true,
+    temporarily_unavailable: true,
+    server_error: true
+  };
+  return allowed[raw] ? raw : 'unknown_error';
+}
+
+function validMicrosoftVerificationUri_(value) {
+  return /^https:\/\/(?:www\.)?microsoft\.com\/(?:link|devicelogin)\/?$/i.test(
+    String(value || '').trim()
+  );
+}
+
+function parsePersonalDeviceSession_(raw) {
+  let session;
+  try {
+    session = JSON.parse(String(raw || ''));
+  } catch (e) {
+    return null;
+  }
+  if (!session || session.schema !== 1 ||
+      typeof session.deviceCode !== 'string' || !session.deviceCode || session.deviceCode.length > 4096 ||
+      typeof session.userCode !== 'string' || !session.userCode || session.userCode.length > 100 ||
+      !validMicrosoftVerificationUri_(session.verificationUri) ||
+      !Number.isFinite(Number(session.expiresAt)) ||
+      !Number.isFinite(Number(session.intervalSec)) || Number(session.intervalSec) < 5 ||
+      !Number.isFinite(Number(session.nextPollAt))) {
+    return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(session, 'switchApproval')) {
+    const approval = session.switchApproval;
+    if (!approval || typeof approval !== 'object' ||
+        !Number.isFinite(Number(approval.approvedAt)) ||
+        !Number.isFinite(Number(approval.expiresAt)) ||
+        Number(approval.expiresAt) !== Number(approval.approvedAt) +
+          MS_PERSONAL_MODE_SWITCH_APPROVAL_TTL_MS_) {
+      return null;
+    }
+  }
+  return session;
+}
+
+function discardPersonalMicrosoftDeviceSession_(properties, session) {
+  properties.deleteProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+  if (session && session.switchApproval) {
+    clearPersonalMicrosoftModeSwitchApproval_();
+  }
+}
+
+function publicPersonalDeviceSession_(session, status) {
+  return {
+    status: status || 'pending',
+    userCode: String(session.userCode),
+    verificationUri: String(session.verificationUri),
+    expiresAt: Number(session.expiresAt),
+    intervalSec: Number(session.intervalSec)
+  };
+}
+
+function personalMicrosoftDeviceSessionStatus_() {
+  const properties = PropertiesService.getUserProperties();
+  const raw = properties.getProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+  if (!raw) return { status: 'not_started' };
+  const session = parsePersonalDeviceSession_(raw);
+  if (!session) {
+    properties.deleteProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+    if (resolveMicrosoftAuthMode_() === MS_AUTH_MODE_ADVANCED_) {
+      clearPersonalMicrosoftModeSwitchApproval_();
+    }
+    return { status: 'invalid_session' };
+  }
+  if (Date.now() >= Number(session.expiresAt)) {
+    discardPersonalMicrosoftDeviceSession_(properties, session);
+    return { status: 'expired' };
+  }
+  if (resolveMicrosoftAuthMode_() === MS_AUTH_MODE_ADVANCED_ &&
+      !sessionHasActivePersonalModeSwitchApproval_(session)) {
+    discardPersonalMicrosoftDeviceSession_(properties, session);
+    return preparePersonalMicrosoftModeSwitch_();
+  }
+  return publicPersonalDeviceSession_(session);
+}
+
+function beginPersonalMicrosoftAuth_() {
+  const mode = resolveMicrosoftAuthMode_();
+  if (mode === MS_AUTH_MODE_PERSONAL_ &&
+      personalMicrosoftAuthorizationPresent_()) {
+    return verifyStoredPersonalMicrosoftAuthorization_();
+  }
+  const lock = LockService.getUserLock();
+  lock.waitLock(5000);
+  try {
+    const properties = PropertiesService.getUserProperties();
+    const now = Date.now();
+    const existing = parsePersonalDeviceSession_(
+      properties.getProperty(MS_PERSONAL_DEVICE_SESSION_KEY_)
+    );
+    if (existing && Number(existing.expiresAt) > now + 10000) {
+      if (mode === MS_AUTH_MODE_ADVANCED_ &&
+          !sessionHasActivePersonalModeSwitchApproval_(existing)) {
+        discardPersonalMicrosoftDeviceSession_(properties, existing);
+        return preparePersonalMicrosoftModeSwitch_();
+      }
+      return publicPersonalDeviceSession_(existing);
+    }
+    if (properties.getProperty(MS_PERSONAL_DEVICE_SESSION_KEY_)) {
+      properties.deleteProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+      if (mode === MS_AUTH_MODE_ADVANCED_) {
+        clearPersonalMicrosoftModeSwitchApproval_();
+      }
+    }
+    const switchApproval = mode === MS_AUTH_MODE_ADVANCED_ ?
+      personalMicrosoftModeSwitchApproval_() : null;
+    if (mode === MS_AUTH_MODE_ADVANCED_ && !switchApproval) {
+      return preparePersonalMicrosoftModeSwitch_();
+    }
+    try {
+      const result = microsoftOAuthPost_(MS_PERSONAL_AUTHORITY_ + '/devicecode', {
+        client_id: MS_PERSONAL_CLIENT_ID_,
+        scope: MS_PERSONAL_SCOPE_
+      });
+      if (!result.ok) {
+        throw new Error('MICROSOFT_DEVICE_CODE_REQUEST_FAILED:' +
+          safeMicrosoftOAuthErrorCode_(result.body));
+      }
+      const body = result.body || {};
+      if (!body.device_code || !body.user_code || !body.verification_uri ||
+          !body.expires_in || !validMicrosoftVerificationUri_(body.verification_uri)) {
+        throw new Error('MICROSOFT_DEVICE_CODE_RESPONSE_INVALID');
+      }
+      const intervalSec = Math.max(5, Number(body.interval) || 5);
+      const expiresInSec = Number(body.expires_in);
+      if (!Number.isFinite(expiresInSec) || expiresInSec <= 0 ||
+          !Number.isFinite(intervalSec) || intervalSec > 300) {
+        throw new Error('MICROSOFT_DEVICE_CODE_RESPONSE_INVALID');
+      }
+      const session = {
+        schema: 1,
+        deviceCode: String(body.device_code),
+        userCode: String(body.user_code),
+        verificationUri: String(body.verification_uri),
+        expiresAt: now + expiresInSec * 1000,
+        intervalSec: intervalSec,
+        nextPollAt: now + intervalSec * 1000
+      };
+      if (switchApproval) {
+        session.switchApproval = {
+          approvedAt: Number(switchApproval.approvedAt),
+          expiresAt: Number(switchApproval.expiresAt)
+        };
+      }
+      properties.setProperty(MS_PERSONAL_DEVICE_SESSION_KEY_, JSON.stringify(session));
+      return publicPersonalDeviceSession_(session);
+    } catch (e) {
+      if (switchApproval) clearPersonalMicrosoftModeSwitchApproval_();
+      throw e;
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function storePersonalMicrosoftTokens_(token, requireRefreshToken) {
+  const properties = PropertiesService.getUserProperties();
+  const accessToken = String(token && token.access_token || '');
+  const refreshToken = String(token && token.refresh_token || '');
+  const expiresInSec = Number(token && token.expires_in);
+  if (!accessToken || !Number.isFinite(expiresInSec) || expiresInSec <= 0 ||
+      (requireRefreshToken && !refreshToken)) {
+    throw new Error('MICROSOFT_PERSONAL_TOKEN_RESPONSE_INVALID');
+  }
+  const values = {};
+  values[MS_PERSONAL_ACCESS_TOKEN_KEY_] = accessToken;
+  values[MS_PERSONAL_ACCESS_EXPIRES_AT_KEY_] = String(Date.now() + expiresInSec * 1000);
+  values[MS_PERSONAL_GRANTED_SCOPE_KEY_] = String(token.scope || '');
+  if (requireRefreshToken) values[MS_PERSONAL_VERIFIED_KEY_] = 'false';
+  if (refreshToken) values[MS_PERSONAL_REFRESH_TOKEN_KEY_] = refreshToken;
+  properties.setProperties(values, false);
+}
+
+function pollPersonalMicrosoftAuth_() {
+  const lock = LockService.getUserLock();
+  lock.waitLock(5000);
+  const mode = resolveMicrosoftAuthMode_();
+  let properties = null;
+  let session = null;
+  try {
+    properties = PropertiesService.getUserProperties();
+    const raw = properties.getProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+    if (!raw) return { status: 'not_started' };
+    session = parsePersonalDeviceSession_(raw);
+    if (!session) {
+      properties.deleteProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+      if (mode === MS_AUTH_MODE_ADVANCED_) {
+        clearPersonalMicrosoftModeSwitchApproval_();
+      }
+      return { status: 'invalid_session' };
+    }
+    const now = Date.now();
+    if (now >= Number(session.expiresAt)) {
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+      return { status: 'expired' };
+    }
+    if (mode === MS_AUTH_MODE_ADVANCED_ &&
+        !sessionHasActivePersonalModeSwitchApproval_(session)) {
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+      return preparePersonalMicrosoftModeSwitch_();
+    }
+    if (now < Number(session.nextPollAt)) {
+      return {
+        status: 'pending',
+        retryAfterMs: Number(session.nextPollAt) - now,
+        expiresAt: Number(session.expiresAt)
+      };
+    }
+    // Reserve the next permitted poll before making the network request. This
+    // keeps retries from hammering Microsoft's token endpoint even when the
+    // request fails or Apps Script is interrupted after the response.
+    session.nextPollAt = now + Number(session.intervalSec) * 1000;
+    properties.setProperty(MS_PERSONAL_DEVICE_SESSION_KEY_, JSON.stringify(session));
+    const result = microsoftOAuthPost_(MS_PERSONAL_AUTHORITY_ + '/token', {
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      client_id: MS_PERSONAL_CLIENT_ID_,
+      device_code: session.deviceCode
+    });
+  if (result.ok) {
+    const token = result.body || {};
+    const accessToken = String(token.access_token || '');
+    const refreshToken = String(token.refresh_token || '');
+    const expiresInSec = Number(token.expires_in);
+    if (!accessToken || !refreshToken || !Number.isFinite(expiresInSec) || expiresInSec <= 0) {
+      throw new Error('MICROSOFT_PERSONAL_TOKEN_RESPONSE_INVALID');
+    }
+    // Keep a newly-issued token in memory until a live Microsoft To Do probe
+    // accepts it, so a failed probe cannot strand the setup wizard.
+    const verification = verifyPersonalMicrosoftAccessToken_(accessToken);
+    if (!verification.ok) {
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+      return { status: 'verification_failed', errorCode: verification.code };
+      }
+    if (mode === MS_AUTH_MODE_ADVANCED_ &&
+        !sessionHasActivePersonalModeSwitchApproval_(session)) {
+      // Token persistence and Graph proof are deliberately insufficient on
+      // their own: a current, approved server-side switch record is also
+      // required before an Advanced installation can change active modes.
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+      return preparePersonalMicrosoftModeSwitch_();
+    }
+    storePersonalMicrosoftTokens_(token, true);
+    properties.setProperty(MS_PERSONAL_VERIFIED_KEY_, 'true');
+      if (mode === MS_AUTH_MODE_ADVANCED_) {
+        // Commit only after the complete token set, Graph proof, and matching
+        // approval evidence are all durable.
+        PropertiesService.getScriptProperties().setProperty(
+          MS_AUTH_MODE_PROPERTY_, MS_AUTH_MODE_PERSONAL_
+        );
+        discardPersonalMicrosoftDeviceSession_(properties, session);
+      } else {
+        // Fresh installations already resolve to Personal mode. Persist that
+        // resolved choice after successful authorization without changing an
+        // Advanced installation or relying on switch evidence.
+        PropertiesService.getScriptProperties().setProperty(
+          MS_AUTH_MODE_PROPERTY_, MS_AUTH_MODE_PERSONAL_
+        );
+        properties.deleteProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+      }
+      return { status: 'authorized', verified: true };
+    }
+    const errorCode = safeMicrosoftOAuthErrorCode_(result.body);
+    if (errorCode === 'authorization_pending') {
+      return {
+        status: 'pending',
+        retryAfterMs: Number(session.intervalSec) * 1000,
+        expiresAt: Number(session.expiresAt)
+      };
+    }
+    if (errorCode === 'slow_down') {
+      session.intervalSec = Number(session.intervalSec) + 5;
+      session.nextPollAt = now + Number(session.intervalSec) * 1000;
+      properties.setProperty(MS_PERSONAL_DEVICE_SESSION_KEY_, JSON.stringify(session));
+      return {
+        status: 'pending',
+        retryAfterMs: Number(session.intervalSec) * 1000,
+        slowedDown: true,
+        expiresAt: Number(session.expiresAt)
+      };
+    }
+    if (errorCode === 'authorization_declined' || errorCode === 'access_denied') {
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+      return { status: 'declined' };
+    }
+    if (errorCode === 'expired_token') {
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+      return { status: 'expired' };
+    }
+    if (errorCode === 'bad_verification_code') {
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+      return { status: 'invalid_session' };
+    }
+    throw new Error('MICROSOFT_DEVICE_AUTH_FAILED:' + errorCode);
+  } catch (e) {
+    if (properties && session) {
+      discardPersonalMicrosoftDeviceSession_(properties, session);
+    } else if (mode === MS_AUTH_MODE_ADVANCED_) {
+      clearPersonalMicrosoftModeSwitchApproval_();
+    }
+    throw e;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function clearPersonalMicrosoftTokens_() {
+  const properties = PropertiesService.getUserProperties();
+  [
+    MS_PERSONAL_ACCESS_TOKEN_KEY_,
+    MS_PERSONAL_REFRESH_TOKEN_KEY_,
+    MS_PERSONAL_ACCESS_EXPIRES_AT_KEY_,
+    MS_PERSONAL_GRANTED_SCOPE_KEY_,
+    MS_PERSONAL_VERIFIED_KEY_
+  ].forEach(function(key) {
+    properties.deleteProperty(key);
+  });
+}
+
+function refreshPersonalMicrosoftAccessToken_() {
+  const lock = LockService.getUserLock();
+  lock.waitLock(5000);
+  try {
+    const properties = PropertiesService.getUserProperties();
+    const oldRefreshToken = String(
+      properties.getProperty(MS_PERSONAL_REFRESH_TOKEN_KEY_) || ''
+    );
+    if (!oldRefreshToken) {
+      throw new Error('MICROSOFT_PERSONAL_REAUTH_REQUIRED');
+    }
+    const result = microsoftOAuthPost_(MS_PERSONAL_AUTHORITY_ + '/token', {
+      client_id: MS_PERSONAL_CLIENT_ID_,
+      grant_type: 'refresh_token',
+      refresh_token: oldRefreshToken,
+      scope: MS_PERSONAL_SCOPE_
+    });
+    if (!result.ok) {
+      const errorCode = safeMicrosoftOAuthErrorCode_(result.body);
+      if (errorCode === 'invalid_grant') {
+        clearPersonalMicrosoftTokens_();
+        throw new Error('MICROSOFT_PERSONAL_REAUTH_REQUIRED');
+      }
+      throw new Error('MICROSOFT_PERSONAL_REFRESH_FAILED:' + errorCode);
+    }
+    storePersonalMicrosoftTokens_(result.body || {}, false);
+    return String(properties.getProperty(MS_PERSONAL_ACCESS_TOKEN_KEY_) || '');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getPersonalMicrosoftAccessToken_() {
+  const properties = PropertiesService.getUserProperties();
+  const accessToken = String(properties.getProperty(MS_PERSONAL_ACCESS_TOKEN_KEY_) || '');
+  const expiresAt = Number(properties.getProperty(MS_PERSONAL_ACCESS_EXPIRES_AT_KEY_) || 0);
+  if (accessToken && expiresAt > Date.now() + MS_PERSONAL_REFRESH_MARGIN_MS_) {
+    return accessToken;
+  }
+  return refreshPersonalMicrosoftAccessToken_();
+}
+
+function personalMicrosoftAuth_() {
+  return {
+    mode: MS_AUTH_MODE_PERSONAL_,
+    hasAccess: function() {
+      return personalMicrosoftAuthorizationPresent_();
+    },
+    getAccessToken: function() {
+      return getPersonalMicrosoftAccessToken_();
+    },
+    refresh: function() {
+      return refreshPersonalMicrosoftAccessToken_();
+    },
+    reset: function() {
+      clearPersonalMicrosoftTokens_();
+    },
+    reauthorizationInfo: function() {
+      return { kind: 'device_code', action: 'startAuthorization' };
+    }
+  };
+}
+
+function advancedMicrosoftAuth_() {
+  const service = microsoftService_();
+  return {
+    mode: MS_AUTH_MODE_ADVANCED_,
+    hasAccess: function() {
+      return service.hasAccess();
+    },
+    getAccessToken: function() {
+      return service.getAccessToken();
+    },
+    refresh: function() {
+      service.refresh();
+      return service.getAccessToken();
+    },
+    reset: function() {
+      service.reset();
+    },
+    reauthorizationInfo: function() {
+      return { kind: 'url', url: service.getAuthorizationUrl() };
+    }
+  };
+}
+
+function microsoftAuth_() {
+  return resolveMicrosoftAuthMode_() === MS_AUTH_MODE_PERSONAL_ ?
+    personalMicrosoftAuth_() : advancedMicrosoftAuth_();
 }
 
 function getConfig_() {
@@ -957,22 +1653,51 @@ function microsoftService_() {
 
 function showRedirectUri() {
   initializeExecutionBudget_();
+  // This helper belongs to Advanced BYO Entra setup. Personal Device Flow
+  // deliberately has no redirect URI.
   console.log(microsoftService_().getRedirectUri());
 }
 
 function startAuthorization() {
   initializeExecutionBudget_();
+  if (resolveMicrosoftAuthMode_() === MS_AUTH_MODE_PERSONAL_) {
+    const session = beginPersonalMicrosoftAuth_();
+    if (session.status === 'authorized') {
+      console.log('[Auth] Valid personal Microsoft authorization already exists.');
+      return session;
+    }
+    if (session.status === 'verification_required') {
+      return verifyStoredPersonalMicrosoftAuthorization_();
+    }
+    if (session.status === 'verification_failed') {
+      return session;
+    }
+    console.log('[Auth] Open Microsoft\'s official sign-in page: ' + session.verificationUri);
+    console.log('[Auth] Enter this one-time code: ' + session.userCode);
+    return session;
+  }
+  return startAdvancedAuthorization();
+}
+
+function startAdvancedAuthorization() {
+  initializeExecutionBudget_();
   const service = microsoftService_();
   if (service.hasAccess()) {
     console.log('[Auth] Valid authorization already exists.');
-    return;
+    return { status: 'authorized', mode: MS_AUTH_MODE_ADVANCED_ };
   }
   console.log('[Auth] Open: ' + service.getAuthorizationUrl());
+  return { status: 'pending', mode: MS_AUTH_MODE_ADVANCED_ };
 }
 
 function authCallback(request) {
   initializeExecutionBudget_();
   const ok = microsoftService_().handleCallback(request);
+  if (ok) {
+    PropertiesService.getScriptProperties().setProperty(
+      MS_AUTH_MODE_PROPERTY_, MS_AUTH_MODE_ADVANCED_
+    );
+  }
   return HtmlService.createHtmlOutput(ok
     ? '<h2 style="color:green;font-family:sans-serif">Authorization successful. You may close this page.</h2>'
     : '<h2 style="color:red;font-family:sans-serif">Authorization failed. Check the Apps Script log.</h2>');
@@ -980,8 +1705,166 @@ function authCallback(request) {
 
 function resetMicrosoftAuthorization() {
   initializeExecutionBudget_();
-  microsoftService_().reset();
-  console.log('[Auth] Microsoft OAuth token cleared.');
+  const auth = microsoftAuth_();
+  auth.reset();
+  console.log('[Auth] Active Microsoft authorization cleared for mode ' + auth.mode + '.');
+}
+
+function beginPersonalMicrosoftAuthorization() {
+  initializeExecutionBudget_();
+  return beginPersonalMicrosoftAuth_();
+}
+
+function pollPersonalMicrosoftAuthorization() {
+  initializeExecutionBudget_();
+  return pollPersonalMicrosoftAuth_();
+}
+
+function personalMicrosoftAuthorizationStatus() {
+  initializeExecutionBudget_();
+  if (resolveMicrosoftAuthMode_() === MS_AUTH_MODE_PERSONAL_) {
+    if (personalMicrosoftTokensPresent_()) return verifyStoredPersonalMicrosoftAuthorization_();
+  }
+  return personalMicrosoftDeviceSessionStatus_();
+}
+
+function cancelPersonalMicrosoftAuthorization() {
+  initializeExecutionBudget_();
+  const properties = PropertiesService.getUserProperties();
+  const raw = properties.getProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+  const session = parsePersonalDeviceSession_(
+    raw
+  );
+  if (!session) {
+    if (raw) properties.deleteProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
+    clearPersonalMicrosoftModeSwitchApproval_();
+    return {
+      status: 'not_started',
+      messageCode: 'CANCEL_ONLY_STOPS_LOCAL_POLLING'
+    };
+  }
+  discardPersonalMicrosoftDeviceSession_(properties, session);
+  return { status: 'cancelled', messageCode: 'CANCEL_ONLY_STOPS_LOCAL_POLLING' };
+}
+
+function forgetPersonalMicrosoftAuthorization() {
+  initializeExecutionBudget_();
+  clearPersonalMicrosoftTokens_();
+  console.log('[Auth] Personal Microsoft authorization cleared; Advanced Entra properties were preserved.');
+  return { status: 'cleared' };
+}
+
+function setupWizardPersonalAuthView_(result) {
+  const source = result && typeof result === 'object' ? result : {};
+  const rawStatus = String(source.status || 'unknown');
+  const allowedStatuses = {
+    authorized: true,
+    pending: true,
+    not_started: true,
+    invalid_session: true,
+    expired: true,
+    declined: true,
+    cancelled: true,
+    cleared: true,
+    advanced: true,
+    ready: true,
+    confirmation_required: true,
+    verification_required: true,
+    verification_failed: true
+  };
+  const status = allowedStatuses[rawStatus] ? rawStatus : 'unknown';
+  const view = { status: status };
+  if (source.mode === MS_AUTH_MODE_PERSONAL_ || source.mode === MS_AUTH_MODE_ADVANCED_) {
+    view.mode = String(source.mode);
+  }
+  if (source.verified === true) view.verified = true;
+  const allowedMessageCodes = {
+    CANCEL_ONLY_STOPS_LOCAL_POLLING: true,
+    MICROSOFT_PERSONAL_VERIFY_RETRY: true,
+    MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED: true,
+    MICROSOFT_PERSONAL_VERIFY_FORBIDDEN: true,
+    MICROSOFT_PERSONAL_VERIFY_FAILED: true,
+    MICROSOFT_PERSONAL_REAUTH_REQUIRED: true
+  };
+  if (allowedMessageCodes[String(source.messageCode || '')]) {
+    view.messageCode = String(source.messageCode);
+  }
+  if (allowedMessageCodes[String(source.errorCode || '')]) {
+    view.errorCode = String(source.errorCode);
+  }
+  if (source.confirmationRequired === true) view.confirmationRequired = true;
+  if (source.userCode && source.verificationUri &&
+      validMicrosoftVerificationUri_(source.verificationUri)) {
+    view.userCode = String(source.userCode).slice(0, 100);
+    view.verificationUri = String(source.verificationUri);
+  }
+  const expiresAt = Number(source.expiresAt);
+  if (Number.isFinite(expiresAt) && expiresAt > 0) view.expiresAt = expiresAt;
+  const retryAfterMs = Number(source.retryAfterMs);
+  const intervalSec = Number(source.intervalSec);
+  if (Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+    view.retryAfterMs = Math.min(retryAfterMs, 300000);
+  } else if (Number.isFinite(intervalSec) && intervalSec >= 5) {
+    view.retryAfterMs = Math.min(intervalSec * 1000, 300000);
+  }
+  return view;
+}
+
+function setupWizardBeginPersonalAuthorization() {
+  initializeExecutionBudget_();
+  return setupWizardPersonalAuthView_(beginPersonalMicrosoftAuth_());
+}
+
+function setupWizardConfirmPersonalAuthorization() {
+  initializeExecutionBudget_();
+  confirmPersonalMicrosoftModeSwitch_();
+  return setupWizardPersonalAuthView_(beginPersonalMicrosoftAuth_());
+}
+
+function setupWizardVerifyPersonalAuthorization() {
+  initializeExecutionBudget_();
+  return setupWizardPersonalAuthView_(verifyStoredPersonalMicrosoftAuthorization_());
+}
+
+function setupWizardPollPersonalAuthorization() {
+  initializeExecutionBudget_();
+  return setupWizardPersonalAuthView_(pollPersonalMicrosoftAuth_());
+}
+
+function setupWizardPersonalAuthorizationStatus() {
+  initializeExecutionBudget_();
+  let result;
+  const mode = resolveMicrosoftAuthMode_();
+  const session = personalMicrosoftDeviceSessionStatus_();
+  if (session.status === 'pending') {
+    result = Object.assign({}, session, { mode: mode });
+  } else if (mode === MS_AUTH_MODE_ADVANCED_) {
+    result = { status: 'advanced', mode: mode };
+  } else if (personalMicrosoftTokensPresent_()) {
+    // This endpoint is called on initial setup-page load.  Probe Graph once
+    // instead of trusting a durable marker forever, so revoked consent and
+    // invalid tokens cannot be presented as a connected account.
+    result = Object.assign({}, verifyStoredPersonalMicrosoftAuthorization_(), {
+      mode: mode
+    });
+  } else {
+    result = Object.assign({}, session, { mode: mode });
+  }
+  return setupWizardPersonalAuthView_(result);
+}
+
+function setupWizardCancelPersonalAuthorization() {
+  return setupWizardPersonalAuthView_(cancelPersonalMicrosoftAuthorization());
+}
+
+function setupWizardForgetPersonalAuthorization() {
+  return setupWizardPersonalAuthView_(forgetPersonalMicrosoftAuthorization());
+}
+
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('Setup')
+    .setTitle('Tasks–To Do Sync — Easy Setup')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
 function newState_() {
@@ -2358,7 +3241,12 @@ function isNotFoundError_(e) {
 
 function taskLabel_(id, title) {
   if (VERBOSE_LOG) return title || '(Untitled)';
-  return id;
+  return previewOpaqueId_('task', id);
+}
+
+function listLabel_(id, title) {
+  if (VERBOSE_LOG) return title || '(Untitled list)';
+  return previewOpaqueId_('list', id);
 }
 
 function canSendAlert_(key, cooldownMs) {
@@ -2434,18 +3322,23 @@ function maybeSendStoragePressureAlert_(props, projectedStoreBytes) {
 }
 
 function sendReauthorizationAlert_() {
-  let url;
+  let body;
   try {
-    url = microsoftService_().getAuthorizationUrl();
+    const info = microsoftAuth_().reauthorizationInfo();
+    body = info.kind === 'url' ?
+      'Syncing has stopped. Open the following URL to reauthorize:\n' + info.url :
+      'Syncing has stopped. Open your private Apps Script setup wizard, or run startAuthorization() in the Apps Script editor, to reconnect Microsoft To Do.';
   } catch (e) {
-    console.error('[Auth] Failed to generate authorization URL: ' + e.message);
+    console.error('[Auth] Failed to prepare bounded reauthorization instructions.');
     return;
   }
   if (!canSendAlert_(ALERT_KEYS.reauth)) {
     console.warn('[Auth] Reauthorization alert is still in its cooldown period; email skipped.');
     return;
   }
-  const sent = sendMailAlert_('[Sync engine] Microsoft To Do authorization needs renewal', 'Syncing has stopped. Open the following URL to reauthorize:\n' + url);
+  const sent = sendMailAlert_(
+    '[Sync engine] Microsoft To Do authorization needs renewal', body
+  );
   if (sent) markAlertSent_(ALERT_KEYS.reauth);
 }
 
@@ -2530,25 +3423,45 @@ function forceMicrosoftRefresh_(service) {
     return typeof token === 'string' && token ? { ok: true, token: token } :
       { ok: false, code: 'OAUTH_REFRESH_FAILED' };
   } catch (e) {
-    return { ok: false, code: 'OAUTH_REFRESH_FAILED' };
+    const stable = String(e && e.message || '');
+    return {
+      ok: false,
+      code: stable.indexOf('MICROSOFT_PERSONAL_REAUTH_REQUIRED') === 0 ?
+        'MICROSOFT_PERSONAL_REAUTH_REQUIRED' : 'OAUTH_REFRESH_FAILED',
+      reauthRequired: stable.indexOf('MICROSOFT_PERSONAL_REAUTH_REQUIRED') === 0
+    };
   }
 }
 
 function fetchJsonWithRetry_(url, options, authKind) {
   let lastError = null;
-  let msService = null;
+  let msAuth = null;
   let refreshedMicrosoftToken = null;
   let forcedRefreshAttempted = false;
   for (let attempt = 0; attempt <= HTTP_MAX_RETRIES; attempt++) {
     const opts = Object.assign({ muteHttpExceptions: true }, options || {});
     opts.headers = Object.assign({}, opts.headers || {});
     if (authKind === 'ms') {
-      msService = msService || microsoftService_();
-      if (!msService.hasAccess()) {
+      msAuth = msAuth || microsoftAuth_();
+      if (!msAuth.hasAccess()) {
         sendReauthorizationAlert_();
         throw new Error('Microsoft authorization has expired. Reauthorize it.');
       }
-      opts.headers.Authorization = 'Bearer ' + (refreshedMicrosoftToken || msService.getAccessToken());
+      try {
+        opts.headers.Authorization = 'Bearer ' +
+          (refreshedMicrosoftToken || msAuth.getAccessToken());
+      } catch (e) {
+        if (String(e && e.message || '').indexOf('MICROSOFT_PERSONAL_REAUTH_REQUIRED') === 0) {
+          try {
+            msAuth.reset();
+          } catch (resetError) {
+            // Reset failure does not make the reauthorization alert safe to skip.
+          }
+          sendReauthorizationAlert_();
+          throw new Error('Microsoft authorization has expired. Reauthorize it.');
+        }
+        throw e;
+      }
     } else {
       opts.headers.Authorization = 'Bearer ' + ScriptApp.getOAuthToken();
     }
@@ -2565,14 +3478,17 @@ function fetchJsonWithRetry_(url, options, authKind) {
     if (authKind === 'ms' && code === 401) {
       if (!forcedRefreshAttempted) {
         forcedRefreshAttempted = true;
-        const refresh = forceMicrosoftRefresh_(msService);
+        const refresh = forceMicrosoftRefresh_(msAuth);
         if (refresh.ok) {
           refreshedMicrosoftToken = refresh.token;
           continue;
         }
+        if (!refresh.reauthRequired) {
+          throw new Error('MICROSOFT_REFRESH_FAILED_RETRY_LATER');
+        }
       }
       try {
-        msService.reset();
+        msAuth.reset();
       } catch (e) {
         // Reset failure does not make the reauthorization alert safe to skip.
       }
@@ -2953,7 +3869,7 @@ function textToHtml_(text) {
 }
 
 function htmlToText_(html) {
-  return String(html || '')
+ return String(html || '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li)>/gi, '\n')
     .replace(/<[^>]+>/g, '')
@@ -2964,7 +3880,13 @@ function htmlToText_(html) {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/&amp;/gi, '&')
     .replace(/\n{3,}/g, '\n\n')
-    .trim();
+ .trim();
+}
+
+function microsoftPlainTextBodyCanonical_(text) {
+ return String(text == null ? '' : text)
+ .replace(/\r\n|\r/g, '\n')
+ .replace(/\n$/, '');
 }
 
 function googlePayloadFromMs_(task, mode) {
@@ -2972,7 +3894,7 @@ function googlePayloadFromMs_(task, mode) {
   const isHtml = task.body && String(task.body.contentType || '').toLowerCase() === 'html';
   const payload = {
     title: task.title || '(Untitled)',
-    notes: isHtml ? htmlToText_(rawContent) : rawContent,
+ notes: isHtml ? htmlToText_(rawContent) : microsoftPlainTextBodyCanonical_(rawContent),
     status: task.status === 'completed' ? 'completed' : 'needsAction'
   };
   if (task && Object.prototype.hasOwnProperty.call(task, 'dueDateTime')) {
@@ -3023,9 +3945,9 @@ function googleNotesPlainTextProjection_(notes) {
 function microsoftNotesPlainTextProjection_(task) {
   const body = task && task.body;
   if (!body || !body.content) return '';
-  return String(body.contentType || '').toLowerCase() === 'html'
-    ? htmlToText_(body.content)
-    : String(body.content);
+ return String(body.contentType || '').toLowerCase() === 'html'
+ ? htmlToText_(body.content)
+ : microsoftPlainTextBodyCanonical_(body.content);
 }
 
 function sameGoogleAndMicrosoftDue_(googleDue, microsoftDue) {
@@ -3049,6 +3971,34 @@ function msUpdatePayloadFromGoogle_(googleTask, microsoftTask) {
   if (googleNotesPlainTextProjection_(googleTask && googleTask.notes) ===
       microsoftNotesPlainTextProjection_(microsoftTask)) {
     delete payload.body;
+  }
+  return payload;
+}
+
+function sameGoogleDuePayload_(googleDue, projectedDue) {
+  const googleMissing = googleDue === null || googleDue === undefined || googleDue === '';
+  const projectedMissing = projectedDue === null || projectedDue === undefined || projectedDue === '';
+  if (googleMissing || projectedMissing) return googleMissing && projectedMissing;
+  const googleDay = googleDueDateOnly_(googleDue);
+  const projectedDay = googleDueDateOnly_(projectedDue);
+  return !!googleDay && googleDay === projectedDay;
+}
+
+function googleUpdatePayloadFromMs_(microsoftTask, googleTask) {
+  const payload = googlePayloadFromMs_(microsoftTask, 'update');
+  if (String(payload.title) === String((googleTask && googleTask.title) || '(Untitled)')) {
+    delete payload.title;
+  }
+  if (String(payload.status) === String((googleTask && googleTask.status) || 'needsAction')) {
+    delete payload.status;
+  }
+  if (googleNotesPlainTextProjection_(payload.notes) ===
+      googleNotesPlainTextProjection_(googleTask && googleTask.notes)) {
+    delete payload.notes;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'due') &&
+      sameGoogleDuePayload_(googleTask && googleTask.due, payload.due)) {
+    delete payload.due;
   }
   return payload;
 }
@@ -4441,7 +5391,7 @@ function recordTaskDeletionConflict_(state, gId, rec, reason) {
     msListId: rec.msListId
   };
   clearDeletionTracking_(state, gId);
-  console.warn('[DeleteConflict] ' + reason + ': ' + gId);
+  console.warn('[DeleteConflict] ' + reason + ': ' + taskLabel_(gId, null));
 }
 
 function deletionTargetIsSafe_(gId, rec, missingSide, gTask, msTask, snap) {
@@ -4509,14 +5459,14 @@ function observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, round
       confirmations: 1
     };
     state.pendingTaskDeletions[gId] = candidate;
-    console.log('[DeleteCandidate] Confirmation round 1/2: ' + gId + ' missing=' + missingSide);
+    console.log('[DeleteCandidate] Confirmation round 1/2: ' + taskLabel_(gId, null) + ' missing=' + missingSide);
     return candidate;
   }
   if (candidate.lastRoundId !== roundId) {
     candidate.confirmations = Math.min(2, Number(candidate.confirmations || 0) + 1);
     candidate.lastRoundId = roundId;
     candidate.lastConfirmedAt = new Date().toISOString();
-    console.log('[DeleteCandidate] Confirmation round ' + candidate.confirmations + '/2: ' + gId + ' missing=' + missingSide);
+    console.log('[DeleteCandidate] Confirmation round ' + candidate.confirmations + '/2: ' + taskLabel_(gId, null) + ' missing=' + missingSide);
   }
   return candidate;
 }
@@ -4528,7 +5478,7 @@ function finalizeTaskDeletion_(state, snap, gId, rec, missingSide) {
   delete snap.msTasksById[rec.msId];
   delete snap.gListByTask[gId];
   delete snap.msListByTask[rec.msId];
-  console.log('[Delete] Completed: ' + gId + ' missing=' + missingSide);
+  console.log('[Delete] Completed: ' + taskLabel_(gId, null) + ' missing=' + missingSide);
 }
 
 function remoteDeleteForMissingSide_(gId, rec, missingSide) {
@@ -4599,7 +5549,7 @@ function recoverPreparedTaskDeletions_(state, snap) {
       return;
     }
     if (!rec) {
-      console.error('[DeleteJournal] Mapping is missing; journal retained and automatic creation stopped: ' + gId);
+      console.error('[DeleteJournal] Mapping is missing; journal retained and automatic creation stopped: ' + taskLabel_(gId, null));
       return;
     }
     const pairBlockReason = taskDeletionPairBlockReason_(state, snap, rec);
@@ -4914,7 +5864,7 @@ function blockTaskMove_(state, gId, rec, journal, reason) {
     journal.lastBlockedAt = new Date().toISOString();
   }
   recordTaskDeletionConflict_(state, gId, rec, reason);
-  console.warn('[MoveConflict] ' + reason + ': ' + gId);
+  console.warn('[MoveConflict] ' + reason + ': ' + taskLabel_(gId, null));
   return false;
 }
 
@@ -5288,7 +6238,7 @@ function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
       target = createMsList_(gList.title || '(Untitled list)');
         msLists.push(target);
         msById[target.id] = target;
-        console.log('[List] Create Microsoft list: ' + (VERBOSE_LOG ? (gList.title || '(Untitled list)') : gList.id));
+      console.log('[List] Create Microsoft list: ' + listLabel_(gList.id, gList.title));
       }
       state.listMap[gList.id] = target.id;
       mappedMsIds[target.id] = true;
@@ -5304,7 +6254,7 @@ function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
       msListTitle: '(Missing or unreadable)'
     });
     stateChanged = true;
-    console.error('[ListFault] Microsoft list is missing or unreadable and has been isolated: msListId=' + msId);
+    console.error('[ListFault] Microsoft list is missing or unreadable and has been isolated: ' + listLabel_(msId, null));
   });
 
   Object.keys(state.listMap).forEach(function(gListId) {
@@ -5319,7 +6269,7 @@ function ensureExplicitListMappings_(state, gLists, msLists, activeGListIds) {
       msListTitle: (msById[msListId] && msById[msListId].displayName) || ''
     });
     stateChanged = true;
-    console.error('[ListFault] Google list is missing or unreadable and has been isolated: gListId=' + gListId);
+    console.error('[ListFault] Google list is missing or unreadable and has been isolated: ' + listLabel_(gListId, null));
   });
 
   if (stateChanged) {
@@ -5591,7 +6541,8 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
     }
     state.listMap[pair.googleListId] = pair.microsoftListId;
     stateChanged = true;
-    console.log('[List] Auto-pair: ' + pair.reason + ' (' + pair.googleListId + ' ↔ ' + pair.microsoftListId + ')');
+    console.log('[List] Auto-pair: ' + pair.reason + ' (' +
+      listLabel_(pair.googleListId, null) + ' ↔ ' + listLabel_(pair.microsoftListId, null) + ')');
   });
   if (stateChanged) persistSyncState_(state);
 
@@ -5603,7 +6554,7 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
     allMsLists.push(microsoft);
     state.listMap[google.id] = microsoft.id;
     persistSyncState_(state);
-    console.log('[List] Google → Microsoft list created: ' + google.id);
+    console.log('[List] Google → Microsoft list created: ' + listLabel_(google.id, google.title));
   });
   plan.createGoogle.forEach(function(microsoft) {
     if (isMsListFaulted_(state, microsoft.id)) return;
@@ -5617,7 +6568,7 @@ function ensureAutoListMappings_(state, gLists, allMsLists, gDefaultList, safety
     gLists.push(google);
     state.listMap[google.id] = microsoft.id;
     persistSyncState_(state);
-    console.log('[List] Microsoft → Google list created: ' + microsoft.id);
+    console.log('[List] Microsoft → Google list created: ' + listLabel_(microsoft.id, microsoft.displayName));
   });
   return plan;
 }
@@ -5716,7 +6667,7 @@ function buildSnapshot_(state, startedAt) {
           // anti-recreation guard before it removes the mapping.
           msListId: state.listMap[gList.id] || null
         });
-        console.error('[ListFault] Got 404 while fetching Google tasks; list isolated: gListId=' + gList.id);
+        console.error('[ListFault] Got 404 while fetching Google tasks; list isolated: ' + listLabel_(gList.id, gList.title));
         continue;
       }
       throw e;
@@ -5767,7 +6718,7 @@ function buildSnapshot_(state, startedAt) {
           gListId: gListId,
           gListTitle: gList ? (gList.title || '(Untitled list)') : ''
         });
-        console.error('[ListFault] Got 404 while fetching Microsoft tasks; list isolated: msListId=' + msListId);
+        console.error('[ListFault] Got 404 while fetching Microsoft tasks; list isolated: ' + listLabel_(msListId, msList && msList.displayName));
         continue;
       }
       throw e;
@@ -5886,11 +6837,11 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
       }
       if (!allowDeletions) {
         if (missingSide === 'google') {
-          console.warn('[DeleteBlocked] Google task is missing; SYNC_ALLOW_DELETIONS=false, retaining Microsoft task: ' + msId);
+          console.warn('[DeleteBlocked] Google task is missing; SYNC_ALLOW_DELETIONS=false, retaining Microsoft task: ' + taskLabel_(msId, null));
         } else if (missingSide === 'microsoft') {
           console.warn('[DeleteBlocked] Microsoft task is missing; SYNC_ALLOW_DELETIONS=false, retaining Google task: ' + taskLabel_(gId, gTask.title));
         } else {
-          console.warn('[DeleteBlocked] Both tasks are missing; SYNC_ALLOW_DELETIONS=false, retaining mapping and not creating a tombstone: ' + gId);
+          console.warn('[DeleteBlocked] Both tasks are missing; SYNC_ALLOW_DELETIONS=false, retaining mapping and not creating a tombstone: ' + taskLabel_(gId, null));
         }
       } else {
         observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, roundId, progress);
@@ -5918,7 +6869,10 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
         : msTask;
       putMapping_(state, gTask, currentGListId, updatedMs, rec.msListId);
     } else if (!gChanged && mChanged) {
-      const updatedG = updateGTask_(rec.gListId, gId, googlePayloadFromMs_(msTask));
+      const payload = googleUpdatePayloadFromMs_(msTask, gTask);
+      const updatedG = Object.keys(payload).length
+        ? updateGTask_(rec.gListId, gId, payload)
+        : gTask;
       putMapping_(state, updatedG, rec.gListId, msTask, rec.msListId);
     } else if (gChanged && mChanged) {
       if (epoch_(gTask.updated) >= epoch_(msTask.lastModifiedDateTime)) {
@@ -5929,9 +6883,12 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
         putMapping_(state, gTask, currentGListId, updatedMs, rec.msListId);
         console.warn('[Conflict] LWW selected Google: ' + taskLabel_(gId, gTask.title));
       } else {
-        const updatedG = updateGTask_(rec.gListId, gId, googlePayloadFromMs_(msTask));
+        const payload = googleUpdatePayloadFromMs_(msTask, gTask);
+        const updatedG = Object.keys(payload).length
+          ? updateGTask_(rec.gListId, gId, payload)
+          : gTask;
         putMapping_(state, updatedG, rec.gListId, msTask, rec.msListId);
-        console.warn('[Conflict] LWW selected Microsoft: ' + msId);
+        console.warn('[Conflict] LWW selected Microsoft: ' + taskLabel_(msId, msTask.title));
       }
     } else {
       rec.gListId = currentGListId;
@@ -7231,17 +8188,16 @@ function healthCheck() {
     issues.push('SYNC_GOOGLE_LIST_IDS is not configured; syncing and triggers are currently safety-locked.');
   }
   try {
-    getConfig_();
-  } catch (e) {
-    issues.push('Script Properties is missing required configuration: ' + e.message);
-  }
-  try {
-    const service = microsoftService_();
-    if (!service.hasAccess()) {
-      issues.push('Microsoft authorization has expired. Run resetMicrosoftAuthorization(), then startAuthorization().');
+    const auth = microsoftAuth_();
+    if (!auth.hasAccess()) {
+      issues.push(auth.mode === MS_AUTH_MODE_PERSONAL_ ?
+        'MICROSOFT_PERSONAL_AUTH_REQUIRED: Open the setup wizard or run startAuthorization().' :
+        'MICROSOFT_ADVANCED_AUTH_REQUIRED: Run resetMicrosoftAuthorization(), then startAuthorization().');
     }
   } catch (e) {
-    issues.push('Microsoft authorization check failed: ' + e.message);
+    const stableCode = String(e && e.message || '').indexOf('MICROSOFT_AUTH_MODE_INVALID') === 0 ?
+      'MICROSOFT_AUTH_MODE_INVALID' : 'MICROSOFT_AUTH_CHECK_FAILED';
+    issues.push(stableCode + ': Microsoft authorization configuration is not ready.');
   }
   const triggers = ScriptApp.getProjectTriggers().filter(function(trigger) {
     return trigger.getHandlerFunction() === 'syncAll';

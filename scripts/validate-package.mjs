@@ -21,6 +21,7 @@ const required = [
   'assets/claspignore',
   'assets/deploy-gitignore',
   'Code.gs',
+  'Setup.html',
   'appsscript.json'
 ];
 for (const filename of required) {

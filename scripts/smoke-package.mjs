@@ -13,6 +13,7 @@ const requiredFiles = [
   'assets/claspignore',
   'assets/deploy-gitignore',
   'Code.gs',
+  'Setup.html',
   'appsscript.json'
 ];
 const forbiddenPath = /(^|[\\/])(?:\.clasp(?:rc)?(?:\.json)?|\.env(?:\.|$)|[^\\/]*(?:secret|state)[^\\/]*)(?:$|[\\/])/i;
@@ -80,6 +81,8 @@ try {
   assert(installedManifest.timeZone === 'Asia/Taipei', 'packaged manifest has an unexpected default time zone');
   assert(readFileSync(join(installedRoot, 'Code.gs'), 'utf8').includes('function syncAll'),
     'packaged Code.gs is not the sync engine');
+  assert(readFileSync(join(installedRoot, 'Setup.html'), 'utf8').includes('Microsoft'),
+    'packaged Setup.html is not the private setup wizard');
 
   const installedCli = await import(pathToFileURL(join(installedRoot, 'lib', 'cli.mjs')).href);
   assert(installedCli.createNodeRuntime().version === packageJson.version,

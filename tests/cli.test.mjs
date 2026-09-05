@@ -9,8 +9,9 @@ const PACKAGE = JSON.parse(readFileSync(new URL('../package.json', import.meta.u
 const PACKAGED_MANIFEST = readFileSync(new URL('../appsscript.json', import.meta.url), 'utf8');
 const ASSETS = {
   code: 'function syncAll() {}\n',
+  setup: '<!doctype html><title>Microsoft setup</title>\n',
   manifest: PACKAGED_MANIFEST,
-  claspignore: '**/**\n!Code.gs\n!appsscript.json\n',
+  claspignore: '**/**\n!Code.gs\n!Setup.html\n!appsscript.json\n',
   gitignore: '.clasp.json\n.clasprc.json\n.tasks-todo-sync-init.json\nCode.js\n.env\n.env.*\n*.secret.json\n*sync-state*.json\n*state-export*.json\n'
 };
 
@@ -147,6 +148,7 @@ test('init pins every clasp invocation to its own target instead of inheriting a
   assert.ok(fake.calls.every(({ args }) => args[0] === '--project' && args[1] === target));
   assert.equal(fake.calls[0].options.capture, true);
   assert.equal(fake.fileMap.get(join(target, 'Code.gs')), ASSETS.code);
+  assert.equal(fake.fileMap.get(join(target, 'Setup.html')), ASSETS.setup);
   assert.equal(fake.fileMap.get(join(target, '.claspignore')), ASSETS.claspignore);
   assert.equal(fake.fileMap.get(join(target, '.gitignore')), ASSETS.gitignore);
   const installedManifest = fake.fileMap.get(join(target, 'appsscript.json'));
@@ -213,6 +215,7 @@ test('init resumes the bounded post-create partial state before replacing clasp 
   assert.equal(exitCode, 0);
   assert.deepEqual(fake.calls.map(({ args }) => args[2]), ['show-authorized-user', 'push']);
   assert.equal(fake.fileMap.get(join(target, 'Code.gs')), ASSETS.code);
+  assert.equal(fake.fileMap.get(join(target, 'Setup.html')), ASSETS.setup);
   assert.equal(fake.fileMap.has(join(target, 'Code.js')), false);
   assert.equal(JSON.parse(fake.fileMap.get(join(target, '.tasks-todo-sync-init.json'))).phase, 'pushed');
 });

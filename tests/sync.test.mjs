@@ -28,6 +28,58 @@ test('healthCheck and dryRunReport fail closed on invalid safety settings withou
   assert.deepEqual(userStore.values, beforeUser);
 });
 
+test('canonicalizes Microsoft plain-text Graph terminators while preserving internal newlines', () => {
+ const { context } = loadContext();
+ assert.equal(
+ context.microsoftPlainTextBodyCanonical_('first\r\nsecond\r\n'),
+ 'first\nsecond'
+ );
+ assert.equal(
+ context.microsoftPlainTextBodyCanonical_('first\r\nsecond\r\n\n'),
+ 'first\nsecond\n'
+ );
+ assert.equal(
+ context.microsoftPlainTextBodyCanonical_('literal <tag>\rline'),
+ 'literal <tag>\nline'
+ );
+});
+
+test('Google-to-Microsoft update omits a body when plain text is canonically equal', () => {
+ const { context } = loadContext();
+ const payload = context.msUpdatePayloadFromGoogle_({
+ title: 'Same task',
+ due: null,
+ status: 'needsAction',
+ notes: 'literal <tag>\nsecond line'
+ }, {
+ title: 'Same task',
+ dueDateTime: null,
+ status: 'notStarted',
+ body: { contentType: 'text', content: 'literal <tag>\r\nsecond line\r\n' }
+ });
+ assert.equal(Object.hasOwn(payload, 'body'), false);
+});
+
+test('Google payload canonicalizes Microsoft plain text without interpreting markup', () => {
+ const { context } = loadContext();
+ const payload = context.googlePayloadFromMs_({
+ title: 'Plain text',
+ status: 'notStarted',
+ body: { contentType: 'text', content: 'literal <tag>\r\nsecond\rthird\n\n' }
+ });
+ assert.equal(payload.notes, 'literal <tag>\nsecond\nthird\n');
+});
+
+test('Google payload preserves existing Microsoft HTML conversion behavior', () => {
+ const { context } = loadContext();
+ const payload = context.googlePayloadFromMs_({
+ title: 'Rich text',
+ status: 'notStarted',
+ body: { contentType: 'html', content: '<p>Rich<br>body</p>' }
+ });
+ assert.equal(payload.notes, 'Rich\nbody');
+});
+
 test('Google-to-Microsoft update PATCHes only semantic changes and preserves matching rich HTML', () => {
   const { context } = loadContext();
   const msTask = {
@@ -88,7 +140,7 @@ test('Microsoft 401 refreshes exactly once before retrying POST PATCH and DELETE
       refresh: () => { refreshes += 1; },
       reset: () => { resets += 1; }
     };
-    context.microsoftService_ = () => service;
+    context.microsoftAuth_ = () => service;
     context.sendReauthorizationAlert_ = () => { throw new Error('should not alert'); };
     assert.deepEqual(JSON.parse(JSON.stringify(context.graphFetch_('https://example.invalid/resource', { method }))), { ok: true });
     assert.equal(refreshes, 1, method);
@@ -105,7 +157,7 @@ test('second Microsoft 401 resets and alerts after one forced refresh without ex
   let resets = 0;
   let alerts = 0;
   const { context } = loadContext({ urlFetchApp: { fetch: () => responses.shift() } });
-  context.microsoftService_ = () => ({
+  context.microsoftAuth_ = () => ({
     hasAccess: () => true, getAccessToken: () => 'token', refresh: () => { refreshes += 1; }, reset: () => { resets += 1; }
   });
   context.sendReauthorizationAlert_ = () => { alerts += 1; };
@@ -113,6 +165,709 @@ test('second Microsoft 401 resets and alerts after one forced refresh without ex
   assert.equal(refreshes, 1);
   assert.equal(resets, 1);
   assert.equal(alerts, 1);
+});
+
+test('Microsoft auth mode defaults to Personal, preserves legacy Advanced installs, and rejects invalid modes', () => {
+  assert.equal(loadContext().context.resolveMicrosoftAuthMode_(), 'personal_device');
+  assert.equal(loadContext({ scriptValues: { MS_CLIENT_ID: 'legacy-client' } })
+    .context.resolveMicrosoftAuthMode_(), 'advanced_entra');
+  assert.equal(loadContext({ scriptValues: { MS_CLIENT_SECRET: 'legacy-secret' } })
+    .context.resolveMicrosoftAuthMode_(), 'advanced_entra');
+  const invalid = loadContext({ scriptValues: { MS_AUTH_MODE: 'private-invalid-mode' } });
+  assert.throws(() => invalid.context.resolveMicrosoftAuthMode_(), /MICROSOFT_AUTH_MODE_INVALID/);
+});
+
+test('Personal Device Flow begins with bounded public output and reuses an unexpired session', () => {
+  const calls = [];
+  const providerBody = {
+    device_code: 'private-device-code',
+    user_code: 'ABCD-EFGH',
+    verification_uri: 'https://www.microsoft.com/link',
+    expires_in: 900,
+    interval: 5
+  };
+  const { context, userStore } = loadContext({
+    urlFetchApp: {
+      fetch(url, options) {
+        calls.push({ url, options });
+        return httpResponse(200, JSON.stringify(providerBody));
+      }
+    }
+  });
+  vm.runInContext('Date.now = () => 1000000', context);
+
+  const first = context.beginPersonalMicrosoftAuthorization();
+  const second = context.beginPersonalMicrosoftAuthorization();
+  assert.deepEqual(JSON.parse(JSON.stringify(first)), {
+    status: 'pending',
+    userCode: 'ABCD-EFGH',
+    verificationUri: 'https://www.microsoft.com/link',
+    expiresAt: 1900000,
+    intervalSec: 5
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(second)), JSON.parse(JSON.stringify(first)));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode');
+  const request = new URLSearchParams(calls[0].options.payload);
+  assert.equal(request.get('client_id'), '1139ef4a-297c-4c4f-b414-6393aec2ee31');
+  assert.equal(request.get('scope'), 'Tasks.ReadWrite offline_access');
+  assert.equal(JSON.stringify(first).includes('private-device-code'), false);
+  assert.equal(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1.includes('private-device-code'), true);
+});
+
+test('Personal Device Flow accepts only exact Microsoft link and legacy devicelogin verification paths', () => {
+  const { context } = loadContext();
+  for (const uri of [
+    'https://microsoft.com/link',
+    'https://microsoft.com/link/',
+    'https://www.microsoft.com/link',
+    'https://www.microsoft.com/link/',
+    'https://microsoft.com/devicelogin',
+    'https://microsoft.com/devicelogin/',
+    'https://www.microsoft.com/devicelogin',
+    'https://www.microsoft.com/devicelogin/'
+  ]) {
+    assert.equal(context.validMicrosoftVerificationUri_(uri), true, uri);
+  }
+  for (const uri of [
+    'http://www.microsoft.com/link',
+    'https://login.microsoftonline.com/link',
+    'https://microsoft.com/link/extra',
+    'https://microsoft.com/devicelogin/extra',
+    'https://microsoft.com/common/oauth2/deviceauth',
+    'https://microsoft.com.evil.invalid/link',
+    'https://evil.invalid/devicelogin'
+  ]) {
+    assert.equal(context.validMicrosoftVerificationUri_(uri), false, uri);
+  }
+});
+
+test('Personal Device Flow honors polling interval and persists slow_down plus five seconds', () => {
+  const responses = [
+    httpResponse(200, JSON.stringify({
+      device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+      verification_uri: 'https://www.microsoft.com/devicelogin', expires_in: 900, interval: 5
+    })),
+    httpResponse(400, JSON.stringify({ error: 'authorization_pending' })),
+    httpResponse(400, JSON.stringify({ error: 'slow_down' }))
+  ];
+  let fetches = 0;
+  const { context, userStore } = loadContext({
+    urlFetchApp: { fetch: () => { fetches += 1; return responses.shift(); } }
+  });
+  vm.runInContext('Date.now = () => 1000000', context);
+  context.beginPersonalMicrosoftAuthorization();
+  assert.equal(context.pollPersonalMicrosoftAuthorization().retryAfterMs, 5000);
+  assert.equal(fetches, 1);
+
+  vm.runInContext('Date.now = () => 1005000', context);
+  assert.equal(context.pollPersonalMicrosoftAuthorization().retryAfterMs, 5000);
+  assert.equal(fetches, 2);
+
+  vm.runInContext('Date.now = () => 1010000', context);
+  const slowed = context.pollPersonalMicrosoftAuthorization();
+  assert.equal(slowed.status, 'pending');
+  assert.equal(slowed.slowedDown, true);
+  assert.equal(slowed.retryAfterMs, 10000);
+  assert.equal(fetches, 3);
+  const stored = JSON.parse(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1);
+  assert.equal(stored.intervalSec, 10);
+  assert.equal(stored.nextPollAt, 1020000);
+});
+
+test('Personal Device Flow returns bounded terminal statuses for declined expired and invalid sessions', () => {
+  const cases = [
+    ['authorization_declined', 'declined'],
+    ['access_denied', 'declined'],
+    ['expired_token', 'expired'],
+    ['bad_verification_code', 'invalid_session']
+  ];
+  for (const [providerError, expectedStatus] of cases) {
+    const responses = [
+      httpResponse(200, JSON.stringify({
+        device_code: 'private-device-code-' + providerError,
+        user_code: 'ABCD-EFGH',
+        verification_uri: 'https://microsoft.com/devicelogin',
+        expires_in: 900,
+        interval: 5
+      })),
+      httpResponse(400, JSON.stringify({
+        error: providerError,
+        error_description: 'private-provider-description-' + providerError
+      }))
+    ];
+    const { context, userStore } = loadContext({
+      urlFetchApp: { fetch: () => responses.shift() }
+    });
+    vm.runInContext('Date.now = () => 1000000', context);
+    context.beginPersonalMicrosoftAuthorization();
+    vm.runInContext('Date.now = () => 1005000', context);
+    const result = context.pollPersonalMicrosoftAuthorization();
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), { status: expectedStatus }, providerError);
+    assert.equal(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined, providerError);
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes('private-device-code'), false, providerError);
+    assert.equal(serialized.includes('private-provider-description'), false, providerError);
+  }
+
+  const { context, userStore } = loadContext({
+    userValues: { MS_PERSONAL_DEVICE_SESSION_V1: '{private-invalid-json' }
+  });
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.pollPersonalMicrosoftAuthorization())),
+    { status: 'invalid_session' }
+  );
+  assert.equal(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+});
+
+test('Personal Device Flow rejects non-Microsoft verification URIs without persisting provider secrets', () => {
+  const logs = [];
+  const { context, userStore } = loadContext({
+    urlFetchApp: { fetch: () => httpResponse(200, JSON.stringify({
+      device_code: 'private-device-code',
+      user_code: 'ABCD-EFGH',
+      verification_uri: 'https://lookalike.invalid/devicelogin',
+      expires_in: 900,
+      interval: 5
+    })) }
+  });
+  context.console = {
+    log: (value) => logs.push(String(value)),
+    warn: (value) => logs.push(String(value)),
+    error: (value) => logs.push(String(value))
+  };
+  assert.throws(
+    () => context.beginPersonalMicrosoftAuthorization(),
+    /MICROSOFT_DEVICE_CODE_RESPONSE_INVALID/
+  );
+  assert.equal(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+  assert.equal(JSON.stringify(logs).includes('private-device-code'), false);
+  assert.equal(JSON.stringify(logs).includes('lookalike.invalid'), false);
+});
+
+test('Personal Device Flow stores a complete token set before committing the active mode', () => {
+  const responses = [
+    httpResponse(200, JSON.stringify({
+      device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+      verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 5
+    })),
+    httpResponse(200, JSON.stringify({
+      access_token: 'private-access-token', refresh_token: 'private-refresh-token',
+      expires_in: 3600, scope: 'Tasks.ReadWrite offline_access'
+    })),
+    httpResponse(200, JSON.stringify({ value: [] }))
+  ];
+  const { context, scriptStore, userStore } = loadContext({
+    scriptValues: {
+      MS_AUTH_MODE: 'advanced_entra',
+      MS_CLIENT_ID: 'advanced-client',
+      MS_CLIENT_SECRET: 'advanced-secret'
+    },
+    urlFetchApp: { fetch: () => responses.shift() }
+  });
+  vm.runInContext('Date.now = () => 1000000', context);
+  assert.equal(context.setupWizardBeginPersonalAuthorization().status, 'confirmation_required');
+  assert.equal(userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1, undefined);
+  assert.equal(context.setupWizardConfirmPersonalAuthorization().status, 'pending');
+  const approval = JSON.parse(userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1);
+  const session = JSON.parse(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1);
+  assert.equal(approval.approved, true);
+  assert.equal(approval.expiresAt, 2800000);
+  assert.deepEqual(session.switchApproval, {
+    approvedAt: approval.approvedAt,
+    expiresAt: approval.expiresAt
+  });
+  assert.equal(scriptStore.values.MS_AUTH_MODE, 'advanced_entra');
+  const originalSetProperty = scriptStore.setProperty.bind(scriptStore);
+  scriptStore.setProperty = (key, value) => {
+    if (key === 'MS_AUTH_MODE') {
+      assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, 'private-refresh-token');
+      assert.equal(userStore.values.MS_PERSONAL_ACCESS_TOKEN, 'private-access-token');
+    }
+    originalSetProperty(key, value);
+  };
+  vm.runInContext('Date.now = () => 1005000', context);
+  assert.equal(context.pollPersonalMicrosoftAuthorization().status, 'authorized');
+  assert.equal(scriptStore.values.MS_AUTH_MODE, 'personal_device');
+  assert.equal(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+  assert.equal(userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1, undefined);
+});
+
+test('an incomplete Device Flow token response cannot switch an Advanced installation', () => {
+  const responses = [
+    httpResponse(200, JSON.stringify({
+      device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+      verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 5
+    })),
+    httpResponse(200, JSON.stringify({ access_token: 'private-access-token', expires_in: 3600 }))
+  ];
+  const { context, scriptStore, userStore } = loadContext({
+    scriptValues: { MS_AUTH_MODE: 'advanced_entra', MS_CLIENT_ID: 'keep-id', MS_CLIENT_SECRET: 'keep-secret' },
+    urlFetchApp: { fetch: () => responses.shift() }
+  });
+  vm.runInContext('Date.now = () => 1000000', context);
+  assert.equal(context.setupWizardBeginPersonalAuthorization().status, 'confirmation_required');
+  context.setupWizardConfirmPersonalAuthorization();
+  vm.runInContext('Date.now = () => 1005000', context);
+  assert.throws(() => context.pollPersonalMicrosoftAuthorization(), /MICROSOFT_PERSONAL_TOKEN_RESPONSE_INVALID/);
+  assert.equal(scriptStore.values.MS_AUTH_MODE, 'advanced_entra');
+  assert.equal(scriptStore.values.MS_CLIENT_ID, 'keep-id');
+  assert.equal(scriptStore.values.MS_CLIENT_SECRET, 'keep-secret');
+  assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, undefined);
+  assert.equal(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+  assert.equal(userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1, undefined);
+});
+
+test('Advanced-to-Personal transaction never commits without approval and clears terminal transaction state', () => {
+  const approval = {
+    schema: 2,
+    from: 'advanced_entra',
+    to: 'personal_device',
+    approved: true,
+    approvedAt: 1000000,
+    expiresAt: 2800000
+  };
+  function deviceSession(expiresAt, nextPollAt) {
+    const session = {
+      schema: 1,
+      deviceCode: 'private-device-code',
+      userCode: 'ABCD-EFGH',
+      verificationUri: 'https://microsoft.com/devicelogin',
+      expiresAt: expiresAt,
+      intervalSec: 5,
+      nextPollAt: nextPollAt
+    };
+    session.switchApproval = {
+      approvedAt: approval.approvedAt,
+      expiresAt: approval.expiresAt
+    };
+    return session;
+  }
+  const advanced = {
+    MS_AUTH_MODE: 'advanced_entra',
+    MS_CLIENT_ID: 'keep-id',
+    MS_CLIENT_SECRET: 'keep-secret'
+  };
+
+  let fetches = 0;
+  const noApproval = loadContext({
+    scriptValues: advanced,
+    userValues: {
+      // A forged or orphaned session receipt is not approved evidence.  The
+      // current server-side approval record must match before mode can change.
+      MS_PERSONAL_DEVICE_SESSION_V1: JSON.stringify(deviceSession(1900000, 1000000))
+    },
+    urlFetchApp: { fetch: () => { fetches += 1; throw new Error('must not fetch'); } }
+  });
+  vm.runInContext('Date.now = () => 1005000', noApproval.context);
+  assert.equal(noApproval.context.pollPersonalMicrosoftAuthorization().status, 'confirmation_required');
+  assert.equal(fetches, 0);
+  assert.equal(noApproval.scriptStore.values.MS_AUTH_MODE, 'advanced_entra');
+  assert.equal(noApproval.userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+
+  const cancellation = loadContext({
+    scriptValues: advanced,
+    userValues: {
+      MS_PERSONAL_MODE_SWITCH_PENDING_V1: JSON.stringify(approval),
+      MS_PERSONAL_DEVICE_SESSION_V1: JSON.stringify(deviceSession(1900000, 1010000))
+    }
+  });
+  assert.equal(cancellation.context.cancelPersonalMicrosoftAuthorization().status, 'cancelled');
+  assert.equal(cancellation.scriptStore.values.MS_AUTH_MODE, 'advanced_entra');
+  assert.equal(cancellation.scriptStore.values.MS_CLIENT_ID, 'keep-id');
+  assert.equal(cancellation.userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+  assert.equal(cancellation.userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1, undefined);
+
+  const expiration = loadContext({
+    scriptValues: advanced,
+    userValues: {
+      MS_PERSONAL_MODE_SWITCH_PENDING_V1: JSON.stringify(approval),
+      MS_PERSONAL_DEVICE_SESSION_V1: JSON.stringify(deviceSession(999999, 1000000))
+    }
+  });
+  vm.runInContext('Date.now = () => 1000000', expiration.context);
+  assert.equal(expiration.context.personalMicrosoftAuthorizationStatus().status, 'expired');
+  assert.equal(expiration.scriptStore.values.MS_AUTH_MODE, 'advanced_entra');
+  assert.equal(expiration.userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+  assert.equal(expiration.userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1, undefined);
+
+  const decline = loadContext({
+    scriptValues: advanced,
+    userValues: {
+      MS_PERSONAL_MODE_SWITCH_PENDING_V1: JSON.stringify(approval),
+      MS_PERSONAL_DEVICE_SESSION_V1: JSON.stringify(deviceSession(1900000, 1000000))
+    },
+    urlFetchApp: { fetch: () => httpResponse(400, JSON.stringify({ error: 'access_denied' })) }
+  });
+  vm.runInContext('Date.now = () => 1005000', decline.context);
+  assert.equal(decline.context.pollPersonalMicrosoftAuthorization().status, 'declined');
+  assert.equal(decline.scriptStore.values.MS_AUTH_MODE, 'advanced_entra');
+  assert.equal(decline.scriptStore.values.MS_CLIENT_SECRET, 'keep-secret');
+  assert.equal(decline.userStore.values.MS_PERSONAL_DEVICE_SESSION_V1, undefined);
+  assert.equal(decline.userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1, undefined);
+});
+
+test('Personal refresh rotates refresh tokens and retains the old token when Microsoft omits a replacement', () => {
+  const responses = [
+    httpResponse(200, JSON.stringify({
+      access_token: 'access-two', refresh_token: 'refresh-two', expires_in: 3600
+    })),
+    httpResponse(200, JSON.stringify({ access_token: 'access-three', expires_in: 3600 }))
+  ];
+  const { context, userStore } = loadContext({
+    scriptValues: { MS_AUTH_MODE: 'personal_device' },
+    userValues: { MS_PERSONAL_REFRESH_TOKEN: 'refresh-one' },
+    urlFetchApp: { fetch: () => responses.shift() }
+  });
+  vm.runInContext('Date.now = () => 1000000', context);
+  assert.equal(context.personalMicrosoftAuth_().refresh(), 'access-two');
+  assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, 'refresh-two');
+  assert.equal(context.personalMicrosoftAuth_().refresh(), 'access-three');
+  assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, 'refresh-two');
+});
+
+test('invalid_grant clears only Personal tokens and requires reauthorization', () => {
+  const { context, scriptStore, userStore } = loadContext({
+    scriptValues: {
+      MS_AUTH_MODE: 'personal_device',
+      MS_CLIENT_ID: 'advanced-client', MS_CLIENT_SECRET: 'advanced-secret', MS_TENANT_ID: 'advanced-tenant'
+    },
+    userValues: {
+      MS_PERSONAL_REFRESH_TOKEN: 'private-refresh', MS_PERSONAL_ACCESS_TOKEN: 'private-access',
+      MS_PERSONAL_ACCESS_EXPIRES_AT: '1', unrelated: 'preserve-me'
+    },
+    urlFetchApp: { fetch: () => httpResponse(400, JSON.stringify({ error: 'invalid_grant' })) }
+  });
+  assert.throws(() => context.personalMicrosoftAuth_().refresh(), /MICROSOFT_PERSONAL_REAUTH_REQUIRED/);
+  assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, undefined);
+  assert.equal(userStore.values.MS_PERSONAL_ACCESS_TOKEN, undefined);
+  assert.equal(userStore.values.unrelated, 'preserve-me');
+  assert.equal(scriptStore.values.MS_CLIENT_ID, 'advanced-client');
+  assert.equal(scriptStore.values.MS_CLIENT_SECRET, 'advanced-secret');
+  assert.equal(scriptStore.values.MS_TENANT_ID, 'advanced-tenant');
+});
+
+test('Personal invalid_grant reached through Graph sends one bounded reauthorization alert', () => {
+  let alerts = 0;
+  let graphCalls = 0;
+  const logs = [];
+  const { context, userStore } = loadContext({
+    scriptValues: { MS_AUTH_MODE: 'personal_device' },
+    userValues: {
+      MS_PERSONAL_REFRESH_TOKEN: 'private-refresh-token',
+      MS_PERSONAL_ACCESS_TOKEN: 'private-expired-access-token',
+      MS_PERSONAL_ACCESS_EXPIRES_AT: '1'
+    },
+    urlFetchApp: {
+      fetch(url) {
+        if (String(url).includes('/oauth2/v2.0/token')) {
+          return httpResponse(400, JSON.stringify({
+            error: 'invalid_grant',
+            error_description: 'private-provider-description'
+          }));
+        }
+        graphCalls += 1;
+        throw new Error('Graph must not be called without an access token');
+      }
+    }
+  });
+  context.console = {
+    log: (value) => logs.push(String(value)),
+    warn: (value) => logs.push(String(value)),
+    error: (value) => logs.push(String(value))
+  };
+  context.sendReauthorizationAlert_ = () => { alerts += 1; };
+  assert.throws(
+    () => context.graphFetch_('https://graph.microsoft.com/v1.0/me/todo/lists', { method: 'get' }),
+    /Microsoft authorization has expired\. Reauthorize it\./
+  );
+  assert.equal(alerts, 1);
+  assert.equal(graphCalls, 0);
+  assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, undefined);
+  assert.equal(userStore.values.MS_PERSONAL_ACCESS_TOKEN, undefined);
+  const serialized = JSON.stringify(logs);
+  for (const secret of [
+    'private-refresh-token', 'private-expired-access-token', 'private-provider-description'
+  ]) {
+    assert.equal(serialized.includes(secret), false, secret);
+  }
+});
+
+test('Personal Device Flow public results and logs never expose device access or refresh tokens', () => {
+  const logs = [];
+  const responses = [
+    httpResponse(200, JSON.stringify({
+      device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+      verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 5
+    })),
+    httpResponse(200, JSON.stringify({
+      access_token: 'private-access-token', refresh_token: 'private-refresh-token',
+      expires_in: 3600, scope: 'Tasks.ReadWrite offline_access'
+    })),
+    httpResponse(200, JSON.stringify({ value: [] })),
+    httpResponse(200, JSON.stringify({ value: [] }))
+  ];
+  const { context } = loadContext({ urlFetchApp: { fetch: () => responses.shift() } });
+  context.console = {
+    log: (value) => logs.push(String(value)),
+    warn: (value) => logs.push(String(value)),
+    error: (value) => logs.push(String(value))
+  };
+  vm.runInContext('Date.now = () => 1000000', context);
+  const publicResults = [
+    context.beginPersonalMicrosoftAuthorization(),
+    context.personalMicrosoftAuthorizationStatus()
+  ];
+  vm.runInContext('Date.now = () => 1005000', context);
+  publicResults.push(context.pollPersonalMicrosoftAuthorization());
+  publicResults.push(context.personalMicrosoftAuthorizationStatus());
+  const serialized = JSON.stringify([publicResults, logs]);
+  for (const secret of ['private-device-code', 'private-access-token', 'private-refresh-token']) {
+    assert.equal(serialized.includes(secret), false, secret);
+  }
+});
+
+test('Personal authorization is shown as verified only after a minimal Microsoft To Do probe', () => {
+  const calls = [];
+  const responses = [
+    httpResponse(200, JSON.stringify({
+      device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+      verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 5
+    })),
+    httpResponse(200, JSON.stringify({
+      access_token: 'private-access-token', refresh_token: 'private-refresh-token',
+      expires_in: 3600, scope: 'Tasks.ReadWrite offline_access'
+    })),
+    httpResponse(200, JSON.stringify({ value: [] })),
+    httpResponse(200, JSON.stringify({ value: [] }))
+  ];
+  const { context, scriptStore, userStore } = loadContext({
+    urlFetchApp: { fetch(url, options) { calls.push({ url, options }); return responses.shift(); } }
+  });
+  vm.runInContext('Date.now = () => 1000000', context);
+  context.beginPersonalMicrosoftAuthorization();
+  vm.runInContext('Date.now = () => 1005000', context);
+  const result = context.pollPersonalMicrosoftAuthorization();
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { status: 'authorized', verified: true });
+  assert.equal(calls[2].url, 'https://graph.microsoft.com/v1.0/me/todo/lists?$top=1&$select=id');
+  assert.equal(calls[2].options.method, 'get');
+  assert.equal(calls[2].options.headers.Authorization, 'Bearer private-access-token');
+  assert.equal(userStore.values.MS_PERSONAL_VERIFIED, 'true');
+  assert.equal(scriptStore.values.MS_AUTH_MODE, 'personal_device');
+  assert.deepEqual(JSON.parse(JSON.stringify(context.setupWizardPersonalAuthorizationStatus())), {
+    status: 'authorized', mode: 'personal_device', verified: true
+  });
+});
+
+test('setup page load rechecks Graph instead of trusting the verified marker forever', () => {
+  const calls = [];
+  const { context, userStore } = loadContext({
+    scriptValues: { MS_AUTH_MODE: 'personal_device' },
+    userValues: {
+      MS_PERSONAL_REFRESH_TOKEN: 'private-refresh-token',
+      MS_PERSONAL_ACCESS_TOKEN: 'private-access-token',
+      MS_PERSONAL_ACCESS_EXPIRES_AT: '9999999999999',
+      MS_PERSONAL_VERIFIED: 'true'
+    },
+    urlFetchApp: {
+      fetch(url, options) {
+        calls.push({ url, options });
+        return httpResponse(401, JSON.stringify({ error: 'invalid_token' }));
+      }
+    }
+  });
+  vm.runInContext('Date.now = () => 1000000', context);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.setupWizardPersonalAuthorizationStatus())),
+    {
+      status: 'verification_failed',
+      mode: 'personal_device',
+      errorCode: 'MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED'
+    }
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer private-access-token');
+  assert.equal(userStore.values.MS_PERSONAL_VERIFIED, undefined);
+});
+
+test('Device Flow Graph failures never persist candidate tokens or change an Advanced install', () => {
+  const cases = [
+    ['unauthorized', () => httpResponse(401, JSON.stringify({ error: 'invalid_token' })),
+      'MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED'],
+    ['forbidden', () => httpResponse(403, JSON.stringify({ error: 'forbidden' })),
+      'MICROSOFT_PERSONAL_VERIFY_FORBIDDEN'],
+    ['network', () => { throw new Error('private-network-detail'); },
+      'MICROSOFT_PERSONAL_VERIFY_NETWORK_FAILED']
+  ];
+  for (const [name, graphResponse, errorCode] of cases) {
+    const responses = [
+      httpResponse(200, JSON.stringify({
+        device_code: 'private-device-code', user_code: 'ABCD-EFGH',
+        verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 5
+      })),
+      httpResponse(200, JSON.stringify({
+        access_token: 'private-access-token', refresh_token: 'private-refresh-token',
+        expires_in: 3600, scope: 'Tasks.ReadWrite offline_access'
+      }))
+    ];
+    const { context, scriptStore, userStore } = loadContext({
+      scriptValues: {
+        MS_AUTH_MODE: 'advanced_entra', MS_CLIENT_ID: 'keep-id', MS_CLIENT_SECRET: 'keep-secret'
+      },
+      urlFetchApp: {
+        fetch() { return responses.length ? responses.shift() : graphResponse(); }
+      }
+    });
+    vm.runInContext('Date.now = () => 1000000', context);
+    assert.equal(context.setupWizardBeginPersonalAuthorization().status, 'confirmation_required', name);
+    assert.equal(context.setupWizardConfirmPersonalAuthorization().status, 'pending', name);
+    vm.runInContext('Date.now = () => 1005000', context);
+    const result = context.pollPersonalMicrosoftAuthorization();
+    assert.deepEqual(JSON.parse(JSON.stringify(result)), {
+      status: 'verification_failed', errorCode
+    }, name);
+    assert.equal(scriptStore.values.MS_AUTH_MODE, 'advanced_entra', name);
+    assert.equal(scriptStore.values.MS_CLIENT_ID, 'keep-id', name);
+    assert.equal(scriptStore.values.MS_CLIENT_SECRET, 'keep-secret', name);
+    for (const key of [
+      'MS_PERSONAL_ACCESS_TOKEN', 'MS_PERSONAL_REFRESH_TOKEN', 'MS_PERSONAL_VERIFIED',
+      'MS_PERSONAL_DEVICE_SESSION_V1', 'MS_PERSONAL_MODE_SWITCH_PENDING_V1'
+    ]) {
+      assert.equal(userStore.values[key], undefined, name + ':' + key);
+    }
+    assert.equal(JSON.stringify(result).includes('private-'), false, name);
+  }
+});
+
+test('Personal auth status, begin, and setup status use live Graph verification', () => {
+  const storedTokens = {
+    MS_PERSONAL_REFRESH_TOKEN: 'private-refresh-token',
+    MS_PERSONAL_ACCESS_TOKEN: 'private-access-token',
+    MS_PERSONAL_ACCESS_EXPIRES_AT: '9999999999999',
+    MS_PERSONAL_VERIFIED: 'true'
+  };
+  const cases = [
+    ['begin', 'beginPersonalMicrosoftAuthorization', () => httpResponse(401, '{}'),
+      'MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED', true],
+    ['status', 'personalMicrosoftAuthorizationStatus', () => httpResponse(403, '{}'),
+      'MICROSOFT_PERSONAL_VERIFY_FORBIDDEN', true],
+    ['setup', 'setupStatus', () => { throw new Error('private-network-detail'); },
+      'MICROSOFT_PERSONAL_VERIFY_NETWORK_FAILED', false]
+  ];
+  for (const [name, method, graphResponse, errorCode, clearsTokens] of cases) {
+    const { context, scriptStore, userStore } = loadContext({
+      scriptValues: { MS_AUTH_MODE: 'personal_device' }, userValues: { ...storedTokens },
+      urlFetchApp: { fetch: () => graphResponse() }
+    });
+    context.console = { log: () => {} };
+    vm.runInContext('Date.now = () => 1000000', context);
+    const result = context[method]();
+    const status = method === 'setupStatus' ? result.microsoft.authorizationStatus : result.status;
+    assert.equal(status, 'verification_failed', name);
+    assert.equal(scriptStore.values.MS_AUTH_MODE, 'personal_device', name);
+    assert.equal(userStore.values.MS_PERSONAL_VERIFIED, undefined, name);
+    if (clearsTokens) {
+      assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, undefined, name);
+      assert.equal(userStore.values.MS_PERSONAL_ACCESS_TOKEN, undefined, name);
+    } else {
+      assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, 'private-refresh-token', name);
+    }
+    assert.equal(JSON.stringify(result).includes('private-network-detail'), false, name);
+    if (method !== 'setupStatus') assert.equal(result.errorCode, errorCode, name);
+  }
+});
+
+test('Advanced-to-Personal opens confirmation without recording approval', () => {
+  const { context, scriptStore, userStore } = loadContext({
+    scriptValues: {
+      MS_AUTH_MODE: 'advanced_entra', MS_CLIENT_ID: 'keep-id', MS_CLIENT_SECRET: 'keep-secret'
+    }
+  });
+  const prepared = context.setupWizardBeginPersonalAuthorization();
+  assert.deepEqual(JSON.parse(JSON.stringify(prepared)), {
+    status: 'confirmation_required', mode: 'advanced_entra', confirmationRequired: true
+  });
+  assert.equal(scriptStore.values.MS_AUTH_MODE, 'advanced_entra');
+  assert.equal(userStore.values.MS_PERSONAL_MODE_SWITCH_PENDING_V1, undefined);
+});
+
+test('Cancel with no Device Flow session reports not_started and its local-only meaning', () => {
+  const { context } = loadContext();
+  assert.deepEqual(JSON.parse(JSON.stringify(context.setupWizardCancelPersonalAuthorization())), {
+    status: 'not_started', messageCode: 'CANCEL_ONLY_STOPS_LOCAL_POLLING'
+  });
+});
+
+test('forgetting Personal authorization preserves Advanced credentials and never returns token material', () => {
+  const { context, scriptStore, userStore } = loadContext({
+    scriptValues: {
+      MS_AUTH_MODE: 'personal_device',
+      MS_CLIENT_ID: 'advanced-client', MS_CLIENT_SECRET: 'advanced-secret', MS_TENANT_ID: 'advanced-tenant'
+    },
+    userValues: {
+      MS_PERSONAL_REFRESH_TOKEN: 'private-refresh', MS_PERSONAL_ACCESS_TOKEN: 'private-access',
+      MS_PERSONAL_ACCESS_EXPIRES_AT: '9999999999999', MS_PERSONAL_GRANTED_SCOPE: 'private-scope'
+    }
+  });
+  context.console = { log: () => {} };
+  const result = context.forgetPersonalMicrosoftAuthorization();
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { status: 'cleared' });
+  assert.equal(JSON.stringify(result).includes('private-'), false);
+  assert.equal(userStore.values.MS_PERSONAL_REFRESH_TOKEN, undefined);
+  assert.equal(scriptStore.values.MS_CLIENT_ID, 'advanced-client');
+  assert.equal(scriptStore.values.MS_CLIENT_SECRET, 'advanced-secret');
+  assert.equal(scriptStore.values.MS_TENANT_ID, 'advanced-tenant');
+});
+
+test('setup wizard projection allowlists public fields and strips provider token material', () => {
+  const { context } = loadContext();
+  const view = context.setupWizardPersonalAuthView_({
+    status: 'pending',
+    userCode: 'ABCD-EFGH',
+    verificationUri: 'https://www.microsoft.com/devicelogin',
+    expiresAt: 1900000,
+    retryAfterMs: 5000,
+    deviceCode: 'private-device-code',
+    accessToken: 'private-access-token',
+    refreshToken: 'private-refresh-token',
+    providerMessage: 'private-provider-message'
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(view)), {
+    status: 'pending',
+    userCode: 'ABCD-EFGH',
+    verificationUri: 'https://www.microsoft.com/devicelogin',
+    expiresAt: 1900000,
+    retryAfterMs: 5000
+  });
+  const serialized = JSON.stringify(view);
+  for (const secret of ['private-device-code', 'private-access-token', 'private-refresh-token', 'private-provider-message']) {
+    assert.equal(serialized.includes(secret), false, secret);
+  }
+});
+
+test('setup page offers Connect, Cancel, and Disconnect only for their supported states', () => {
+  const setup = readFileSync(new URL('../Setup.html', import.meta.url), 'utf8');
+  assert.match(setup, /connectButton\.hidden = status === 'authorized'; cancelButton\.hidden = status !== 'pending'; disconnectButton\.hidden = status !== 'authorized'; connectButton\.textContent = 'Connect'/);
+  assert.equal(setup.includes('Reconnect'), false);
+});
+
+test('private setup web app serves only the bundled Setup file with a bounded title', () => {
+  const calls = [];
+  const { context } = loadContext();
+  const output = {
+    setTitle(value) { calls.push(['title', value]); return this; },
+    setXFrameOptionsMode(value) { calls.push(['xframe', value]); return this; }
+  };
+  context.HtmlService = {
+    XFrameOptionsMode: { DEFAULT: 'DEFAULT' },
+    createHtmlOutputFromFile(name) { calls.push(['file', name]); return output; }
+  };
+  assert.equal(context.doGet(), output);
+  assert.deepEqual(calls, [
+    ['file', 'Setup'],
+    ['title', 'Tasks–To Do Sync — Easy Setup'],
+    ['xframe', 'DEFAULT']
+  ]);
 });
 
 test('fatal alerts are bounded and raw state export explicitly warns about sensitivity', () => {
@@ -549,7 +1304,7 @@ test('sync summaries expose only bounded success, failure, and time-budget metri
     context.recordSuccessfulSyncRound_ = () => {};
     context.sendFatalAlert_ = () => {};
     context.normalizeState_ = (value) => value;
-    context.microsoftService_ = () => ({ hasAccess: () => true, getAccessToken: () => 'private-token' });
+    context.microsoftAuth_ = () => ({ hasAccess: () => true, getAccessToken: () => 'private-token' });
 
     if (outcome === 'failure') {
       assert.throws(() => context.syncAll(), /PRIVATE_PROVIDER_RESPONSE_BODY/);
@@ -628,7 +1383,7 @@ function appsScriptUtilities() {
 }
 
 function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, effectiveUserEmail,
-  utilities, scriptApp, urlFetchApp, mailApp } = {}) {
+  utilities, scriptApp, urlFetchApp, mailApp, lockService } = {}) {
   const scriptStore = propertyStore(scriptValues);
   const userStore = propertyStore(userValues);
   const context = vm.createContext({
@@ -645,6 +1400,10 @@ function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, effec
     };
   }
   context.Utilities = Object.assign(appsScriptUtilities(), utilities || {});
+  context.LockService = lockService || {
+    getUserLock: () => ({ waitLock() {}, releaseLock() {} }),
+    getScriptLock: () => ({ waitLock() {}, releaseLock() {} })
+  };
   if (scriptApp) context.ScriptApp = scriptApp;
   if (urlFetchApp) context.UrlFetchApp = urlFetchApp;
   if (mailApp) context.MailApp = mailApp;
@@ -699,6 +1458,17 @@ test('initializeSafeDefaults installs missing public defaults and preserves unre
   assert.deepEqual(userStore.values, { sync_state_main: 'state-sentinel' });
   assert.equal(JSON.stringify(first).includes('secret-sentinel'), false);
   assert.equal(JSON.stringify(first).includes('email-sentinel@example.invalid'), false);
+});
+
+test('initializeSafeDefaults directs personal setup to the private page and scopes properties to Advanced mode', () => {
+  const { context } = loadContext();
+  context.console = { log: () => {} };
+  const report = context.initializeSafeDefaults();
+  const step = report.nextSteps.find((item) => item.code === 'CONFIGURE_MICROSOFT_PROPERTIES');
+  assert.equal(
+    step.message,
+    'Use the private setup page to connect a personal Microsoft account. Script Properties are needed only for optional Advanced Entra OAuth.'
+  );
 });
 
 test('initializeSafeDefaults preserves existing all-true settings and is idempotent', () => {
@@ -958,6 +1728,136 @@ function mappedTaskSnapshot({
   };
 }
 
+function semanticallyEqualOrdinaryTasks({
+  gUpdated = '2026-08-14T00:00:00Z',
+  msUpdated = '2026-08-14T00:00:00Z',
+  google = {},
+  microsoft = {}
+} = {}) {
+  return {
+    gTask: {
+      id: 'g-task',
+      title: 'Same task',
+      notes: 'literal <tag>\nsecond line',
+      status: 'needsAction',
+      due: '2026-08-21T00:00:00.000Z',
+      updated: gUpdated,
+      ...google
+    },
+    msTask: {
+      id: 'ms-task',
+      title: 'Same task',
+      body: { contentType: 'html', content: 'literal &lt;tag&gt;<br>second line' },
+      status: 'notStarted',
+      dueDateTime: { dateTime: '2026-08-21T00:00:00', timeZone: 'Asia/Taipei' },
+      lastModifiedDateTime: msUpdated,
+      ...microsoft
+    }
+  };
+}
+
+test('Microsoft timestamp-only change advances mapping without a Google PATCH', () => {
+  const { context } = loadContext();
+  const baseline = '2026-08-14T00:00:00Z';
+  const observed = '2026-08-14T00:01:00Z';
+  const { gTask, msTask } = semanticallyEqualOrdinaryTasks({ msUpdated: observed });
+  const state = mappedTaskState(context, { gUpdated: baseline, msUpdated: baseline });
+  let patches = 0;
+  context.updateGTask_ = () => { patches += 1; throw new Error('Google PATCH must not run'); };
+
+  context.reconcileMapped_(state, mappedTaskSnapshot({ gTask, msTask }), Date.now(), 'ms-timestamp-only');
+
+  assert.equal(patches, 0);
+  assert.equal(state.g2m['g-task'].gUpdated, gTask.updated);
+  assert.equal(state.g2m['g-task'].msUpdated, observed);
+});
+
+test('Microsoft unsupported-field-only change advances mapping without a Google PATCH', () => {
+  const { context } = loadContext();
+  const baseline = '2026-08-14T00:00:00Z';
+  const observed = '2026-08-14T00:02:00Z';
+  const { gTask, msTask } = semanticallyEqualOrdinaryTasks({
+    msUpdated: observed,
+    microsoft: { importance: 'high', categories: ['Provider only'] }
+  });
+  const state = mappedTaskState(context, { gUpdated: baseline, msUpdated: baseline });
+  let patches = 0;
+  context.updateGTask_ = () => { patches += 1; throw new Error('Google PATCH must not run'); };
+
+  context.reconcileMapped_(state, mappedTaskSnapshot({ gTask, msTask }), Date.now(), 'ms-unsupported-only');
+
+  assert.equal(patches, 0);
+  assert.equal(state.g2m['g-task'].msUpdated, observed);
+});
+
+test('semantically equal Microsoft HTML notes do not produce a Google notes rewrite', () => {
+  const { context } = loadContext();
+  const { gTask, msTask } = semanticallyEqualOrdinaryTasks();
+
+  const payload = JSON.parse(JSON.stringify(context.googleUpdatePayloadFromMs_(msTask, gTask)));
+
+  assert.deepEqual(payload, {});
+});
+
+test('whitespace-only Microsoft plain-text notes do not rewrite blank Google notes', () => {
+  const { context } = loadContext();
+  const { gTask, msTask } = semanticallyEqualOrdinaryTasks({
+    google: { notes: '' },
+    microsoft: { body: { contentType: 'text', content: ' \t\n ' } }
+  });
+
+  const payload = JSON.parse(JSON.stringify(context.googleUpdatePayloadFromMs_(msTask, gTask)));
+
+  assert.deepEqual(payload, {});
+});
+
+test('trailing Microsoft plain-text newlines do not rewrite equivalent Google notes', () => {
+  const { context } = loadContext();
+  const { gTask, msTask } = semanticallyEqualOrdinaryTasks({
+    google: { notes: 'Same note' },
+    microsoft: { body: { contentType: 'text', content: 'Same note\n\n' } }
+  });
+
+  const payload = JSON.parse(JSON.stringify(context.googleUpdatePayloadFromMs_(msTask, gTask)));
+
+  assert.deepEqual(payload, {});
+});
+
+test('unsafe Microsoft due interpretation preserves the existing Google due date', () => {
+  const { context } = loadContext();
+  const { gTask, msTask } = semanticallyEqualOrdinaryTasks({
+    microsoft: {
+      title: 'Renamed task',
+      dueDateTime: { dateTime: '2026-08-22T00:00:00', timeZone: 'Private Unknown Zone' }
+    }
+  });
+
+  const payload = JSON.parse(JSON.stringify(context.googleUpdatePayloadFromMs_(msTask, gTask)));
+
+  assert.deepEqual(payload, { title: 'Renamed task' });
+  assert.equal(Object.hasOwn(payload, 'due'), false);
+});
+
+test('Microsoft LWW winner with matching shared semantics converges without a Google PATCH', () => {
+  const { context } = loadContext();
+  const baseline = '2026-08-14T00:00:00Z';
+  const gObserved = '2026-08-14T00:01:00Z';
+  const msObserved = '2026-08-14T00:02:00Z';
+  const { gTask, msTask } = semanticallyEqualOrdinaryTasks({
+    gUpdated: gObserved,
+    msUpdated: msObserved
+  });
+  const state = mappedTaskState(context, { gUpdated: baseline, msUpdated: baseline });
+  let patches = 0;
+  context.updateGTask_ = () => { patches += 1; throw new Error('Google PATCH must not run'); };
+
+  context.reconcileMapped_(state, mappedTaskSnapshot({ gTask, msTask }), Date.now(), 'ms-lww-noop');
+
+  assert.equal(patches, 0);
+  assert.equal(state.g2m['g-task'].gUpdated, gObserved);
+  assert.equal(state.g2m['g-task'].msUpdated, msObserved);
+});
+
 function readyDeletionCandidate(state, missingSide, roundId = 'round-2') {
   const rec = state.g2m['g-task'];
   state.pendingTaskDeletions['g-task'] = {
@@ -1089,7 +1989,7 @@ test('Graph 429 retry honors Retry-After and returns success without a real wait
       }
     }
   });
-  context.microsoftService_ = () => ({
+  context.microsoftAuth_ = () => ({
     hasAccess: () => true,
     getAccessToken: () => 'test-token'
   });
@@ -1114,7 +2014,7 @@ test('Graph exhausted 429 retries throw after HTTP_MAX_RETRIES plus one attempts
       }
     }
   });
-  context.microsoftService_ = () => ({
+  context.microsoftAuth_ = () => ({
     hasAccess: () => true,
     getAccessToken: () => 'test-token'
   });
@@ -4198,7 +5098,7 @@ test('syncAll treats a proven Microsoft-missing auto pair as lifecycle evidence,
   assert.ok(afterSecond.listTombstones.ms['ms-list']);
 });
 
-test('auto default list keeps ordinary task create and both update directions without list-delete ownership', () => {
+test('auto default list keeps ordinary task create and timestamp-only observations without list-delete ownership', () => {
   const { context } = loadContext({ scriptValues: { SYNC_LIST_DISCOVERY_MODE: 'auto' } });
   let durable = context.newState_();
   let mode = 'create';
@@ -4260,7 +5160,7 @@ test('auto default list keeps ordinary task create and both update directions wi
   assert.equal(finalState.g2m['g-task'].msId, 'ms-task');
   assert.equal(created, 1);
   assert.equal(googleToMicrosoftUpdates, 0);
-  assert.equal(microsoftToGoogleUpdates, 1);
+  assert.equal(microsoftToGoogleUpdates, 0);
   assert.deepEqual(JSON.parse(JSON.stringify(finalState.pendingListDeletions)), {});
   assert.deepEqual(JSON.parse(JSON.stringify(finalState.listDeletionJournal)), {});
   assert.deepEqual(JSON.parse(JSON.stringify(finalState.listTombstones)), { g: {}, ms: {} });
@@ -6620,6 +7520,22 @@ test('time budget text promises full re-inventory instead of cursor resume', () 
   assert.match(code, /next (?:round|invocation).*full inventory.*persisted page cursor/i);
   assert.doesNotMatch(code, /TIME_BUDGET_HTTP[^\n]*resum/i);
   assert.match(code, /SYNC_TRIGGER_INTERVAL_MINUTES = 10/);
+});
+
+test('default diagnostic labels pseudonymize provider task and list IDs', () => {
+  const { context } = loadContext();
+  const providerId = 'provider-id-that-must-not-appear';
+  const taskLabel = context.taskLabel_(providerId, 'Private task title');
+  const listLabel = context.listLabel_(providerId, 'Private list title');
+
+  assert.match(taskLabel, /^task_[0-9a-f]{16}$/);
+  assert.match(listLabel, /^list_[0-9a-f]{16}$/);
+  assert.equal(taskLabel.includes(providerId), false);
+  assert.equal(listLabel.includes(providerId), false);
+  assert.equal(taskLabel.includes('Private task title'), false);
+  assert.equal(listLabel.includes('Private list title'), false);
+  assert.equal(context.taskLabel_(providerId, 'Different title'), taskLabel);
+  assert.equal(context.listLabel_(providerId, 'Different title'), listLabel);
 });
 
 test('Microsoft task inventory expands only the requested move extension list', () => {

@@ -19,6 +19,10 @@
   },
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
+  "webapp": {
+    "access": "MYSELF",
+    "executeAs": "USER_DEPLOYING"
+  },
   "oauthScopes": [
     "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/script.external_request",
