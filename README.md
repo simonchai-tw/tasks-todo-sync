@@ -13,7 +13,7 @@
   <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL"></a>
   <a href="https://www.npmjs.com/package/tasks-todo-sync"><img src="https://img.shields.io/npm/v/tasks-todo-sync?style=flat-square" alt="npm version"></a>
-  <a href="https://github.com/simonchai-tw/tasks-todo-sync/releases"><img src="https://img.shields.io/github/v/release/simonchai-tw/tasks-todo-sync?include_prereleases&amp;sort=semver&amp;style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/simonchai-tw/tasks-todo-sync/releases"><img src="https://img.shields.io/github/v/release/simonchai-tw/tasks-todo-sync?include_prereleases&sort=semver&style=flat-square" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/simonchai-tw/tasks-todo-sync?style=flat-square" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/runtime-Google%20Apps%20Script-4285F4?style=flat-square" alt="Google Apps Script">
 </p>
@@ -117,6 +117,11 @@ Follow the **[quick start](docs/quick-start.md)** for the guided installation, o
 | [Changelog](CHANGELOG.md) | Release history |
 
 Questions, ideas, or something not working? [Open an issue](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose).
+
+## Roadmap
+
+- **Keep the foundation simple and maintainable.** Evolve the Apps Script codebase into a cleaner structure without changing the straightforward self-hosted experience.
+- **Make more of each task travel with you.** Expand synchronization beyond today’s core fields so richer task details and workflows can move more naturally between Google Tasks and Microsoft To Do.
 
 ## License
 
