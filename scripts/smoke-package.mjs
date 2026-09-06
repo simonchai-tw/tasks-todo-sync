@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { GAS_SOURCE_FILES } from '../lib/gas-files.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -12,7 +13,7 @@ const requiredFiles = [
   'lib/cli.mjs',
   'assets/claspignore',
   'assets/deploy-gitignore',
-  'Code.gs',
+  ...GAS_SOURCE_FILES,
   'Setup.html',
   'appsscript.json'
 ];
@@ -69,7 +70,11 @@ try {
   for (const filename of requiredFiles) {
     assert(packedFiles.includes(filename), `tarball omitted required file: ${filename}`);
   }
-  const forbidden = packedFiles.filter((filename) => forbiddenPath.test(filename));
+  assert(JSON.stringify(packedFiles.filter((filename) => filename.endsWith('.gs')).sort())
+    === JSON.stringify([...GAS_SOURCE_FILES].sort()),
+  'tarball GAS subset differs from the canonical deployable set');
+  const forbidden = packedFiles.filter((filename) => !GAS_SOURCE_FILES.includes(filename)
+    && forbiddenPath.test(filename));
   assert(forbidden.length === 0, `tarball includes forbidden local state: ${forbidden.join(', ')}`);
 
   runNpm(['install', '--ignore-scripts', '--no-audit', '--no-fund', tarball], installRoot);

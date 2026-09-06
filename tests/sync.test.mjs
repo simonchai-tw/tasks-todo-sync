@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { gasSourceFiles, runGasFilesInContext } from './gas-loader.mjs';
 import { gzipSync, gunzipSync } from 'node:zlib';
 
 test('healthCheck and dryRunReport fail closed on invalid safety settings without disclosure or mutation', () => {
@@ -1331,7 +1332,7 @@ test('sync summaries expose only bounded success, failure, and time-budget metri
   run('time_budget');
 });
 
-const code = readFileSync(new URL('../Code.gs', import.meta.url), 'utf8');
+const code = gasSourceFiles().map(({ source }) => source).join('\n');
 
 function propertyStore(initial = {}) {
   const values = { ...initial };
@@ -1407,7 +1408,7 @@ function loadContext({ scriptValues = {}, userValues = {}, scriptTimeZone, effec
   if (scriptApp) context.ScriptApp = scriptApp;
   if (urlFetchApp) context.UrlFetchApp = urlFetchApp;
   if (mailApp) context.MailApp = mailApp;
-  new vm.Script(code, { filename: 'Code.gs' }).runInContext(context);
+  runGasFilesInContext(context);
   return { context, scriptStore, userStore };
 }
 

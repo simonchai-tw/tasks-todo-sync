@@ -1,4 +1,15 @@
 **/**
 !Code.gs
+!globals.gs
+!setup.gs
+!auth.gs
+!config.gs
+!state.gs
+!runtime.gs
+!providers.gs
+!lifecycle.gs
+!lists.gs
+!sync.gs
+!operations.gs
 !Setup.html
 !appsscript.json

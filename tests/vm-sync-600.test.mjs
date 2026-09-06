@@ -3,12 +3,11 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 import { gzipSync, gunzipSync } from 'node:zlib';
+import { runGasFilesInContext } from './gas-loader.mjs';
 
-const CODE = readFileSync(new URL('../Code.gs', import.meta.url), 'utf8');
 const TASK_COUNT = 600;
 const PAGE_SIZE = 100;
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -42,7 +41,7 @@ function harness({ listCount = 1, tasksPerList = TASK_COUNT, deletions = false, 
   const user = propStore(); const logs = [];
   const context = vm.createContext({ console: { log: (v) => logs.push(String(v)), warn: (v) => logs.push(String(v)), error: (v) => logs.push(String(v)) },
     PropertiesService: { getScriptProperties: () => script, getUserProperties: () => user }, Utilities: appsUtilities() });
-  new vm.Script(CODE, { filename: 'Code.gs' }).runInContext(context);
+  runGasFilesInContext(context);
   context.withGlobalLock_ = (fn) => fn(); context.sendFatalAlert_ = () => {};
   const p = { googleLists: [], microsoftLists: [], google: new Map(), microsoft: new Map(), gPages: 0, msPages: 0, gListPages: 0, msListPages: 0, gWrites: 0, msWrites: 0, gDeletes: 0, msDeletes: 0, calls: [], fail: null, sequence: 0 };
   for (let i = 0; i < listCount; i++) { p.googleLists.push({ id: gid(i), title: `VM list ${i}` }); p.microsoftLists.push({ id: mid(i), displayName: `VM list ${i}`, isOwner: true, isShared: false, wellknownListName: 'none' }); p.google.set(gid(i), []); p.microsoft.set(mid(i), []); }

@@ -3,15 +3,19 @@ import { readFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { createNodeRuntime, main } from '../lib/cli.mjs';
+import { GAS_SOURCE_FILES } from '../lib/gas-files.mjs';
 
 const PACKAGE = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 const PACKAGED_MANIFEST = readFileSync(new URL('../appsscript.json', import.meta.url), 'utf8');
 const ASSETS = {
-  code: 'function syncAll() {}\n',
+  gasFiles: Object.fromEntries(GAS_SOURCE_FILES.map((name) => [
+    name,
+    name === 'Code.gs' ? 'function syncAll() {}\n' : `// ${name}\n`
+  ])),
   setup: '<!doctype html><title>Microsoft setup</title>\n',
   manifest: PACKAGED_MANIFEST,
-  claspignore: '**/**\n!Code.gs\n!Setup.html\n!appsscript.json\n',
+  claspignore: `**/**\n${GAS_SOURCE_FILES.map((name) => `!${name}`).join('\n')}\n!Setup.html\n!appsscript.json\n`,
   gitignore: '.clasp.json\n.clasprc.json\n.tasks-todo-sync-init.json\nCode.js\n.env\n.env.*\n*.secret.json\n*sync-state*.json\n*state-export*.json\n'
 };
 
@@ -147,7 +151,9 @@ test('init pins every clasp invocation to its own target instead of inheriting a
   ]);
   assert.ok(fake.calls.every(({ args }) => args[0] === '--project' && args[1] === target));
   assert.equal(fake.calls[0].options.capture, true);
-  assert.equal(fake.fileMap.get(join(target, 'Code.gs')), ASSETS.code);
+  for (const name of GAS_SOURCE_FILES) {
+    assert.equal(fake.fileMap.get(join(target, name)), ASSETS.gasFiles[name]);
+  }
   assert.equal(fake.fileMap.get(join(target, 'Setup.html')), ASSETS.setup);
   assert.equal(fake.fileMap.get(join(target, '.claspignore')), ASSETS.claspignore);
   assert.equal(fake.fileMap.get(join(target, '.gitignore')), ASSETS.gitignore);
@@ -214,10 +220,85 @@ test('init resumes the bounded post-create partial state before replacing clasp 
 
   assert.equal(exitCode, 0);
   assert.deepEqual(fake.calls.map(({ args }) => args[2]), ['show-authorized-user', 'push']);
-  assert.equal(fake.fileMap.get(join(target, 'Code.gs')), ASSETS.code);
+  for (const name of GAS_SOURCE_FILES) {
+    assert.equal(fake.fileMap.get(join(target, name)), ASSETS.gasFiles[name]);
+  }
   assert.equal(fake.fileMap.get(join(target, 'Setup.html')), ASSETS.setup);
   assert.equal(fake.fileMap.has(join(target, 'Code.js')), false);
   assert.equal(JSON.parse(fake.fileMap.get(join(target, '.tasks-todo-sync-init.json'))).phase, 'pushed');
+});
+
+test('init migrates through a new directory containing only the copied clasp project binding', async () => {
+  const cwd = resolve('cli-test-handoff');
+  const target = join(cwd, 'multi-file');
+  const fake = createFakeRuntime({
+    cwd,
+    files: {
+      [join(target, '.clasp.json')]: JSON.stringify({ scriptId: 'same-existing-script-id', rootDir: '.' })
+    }
+  });
+
+  const exitCode = await main(['init', '--yes', '--target', 'multi-file'], fake.runtime);
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(fake.calls.map(({ args }) => args[2]), ['show-authorized-user', 'push']);
+  assert.equal(JSON.parse(fake.fileMap.get(join(target, '.clasp.json'))).scriptId, 'same-existing-script-id');
+  for (const name of GAS_SOURCE_FILES) {
+    assert.equal(fake.fileMap.get(join(target, name)), ASSETS.gasFiles[name]);
+  }
+  const marker = JSON.parse(fake.fileMap.get(join(target, '.tasks-todo-sync-init.json')));
+  assert.equal(marker.phase, 'pushed');
+  assert.equal(marker.scriptId, 'same-existing-script-id');
+});
+
+test('init refuses an in-place single-file upgrade with an actionable migration path', async () => {
+  const cwd = resolve('cli-test-legacy-upgrade');
+  const target = join(cwd, 'single-file');
+  const fake = createFakeRuntime({
+    cwd,
+    files: {
+      [join(target, '.clasp.json')]: JSON.stringify({ scriptId: 'existing-script-id', rootDir: '.' }),
+      [join(target, 'Code.gs')]: 'function syncAll() {}\n',
+      [join(target, 'appsscript.json')]: PACKAGED_MANIFEST
+    }
+  });
+
+  const exitCode = await main(['init', '--yes', '--target', 'single-file'], fake.runtime);
+
+  assert.equal(exitCode, 1);
+  assert.equal(fake.calls.length, 0);
+  assert.match(fake.errors.join('\n'), /Refusing in-place upgrade/);
+  assert.match(fake.errors.join('\n'), /copy only \.clasp\.json/);
+  assert.match(fake.errors.join('\n'), /healthCheck\(\).*dryRunReport\(\)/);
+});
+
+test('completed partial resume byte-compares every canonical GAS source', async () => {
+  const cwd = resolve('cli-test-byte-compare');
+  const target = join(cwd, 'pushed');
+  const files = Object.fromEntries(GAS_SOURCE_FILES.map((name) => [
+    join(target, name),
+    ASSETS.gasFiles[name]
+  ]));
+  files[join(target, 'lifecycle.gs')] = '// locally modified lifecycle\n';
+  files[join(target, '.tasks-todo-sync-init.json')] = JSON.stringify({
+    schemaVersion: 1,
+    tool: 'tasks-todo-sync',
+    phase: 'pushed',
+    scriptId: 'script-id-pushed',
+    createdAt: '2026-08-25T00:00:00.000Z'
+  });
+  files[join(target, '.clasp.json')] = JSON.stringify({ scriptId: 'script-id-pushed', rootDir: '.' });
+  files[join(target, 'Setup.html')] = ASSETS.setup;
+  files[join(target, '.claspignore')] = ASSETS.claspignore;
+  files[join(target, '.gitignore')] = ASSETS.gitignore;
+  files[join(target, 'appsscript.json')] = ASSETS.manifest;
+  const fake = createFakeRuntime({ cwd, files });
+
+  const exitCode = await main(['init', '--yes', '--target', 'pushed'], fake.runtime);
+
+  assert.equal(exitCode, 1);
+  assert.equal(fake.calls.length, 0);
+  assert.match(fake.errors.join('\n'), /lifecycle\.gs differs from the packaged safe partial state/);
 });
 
 test('init refuses a non-empty target that is not a safe partial deployment', async () => {

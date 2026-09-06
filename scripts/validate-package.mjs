@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { GAS_SOURCE_FILES } from '../lib/gas-files.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const npmCli = process.env.npm_execpath;
@@ -20,7 +21,7 @@ const required = [
   'lib/cli.mjs',
   'assets/claspignore',
   'assets/deploy-gitignore',
-  'Code.gs',
+  ...GAS_SOURCE_FILES,
   'Setup.html',
   'appsscript.json'
 ];
@@ -30,8 +31,14 @@ for (const filename of required) {
   }
 }
 
+const packedGasFiles = files.filter((filename) => filename.endsWith('.gs')).sort();
+const expectedGasFiles = [...GAS_SOURCE_FILES].sort();
+if (JSON.stringify(packedGasFiles) !== JSON.stringify(expectedGasFiles)) {
+  throw new Error(`npm pack GAS subset differs from canonical set: ${packedGasFiles.join(', ')}`);
+}
+
 const forbidden = /(^|\/)(?:\.clasp(?:rc)?(?:\.json)?|\.env(?:\.|$)|[^/]*(?:secret|state)[^/]*)(?:$|\/)/i;
-const unsafe = files.filter((filename) => forbidden.test(filename));
+const unsafe = files.filter((filename) => !GAS_SOURCE_FILES.includes(filename) && forbidden.test(filename));
 if (unsafe.length > 0) {
   throw new Error(`npm pack --dry-run includes unsafe local configuration or state: ${unsafe.join(', ')}`);
 }

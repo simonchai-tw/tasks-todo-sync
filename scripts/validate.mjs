@@ -2,13 +2,20 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { GAS_SOURCE_FILES } from '../lib/gas-files.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const code = readFileSync(new URL('../Code.gs', import.meta.url), 'utf8');
+const gasSources = GAS_SOURCE_FILES.map((filename) => ({
+  filename,
+  source: readFileSync(new URL(`../${filename}`, import.meta.url), 'utf8')
+}));
+const code = gasSources.map(({ source }) => source).join('\n');
 const setup = readFileSync(new URL('../Setup.html', import.meta.url), 'utf8');
 const manifest = JSON.parse(readFileSync(new URL('../appsscript.json', import.meta.url), 'utf8'));
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const packageLock = JSON.parse(readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8'));
+const rootClaspignore = readFileSync(new URL('../.claspignore', import.meta.url), 'utf8');
+const packagedClaspignore = readFileSync(new URL('../assets/claspignore', import.meta.url), 'utf8');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -37,7 +44,38 @@ const cliVersion = execFileSync(process.execPath, [cliPath, '--version'], {
 }).trim();
 assert(cliVersion === packageJson.version, 'CLI --version must match package.json');
 
-new vm.Script(code, { filename: 'Code.gs' });
+for (const { filename, source } of gasSources) new vm.Script(source, { filename });
+
+const topLevelDeclarations = new Map();
+const topLevelFunctions = [];
+for (const { filename, source } of gasSources) {
+  for (const match of source.matchAll(/^(?:function\s+|(?:const|let|var)\s+)([A-Za-z_$][\w$]*)/gm)) {
+    const previous = topLevelDeclarations.get(match[1]);
+    assert(!previous, `Duplicate top-level declaration ${match[1]} in ${previous} and ${filename}`);
+    topLevelDeclarations.set(match[1], filename);
+    if (match[0].startsWith('function ')) topLevelFunctions.push([match[1], filename]);
+  }
+}
+const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
+assert(publicEntrypoints.length === 43, `Expected 43 public entrypoints, found ${publicEntrypoints.length}`);
+assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs'),
+  'All public and compatibility entrypoints must remain in Code.gs');
+
+function claspGasAllowlist(text) {
+  return text.split(/\r?\n/)
+    .filter((line) => /^![^/]+\.gs$/.test(line))
+    .map((line) => line.slice(1))
+    .sort();
+}
+const canonicalGasFiles = [...GAS_SOURCE_FILES].sort();
+assert(JSON.stringify(claspGasAllowlist(rootClaspignore)) === JSON.stringify(canonicalGasFiles),
+  'Root .claspignore GAS allowlist must match canonical deployable set');
+assert(JSON.stringify(claspGasAllowlist(packagedClaspignore)) === JSON.stringify(canonicalGasFiles),
+  'Packaged .claspignore GAS allowlist must match canonical deployable set');
+assert(!rootClaspignore.split(/\r?\n/).includes('!Setup.html'),
+  'Root private .claspignore must not deploy Setup.html');
+assert(packagedClaspignore.split(/\r?\n/).includes('!Setup.html'),
+  'Packaged public .claspignore must deploy Setup.html');
 
 const requiredFunctions = [
   'initializeSafeDefaults',

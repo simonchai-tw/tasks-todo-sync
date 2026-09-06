@@ -2,7 +2,14 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.3.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.4.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
+
+## 0.4.0 — 2026-09-07
+
+- Split the Apps Script runtime into 12 root-level `.gs` files without changing public entrypoints or synchronization behavior.
+- Added canonical, reverse, and deterministic shuffled VM load-order gates plus duplicate-global and deploy-set validation.
+- Updated the CLI, npm package, and both private/public `.claspignore` templates to use one canonical Apps Script source set.
+- Kept legacy single-file directories read-only during upgrade. Migrate through a new directory containing only a copied `.clasp.json` so the same Apps Script project and remote state are retained.
 
 ## 0.3.0 — 2026-09-06
 

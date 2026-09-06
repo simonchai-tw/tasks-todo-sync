@@ -10,3 +10,4 @@ coverage/
 *state-export*.json
 npm-debug.log*
 /Tasks-ToDo-Sync-Code.md
+.codex/

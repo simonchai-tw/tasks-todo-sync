@@ -133,6 +133,17 @@ Use this only when `healthCheck()` reports a blocked legacy move journal. These 
 
 Never clear `taskMoveJournal`, edit provider IDs, force-import state, or use cancel as blind cleanup. Missing-source, changed-source, move-versus-edit conflicts, and ambiguous winners remain fail closed unless one exact operation is supported by live evidence.
 
+## Upgrade from a single-file deployment
+
+The CLI deliberately refuses to rewrite an existing directory that still contains the old single `Code.gs` deployment. To retain the same Apps Script project and its Script/User Properties state:
+
+1. Create a new empty local directory.
+2. Copy only `.clasp.json` from the old directory into the new directory. Verify its Script ID is the intended private project; never publish this file.
+3. Run `npx tasks-todo-sync init --target <new-directory>` from the parent directory.
+4. Keep the old directory as a private backup until the multi-file source has been pushed and both `healthCheck()` and `dryRunReport()` have been reviewed.
+
+The copied Script ID points the new local directory at the same Apps Script project. Replacing project source does not erase Script Properties or User Properties, but always review the exact target and deployable file set before pushing.
+
 ## Manual Apps Script fallback
 
 Use this route when the package cannot be resolved or when each deployment step must be reviewed manually:
@@ -144,7 +155,7 @@ npx --yes @google/clasp@3.4.0 pull
 npx --yes @google/clasp@3.4.0 push
 ```
 
-Keep a private backup before `pull` or `push`, review the exact `Code.gs` and `appsscript.json`, and verify the intended private project in `.clasp.json`. Run `setupStatus()` and `dryRunReport()` before creating a trigger.
+Keep a private backup before `pull` or `push`, review the complete canonical `.gs` source set and `appsscript.json`, and verify the intended private project in `.clasp.json`. Run `setupStatus()` and `dryRunReport()` before creating a trigger.
 
 ## Source and sync-state rollback
 

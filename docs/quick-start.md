@@ -14,6 +14,8 @@ npx tasks-todo-sync init
 
 The CLI creates a private standalone Apps Script project, applies the computer's IANA time zone (or `--timezone <IANA>`), pushes the release sources, and prints the editor URL. Open that URL, select `initializeSafeDefaults` in the function list, and click **Run**. Approve the Google permission screen when prompted. The CLI does not receive Microsoft credentials or OAuth tokens. If `npx` cannot resolve the published package, use the [manual fallback](deployment.md#manual-apps-script-fallback).
 
+Existing single-file deployments must use the [safe upgrade path](deployment.md#upgrade-from-a-single-file-deployment); the CLI does not rewrite the old source directory in place.
+
 Fresh projects receive:
 
 ```properties
