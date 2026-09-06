@@ -1,16 +1,16 @@
-# v0.3.0 engineering audit
+# v0.4.0 engineering audit
 
-Audit scope: 0.3.0 — 2026-09-06
+Audit scope: 0.4.0 — 2026-09-07
 
-The Personal Microsoft Device Code authorization extension described below is included in this release. Its automated and real-account evidence is recorded here.
+The canonical multi-file Apps Script runtime and bounded task-create recovery protocol described below are included in this release. Their automated and real-account evidence is recorded here.
 
 Supported environment: initial installation and source updates require a Windows, macOS, or Linux desktop/laptop with Node.js 22+, a terminal, and a modern browser. Chromebook Linux is best effort. npm installation is not supported on phones; the Microsoft connection wizard remains mobile-responsive for reauthorization. The [field compatibility matrix](field-compatibility.md) is the canonical source for field boundaries.
 
 ## Release decision
 
-`v0.3.0` is a stable personal, single-operator synchronization release. It includes compressed and integrity-checked state, backward-compatible migration, guarded deletion, recovery journals, tombstones, bounded diagnostics, destination-first cross-list moves, and the private Personal Microsoft setup page. Fresh projects enable automatic list discovery, task deletion, list deletion, and task moves; existing explicit Script Properties are preserved.
+`v0.4.0` is a stable personal, single-operator synchronization release. It includes the canonical 12-file Apps Script runtime, compressed and integrity-checked state, backward-compatible migration, guarded deletion, recovery journals, bounded task creates, tombstones, bounded diagnostics, destination-first cross-list moves, and the private Personal Microsoft setup page. Fresh projects enable automatic list discovery, task deletion, list deletion, and task moves; existing explicit Script Properties are preserved.
 
-The core implementation is covered by 265 automated tests, CI, and CodeQL. Recorded bidirectional real-account checks cover task deletion, list deletion, and cross-list moves in the maintainer's private deployment. Local deterministic validation also exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. The deterministic 600-pair validation is provider-free; the separate bounded real-account observation below does not establish a universal provider or Apps Script runtime guarantee.
+The core implementation is covered by 279 automated tests, CI, and CodeQL. Recorded bidirectional real-account checks cover task deletion, list deletion, cross-list moves, and task creation in the maintainer's private deployment. Local deterministic validation also exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. The deterministic 600-pair validation is provider-free; the separate bounded real-account observation below does not establish a universal provider or Apps Script runtime guarantee.
 
 ## Scope verification
 
@@ -42,6 +42,14 @@ Google-origin moves create the destination counterpart, read it back, verify the
 
 Automated coverage includes exact marker identity, journal recovery, source revalidation, conflict handling, duplicate prevention, and field conversion. `dryRunReport()` does not expand attachment, checklist, linked-resource, or unrelated extension relationships; those fields are uninspected rather than asserted absent.
 
+## Task-create recovery boundary
+
+Ordinary unmapped task creates are processed in same-direction batches of at most 25 items. The User Property `SYNC_TASK_CREATE_PROGRESS_V1` records per-item progress, and completed batches are checkpointed while the round fence remains open. This bounds provider work and lets a later run continue after a time-budget exit without reposting completed creates.
+
+The create protocol is provider-specific because neither provider documents POST idempotency. Google→Microsoft creates carry the dedicated extension identity `com.tasksTodoSync.create`; recovery accepts only one exact supported normalized extension ID with the matching UUID in the intended destination list. Microsoft→Google creates append the temporary sentinel `<!-- tasks-todo-sync-create:<uuid> -->` to Google notes; cleanup removes it only after the update and a positive GET verification. Zero or multiple exact candidates fail closed, with no automatic repost of an uncertain create.
+
+Blocked batches have a private operator surface: `inspectTaskCreateBatch()`, `previewTaskCreateBatchOperation()`, and `applyTaskCreateBatchOperation()`, driven by the Script Property `SYNC_TASK_CREATE_OPERATION_JSON`. `RESOLVE_EXISTING` requires one exact verified destination. `RELEASE_FOR_REPOST` requires the literal confirmation `I_UNDERSTAND_DUPLICATE_RISK_RELEASE_FOR_REPOST` and intentionally accepts duplicate risk. Operators must pause triggers, back up state, preview, round-trip the preview token, and apply; the helpers update only the private sidecar, while the next `syncAll()` performs provider recovery. Provider IDs and secrets are not part of published evidence.
+
 ## Scheduling and diagnostics boundary
 
 The supported trigger cadence is 10 minutes. Apps Script permits at most six minutes per execution; the script budget is 5.25 minutes. Destructive paths reserve additional time before live reads, journal writes, or remote mutation. A time-budget exit starts a complete inventory on the next invocation: no page cursor, Graph delta token, or shard checkpoint is persisted. Page-token and page-count guards fail closed on repeated tokens, unreasonable counts, or insufficient execution time.
@@ -67,7 +75,7 @@ Normal fresh state does not store task titles, notes, or bodies in the mapping s
 
 ## Evidence reviewed
 
-- 265 automated tests, CI, CodeQL, static checks, package smoke validation, and the deterministic 600-pair VM/capacity run were recorded for the release worktree. CodeQL uses GitHub Default setup, so no repository-owned CodeQL workflow file is expected.
+- 279 automated tests, CI, CodeQL, static checks, package smoke validation, and the deterministic 600-pair VM/capacity run were recorded for the release worktree. CodeQL uses GitHub Default setup, so no repository-owned CodeQL workflow file is expected.
 - Bidirectional real-account validation covered Personal Device Code authorization, supported task fields, task deletion, list deletion, cross-list movement, state rollback, and the bounded 600-task observation. The published observations omit private mappings, provider IDs, task contents, project identifiers, credentials, and Apps Script version numbers.
 - Release publication and deployment execution are separate from source inspection; this audit does not infer evidence that was not observed.
 

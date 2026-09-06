@@ -86,10 +86,30 @@ function harness({ listCount = 1, tasksPerList = TASK_COUNT, deletions = false, 
     if (method === 'delete') { remove(p.microsoft, list, id); p.msDeletes++; return {}; }
     const t = find(p.microsoft, list, id); if (!t) throw new Error('HTTP 404: task missing'); Object.assign(t, payload(options)); p.msWrites++; return clone(touchM(t));
   };
-  return { context, provider: p, user, logs, state: () => context.loadStateForSync_(), setTime: (n) => vm.runInContext(`globalThis.__vmNow = ${n}; Date.now = function() { return globalThis.__vmNow; };`, context),
+return { context, provider: p, script, user, logs, state: () => context.loadStateForSync_(), setTime: (n) => vm.runInContext(`globalThis.__vmNow = ${n}; Date.now = function() { return globalThis.__vmNow; };`, context),
     removeGoogle: () => p.google.forEach((a) => a.splice(0, a.length)), moveGoogle: () => { for (let i = 0; i < TASK_COUNT; i++) { const from = gid(Math.floor(i / tasksPerList)), to = gid((Math.floor(i / tasksPerList) + 1) % listCount), a = p.google.get(from), at = a.findIndex((t) => t.id === gtid(i)), t = a.splice(at, 1)[0]; p.google.get(to).push(touchG(t)); } } };
 }
 function assertIntegrity(h) { const s = h.state(); assert.equal(Object.keys(s.g2m).length, TASK_COUNT); assert.equal(Object.keys(s.m2g).length, TASK_COUNT); assert.equal(new Set(Object.values(s.g2m).map((r) => r.msId)).size, TASK_COUNT); assert.match(h.user.values.sync_state_main_manifest, /gzip-base64/); assert.deepEqual(h.context.loadStateForSync_().g2m, s.g2m); }
+function smallUnmappedHarness(direction) {
+  const h = harness({ listCount: 1, tasksPerList: TASK_COUNT });
+  h.provider.google.get(gid(0)).splice(0);
+  h.provider.microsoft.get(mid(0)).splice(0);
+  const clean = h.state(); clean.g2m = {}; clean.m2g = {}; h.context.saveState_(clean);
+  if (direction === 'google_to_microsoft') {
+    h.provider.google.get(gid(0)).push(
+      { id: 'g-a', title: 'A', notes: 'a', status: 'needsAction', updated: stamp(1) },
+      { id: 'g-b', title: 'B', notes: 'b', status: 'needsAction', updated: stamp(2) },
+      { id: 'g-c', title: 'C', notes: 'c', status: 'needsAction', updated: stamp(3) }
+    );
+  } else {
+    h.provider.microsoft.get(mid(0)).push(
+      { id: 'ms-a', title: 'A', body: { contentType: 'html', content: 'a' }, status: 'notStarted', lastModifiedDateTime: stamp(1) },
+      { id: 'ms-b', title: 'B', body: { contentType: 'html', content: 'b' }, status: 'notStarted', lastModifiedDateTime: stamp(2) },
+      { id: 'ms-c', title: 'C', body: { contentType: 'html', content: 'c' }, status: 'notStarted', lastModifiedDateTime: stamp(3) }
+    );
+  }
+  return h;
+}
 
 test('VM dense 1x600 pagination and steady no-op mapping', () => { const h = harness({ listCount: 1, tasksPerList: 600 }); h.context.syncAll(); assert.equal(h.provider.gPages, 6); assert.equal(h.provider.msPages, 6); assert.equal(h.provider.gWrites + h.provider.msWrites, 0); assertIntegrity(h); });
 test('VM sparse 60x10 pagination and inventory', () => { const h = harness({ listCount: 60, tasksPerList: 10 }); h.context.syncAll(); assert.equal(h.provider.gPages, 60); assert.equal(h.provider.msPages, 60); assert.equal(h.provider.gListPages, 1); assert.equal(h.provider.msListPages, 1); assertIntegrity(h); });
@@ -99,3 +119,150 @@ test('VM two-round deletion journals 600 missing Google tasks', () => { const h 
 test('VM Google-origin moves across two paired lists have no duplicate mutations', () => { const h = harness({ listCount: 2, tasksPerList: 300, moves: true }); h.moveGoogle(); h.context.syncAll(); const s = h.state(); assert.equal(h.provider.msWrites, TASK_COUNT); assert.equal(h.provider.msDeletes, TASK_COUNT); assert.equal(Object.keys(s.taskMoveJournal).length, 0); assert.equal(new Set(h.provider.calls.filter((x) => x.method === 'post').map((x) => x.url)).size, TASK_COUNT); assert.equal(new Set(h.provider.calls.filter((x) => x.method === 'delete').map((x) => x.url)).size, TASK_COUNT); assertIntegrity(h); });
 test('VM long Unicode payload survives 600 Google-to-Microsoft updates', () => { const h = harness({ listCount: 1, tasksPerList: 600, unicode: true }); h.provider.google.get(gid(0)).forEach((t) => { t.notes += '\n追加変更'; t.updated = '2026-08-29T02:00:00.000Z'; }); h.context.syncAll(); assert.equal(h.provider.msWrites, TASK_COUNT); assert.ok(h.provider.microsoft.get(mid(0)).every((t) => t.body.content.includes('工作事項') && t.body.content.includes('😀'))); assertIntegrity(h); });
 test('VM injected provider failure and controllable time budget fail closed', () => { const failed = harness({ listCount: 1, tasksPerList: 600 }); failed.provider.fail = { side: 'google', status: 500 }; assert.throws(() => failed.context.syncAll(), /HTTP 500/); assert.equal(failed.provider.gWrites + failed.provider.msWrites, 0); assertIntegrity(failed); const timed = harness({ listCount: 1, tasksPerList: 600, advanceMs: 300000 }); timed.setTime(1000); assert.equal(timed.context.syncAll(), undefined); assert.equal(timed.provider.gWrites + timed.provider.msWrites, 0); assertIntegrity(timed); assert.ok(timed.logs.some((x) => x.includes('Near time limit') || x.includes('TIME_BUDGET'))); });
+test('VM bounded create batch recovers first unfenced Google POST by UUID', () => {
+  const h = smallUnmappedHarness('google_to_microsoft');
+  const create = h.context.createMsTask_; let stopped = false;
+  h.context.createMsTask_ = (listId, payload) => {
+    const result = create(listId, payload);
+    if (!stopped) { stopped = true; const task = h.provider.microsoft.get(listId).at(-1);
+      task.extensions[0].id = 'microsoft.graph.openTypeExtension.' + task.extensions[0].extensionName;
+      throw new Error('HARD_STOP_AFTER_B'); }
+    return result;
+  };
+  assert.throws(() => h.context.syncAll(), /HARD_STOP_AFTER_B/);
+  assert.equal(h.provider.microsoft.get(mid(0)).length, 1);
+  h.context.syncAll();
+  const s = h.state();
+  assert.equal(h.provider.microsoft.get(mid(0)).length, 3);
+  assert.equal(h.provider.calls.filter((x) => x.method === 'post').length, 3);
+  assert.equal(Object.keys(s.g2m).length, 3);
+  assert.equal(Object.keys(s.taskCreateBatch || {}).length, 0);
+  assert.equal(h.user.values.SYNC_TASK_CREATE_PROGRESS_V1, undefined);
+});
+test('VM bounded create batches checkpoint and continue for 26 Google creates', () => {
+  const h = harness({ listCount: 1, tasksPerList: TASK_COUNT });
+  h.provider.google.get(gid(0)).splice(0);
+  h.provider.microsoft.get(mid(0)).splice(0);
+  const clean = h.state(); clean.g2m = {}; clean.m2g = {}; h.context.saveState_(clean);
+  for (let i = 0; i < 26; i++) {
+    h.provider.google.get(gid(0)).push({ id: `g-${i}`, title: `Task ${i}`, notes: `note ${i}`, status: 'needsAction', updated: stamp(i) });
+  }
+  h.context.syncAll();
+  const s = h.state();
+  assert.equal(h.provider.microsoft.get(mid(0)).length, 26);
+  assert.equal(h.provider.calls.filter((call) => call.method === 'post').length, 26);
+  assert.equal(Object.keys(s.g2m).length, 26);
+  assert.equal(s.taskCreateBatch, null);
+  assert.equal(h.user.values.SYNC_TASK_CREATE_PROGRESS_V1, undefined);
+});
+test('VM bounded create batch holds a missing unfenced POST until it reappears', () => {
+  const h = smallUnmappedHarness('google_to_microsoft');
+  const create = h.context.createMsTask_; let stopped = false; let captured;
+  h.context.createMsTask_ = (listId, payload) => {
+    const result = create(listId, payload);
+    if (!stopped) {
+      stopped = true;
+      const task = h.provider.microsoft.get(listId).at(-1);
+      task.extensions[0].id = 'microsoft.graph.openTypeExtension.' + task.extensions[0].extensionName;
+      captured = clone(task);
+      throw new Error('HARD_STOP_AFTER_B');
+    }
+    return result;
+  };
+  assert.throws(() => h.context.syncAll(), /HARD_STOP_AFTER_B/);
+  h.provider.microsoft.get(mid(0)).splice(0, 1);
+  assert.throws(() => h.context.syncAll(), /TASK_CREATE_RECOVERY_PENDING/);
+  assert.equal(h.provider.calls.filter((x) => x.method === 'post').length, 1);
+  h.provider.microsoft.get(mid(0)).push(captured);
+  h.context.syncAll();
+  const s = h.state();
+  assert.equal(h.provider.microsoft.get(mid(0)).length, 3);
+  assert.equal(h.provider.calls.filter((x) => x.method === 'post').length, 3);
+  assert.equal(Object.keys(s.g2m).length, 3);
+  assert.equal(s.taskCreateBatch, null);
+  assert.equal(h.user.values.SYNC_TASK_CREATE_PROGRESS_V1, undefined);
+});
+test('VM bounded Microsoft-to-Google cleanup resumes after committed second patch', () => {
+  const h = smallUnmappedHarness('microsoft_to_google');
+  const update = h.context.updateGTask_; let patches = 0;
+  h.context.updateGTask_ = (listId, taskId, payload) => {
+    const result = update(listId, taskId, payload);
+    patches += 1;
+    if (patches === 2) throw new Error('HARD_STOP_AFTER_SECOND_PATCH');
+    return result;
+  };
+  assert.throws(() => h.context.syncAll(), /HARD_STOP_AFTER_SECOND_PATCH/);
+  assert.equal(h.provider.calls.filter((x) => x.method === 'post').length, 3);
+  assert.ok(h.provider.google.get(gid(0)).some((task) => String(task.notes).includes('tasks-todo-sync-create:')));
+  h.context.syncAll();
+  const s = h.state();
+  assert.equal(h.provider.calls.filter((x) => x.method === 'post').length, 3);
+  assert.ok(h.provider.google.get(gid(0)).every((task) => !String(task.notes).includes('tasks-todo-sync-create:')));
+  assert.equal(Object.keys(s.m2g).length, 3);
+  assert.ok(Object.values(s.g2m).every((record) => record.gListId === gid(0) && record.msListId === mid(0)));
+  assert.ok(Object.keys(s.m2g).every((msId) => s.g2m[s.m2g[msId]].msId === msId));
+  assert.equal(s.taskCreateBatch, null);
+  assert.equal(h.user.values.SYNC_TASK_CREATE_PROGRESS_V1, undefined);
+});
+test('VM create inventory requests both extensions without a filtered move-only expansion', () => {
+  const h = harness({ listCount: 1, tasksPerList: TASK_COUNT });
+  h.context.getMsTasks_(mid(0), { includeMoveExtension: true, includeTaskCreateExtension: true });
+  const first = h.provider.calls.find((call) => call.side === 'microsoft' && call.method === 'get' && call.url.includes('$expand'));
+  assert.ok(first);
+  assert.match(first.url, /\$expand=extensions(?:&|$)/);
+  assert.doesNotMatch(first.url, /\$filter/);
+});
+test('VM create progress corruption fails closed', () => {
+  const h = smallUnmappedHarness('google_to_microsoft');
+  const create = h.context.createMsTask_;
+  h.context.createMsTask_ = (listId, payload) => { create(listId, payload); throw new Error('HARD_STOP_AFTER_B'); };
+  assert.throws(() => h.context.syncAll(), /HARD_STOP_AFTER_B/);
+  const progress = JSON.parse(h.user.values.SYNC_TASK_CREATE_PROGRESS_V1);
+  progress.entries[0] = { status: 'UNKNOWN' };
+  h.user.setProperty('SYNC_TASK_CREATE_PROGRESS_V1', JSON.stringify(progress));
+  assert.throws(() => h.context.syncAll(), /TASK_CREATE_PROGRESS_MALFORMED/);
+});
+test('VM create operator resolves an exact existing destination under preview/apply', () => {
+  const h = smallUnmappedHarness('google_to_microsoft');
+  const create = h.context.createMsTask_;
+  h.context.createMsTask_ = (listId, payload) => {
+    const result = create(listId, payload);
+    const task = h.provider.microsoft.get(listId).at(-1);
+    task.extensions[0].id = 'microsoft.graph.openTypeExtension.' + task.extensions[0].extensionName;
+    throw new Error('HARD_STOP_AFTER_B');
+  };
+  assert.throws(() => h.context.syncAll(), /HARD_STOP_AFTER_B/);
+  const batch = h.state().taskCreateBatch;
+  const destinationId = h.provider.microsoft.get(mid(0))[0].id;
+  h.script.setProperty('SYNC_TASK_CREATE_OPERATION_JSON', JSON.stringify({ action: 'RELEASE_FOR_REPOST', batchId: batch.batchId, index: 0, confirmation: 'NO' }));
+  assert.throws(() => h.context.previewTaskCreateBatchOperation(), /CONFIRMATION_REQUIRED/);
+  const operation = { action: 'RESOLVE_EXISTING', batchId: batch.batchId, index: 0, destinationId };
+  h.script.setProperty('SYNC_TASK_CREATE_OPERATION_JSON', JSON.stringify(operation));
+  const preview = h.context.previewTaskCreateBatchOperation();
+  assert.equal(preview.ok, true);
+  h.script.setProperty('SYNC_TASK_CREATE_OPERATION_JSON', JSON.stringify({ ...operation, previewToken: preview.previewToken }));
+  assert.equal(h.context.applyTaskCreateBatchOperation().ok, true);
+  assert.equal(JSON.parse(h.user.values.SYNC_TASK_CREATE_PROGRESS_V1).entries[0].status, 'ACKED');
+  assert.equal(h.provider.calls.filter((call) => call.method === 'post').length, 1);
+});
+test('VM create operator releases only a held zero-candidate boundary for repost', () => {
+  const h = smallUnmappedHarness('google_to_microsoft');
+  const create = h.context.createMsTask_;
+  let stopped = false;
+  h.context.createMsTask_ = (listId, payload) => { const result = create(listId, payload); if (!stopped) { stopped = true; throw new Error('HARD_STOP_AFTER_B'); } return result; };
+  assert.throws(() => h.context.syncAll(), /HARD_STOP_AFTER_B/);
+  h.provider.microsoft.get(mid(0)).splice(0, 1);
+  assert.throws(() => h.context.syncAll(), /TASK_CREATE_RECOVERY_PENDING/);
+  const batch = h.state().taskCreateBatch;
+  const operation = { action: 'RELEASE_FOR_REPOST', batchId: batch.batchId, index: 0, confirmation: 'I_UNDERSTAND_DUPLICATE_RISK_RELEASE_FOR_REPOST' };
+  h.script.setProperty('SYNC_TASK_CREATE_OPERATION_JSON', JSON.stringify(operation));
+  const preview = h.context.previewTaskCreateBatchOperation();
+  assert.equal(preview.ok, true);
+  h.script.setProperty('SYNC_TASK_CREATE_OPERATION_JSON', JSON.stringify({ ...operation, previewToken: preview.previewToken }));
+  assert.equal(h.context.applyTaskCreateBatchOperation().ok, true);
+  assert.equal(JSON.parse(h.user.values.SYNC_TASK_CREATE_PROGRESS_V1).entries[0].status, 'REPOST_ALLOWED');
+  h.context.syncAll();
+  assert.equal(h.provider.microsoft.get(mid(0)).length, 3);
+  assert.equal(h.provider.calls.filter((call) => call.method === 'post').length, 4);
+  assert.equal(h.state().taskCreateBatch, null);
+});

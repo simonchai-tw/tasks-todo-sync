@@ -876,6 +876,7 @@ test('fatal alerts are bounded and raw state export explicitly warns about sensi
     sync_state_main_manifest: 'raw-state-sentinel',
     sync_state_main_successful_round_manifest: 'successful-round-sentinel',
     sync_state_main_round_fence: 'round-fence-sentinel',
+    SYNC_TASK_CREATE_PROGRESS_V1: 'create-progress-sentinel',
     unrelated: 'not-exported'
   } });
   const redacted = context.redactFatalAlert_(
@@ -893,6 +894,7 @@ test('fatal alerts are bounded and raw state export explicitly warns about sensi
   assert.equal(bundle.properties.sync_state_main_manifest, 'raw-state-sentinel');
   assert.equal(bundle.properties.sync_state_main_successful_round_manifest, 'successful-round-sentinel');
   assert.equal(bundle.properties.sync_state_main_round_fence, 'round-fence-sentinel');
+  assert.equal(bundle.properties.SYNC_TASK_CREATE_PROGRESS_V1, 'create-progress-sentinel');
   assert.equal(warnings.some((value) => value.includes('WARNING')), true);
   assert.equal(Object.hasOwn(bundle.properties, 'unrelated'), false);
   assert.equal(Object.hasOwn(userStore.values, 'unrelated'), true);
@@ -2726,6 +2728,29 @@ test('rejects incomplete imported state', () => {
   assert.throws(() => context.validateImportedState_({}), /schema=2/);
 });
 
+test('rejects importing an active create batch without its progress sidecar', () => {
+  const { context } = loadContext();
+  const state = context.newState_();
+  state.taskCreateBatch = {
+    batchId: '11111111-1111-4111-8111-111111111111',
+    direction: 'google_to_microsoft',
+    phase: 'PREPARED',
+    preparedAt: '2026-09-07T00:00:00.000Z',
+    items: [{
+      uuid: '22222222-2222-4222-8222-222222222222',
+      sourceListId: 'g-list',
+      sourceTaskId: 'g-task',
+      destinationListId: 'ms-list',
+      sourceFingerprint: 'digest',
+      payloadJson: '{}',
+      sentinel: '',
+      originalGoogleNotes: ''
+    }]
+  };
+  assert.throws(() => context.validateImportedState_(state),
+    /active taskCreateBatch cannot be imported without its matching durable progress sidecar/);
+});
+
 test('does not propagate a missing Google task while deletions are disabled', () => {
   const { context } = loadContext();
   let deleteCalls = 0;
@@ -3233,7 +3258,8 @@ test('a failed non-delete sync stores only a bounded error and no new deletion c
   context.withGlobalLock_ = (fn) => fn();
   context.loadStateForSync_ = () => state;
   context.buildSnapshot_ = () => snap;
-  context.createUnmapped_ = () => {
+  context.createUnmapped_ = () => {};
+  context.applyConfirmedTaskDeletions_ = () => {
     throw new Error(
       'HTTP 500: {"taskTitle":"private-task-sentinel","token":"private-token-sentinel"} ' +
       'request-id: req-sync-123456'
@@ -4155,9 +4181,14 @@ test('Microsoft cross-list move converges as create-new then confirmed delete-ol
     gListByTask: { 'g-task': 'g-old' },
     msListByTask: { 'ms-task-new': 'ms-new' }
   };
-  context.createGTask_ = () => ({
-    id: 'g-task-new', title: 'Moved', updated: '2026-08-14T00:02:00Z'
-  });
+  let createdGoogleTask = null;
+  let cleanedGoogleTask = false;
+  context.createGTask_ = (listId, payload) => {
+    createdGoogleTask = { id: 'g-task-new', title: 'Moved', notes: payload.notes, updated: '2026-08-14T00:02:00Z' };
+    return createdGoogleTask;
+  };
+  context.getGTask_ = (listId, taskId) => createdGoogleTask && { ...createdGoogleTask, notes: cleanedGoogleTask ? '' : createdGoogleTask.notes };
+  context.updateGTask_ = (listId, taskId, payload) => { cleanedGoogleTask = true; return { ...createdGoogleTask, ...payload }; };
   context.saveState_ = () => {};
   const deleted = [];
   context.deleteGTask_ = (listId, taskId) => deleted.push([listId, taskId]);
@@ -4471,12 +4502,15 @@ test('a failed round never restores a candidate invalidated by a both-live obser
   context.withGlobalLock_ = (fn) => fn();
   context.loadStateForSync_ = () => state;
   context.buildSnapshot_ = () => mappedTaskSnapshot();
-  context.createUnmapped_ = () => { throw new Error('unrelated create failure'); };
+  context.createUnmapped_ = () => {};
+  const applyConfirmedTaskDeletions = context.applyConfirmedTaskDeletions_;
+  context.applyConfirmedTaskDeletions_ = () => { throw new Error('unrelated create failure'); };
   context.sendFatalAlert_ = () => {};
   context.saveState_ = (value) => { saved = JSON.parse(JSON.stringify(value)); };
 
   assert.throws(() => context.syncAll(), /unrelated create failure/);
   assert.equal(saved.pendingTaskDeletions['g-task'], undefined);
+  context.applyConfirmedTaskDeletions_ = applyConfirmedTaskDeletions;
 
   const missing = mappedTaskSnapshot({ gTask: null });
   let deletes = 0;
@@ -7474,8 +7508,10 @@ test('destructive task and list delete paths stop at the reserve with journals i
     state.pendingTaskDeletions['g-task'].confirmations = 2;
     state.pendingTaskDeletions['g-task'].lastRoundId = roundId;
   };
-  round.context.createUnmapped_ = () => {
+  round.context.createUnmapped_ = () => {};
+  round.context.captureTaskDeletionState_ = () => {
     new vm.Script('Date.now = function() { return 271000; };').runInContext(round.context);
+    return {};
   };
   round.context.deleteMsTask_ = () => { roundDeletes += 1; };
   round.context.saveState_ = (value) => {

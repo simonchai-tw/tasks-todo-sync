@@ -120,6 +120,27 @@ For a Microsoft-origin move, the new Google counterpart is created first. Retire
 
 Moves project the supported title, plain-text notes, date-only due date, and completion state. Provider-only metadata without a cross-platform equivalent may not transfer. `dryRunReport()` does not expand attachment, checklist, linked-resource, or unrelated extension relationships; uninspected is not the same as absent.
 
+## Task-create recovery runbook
+
+Ordinary unmapped task creates run in same-direction batches of at most 25 items (`TASK_CREATE_BATCH_SIZE = 25`). Per-item progress is kept in the User Property `SYNC_TASK_CREATE_PROGRESS_V1`; every completed batch is persisted while the round fence remains open, so a time-budget exit can continue without reposting completed items.
+
+The two provider paths use different recovery evidence:
+
+- Google→Microsoft creates carry the dedicated extension identity `com.tasksTodoSync.create`. Recovery accepts only one exact supported normalized extension ID with the matching UUID in the intended destination list.
+- Microsoft→Google creates append `<!-- tasks-todo-sync-create:<uuid> -->` to the temporary Google notes projection. The sentinel is removed only after the update succeeds and a positive GET confirms that it is absent.
+
+Provider APIs do not document POST idempotency. If recovery finds zero or multiple exact candidates, it stops fail-closed and does not automatically repost the uncertain create.
+
+Use the operator surface only when a create batch is held for recovery:
+
+1. Privately preserve an `exportRawSyncState()` backup first, then run `deleteSyncTriggers()` to pause the trigger. Keep the backup and all operation values private; do not put provider IDs, task content, or secrets in tickets or examples.
+2. Run `inspectTaskCreateBatch()` and record its private `batchId`, item `index`, phase, boundary, and evidence.
+3. Set the Script Property `SYNC_TASK_CREATE_OPERATION_JSON` with the required private fields. Use `RESOLVE_EXISTING` with the exact `batchId`, `index`, and one verified `destinationId` when one exact destination exists. Use `RELEASE_FOR_REPOST` with the exact `batchId`, `index`, and confirmation `I_UNDERSTAND_DUPLICATE_RISK_RELEASE_FOR_REPOST` only when the destination is confirmed absent and accepting duplicate risk is intentional.
+4. Run `previewTaskCreateBatchOperation()`. Continue only when it returns `ok: true`; copy its opaque `previewToken` into the same operation JSON.
+5. Run `applyTaskCreateBatchOperation()`. The helper changes only the private progress sidecar; the next `syncAll()` performs the bounded recovery. Reinspect the batch and run `healthCheck()` before recreating the trigger.
+
+`RESOLVE_EXISTING` is accepted only for one exact live candidate. `RELEASE_FOR_REPOST` is deliberately explicit and is never a general retry switch. A stale preview, active sync fence, malformed sidecar, changed evidence, or ambiguous candidate remains blocked.
+
 ## Move-journal operations runbook
 
 Use this only when `healthCheck()` reports a blocked legacy move journal. These helpers do not create, update, or delete provider tasks; provider mutation remains deferred to a later verified `syncAll()`.

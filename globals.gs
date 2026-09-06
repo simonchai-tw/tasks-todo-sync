@@ -28,6 +28,13 @@ const ROUND_FENCE_KEY = STATE_KEY + '_round_fence';
 const SUCCESSFUL_ROUND_MANIFEST_KEY = STATE_KEY + '_successful_round_manifest';
 const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const MOVE_CREATE_RECOVERY_WINDOW_MS = 10 * 60 * 1000;
+const TASK_CREATE_BATCH_SIZE = 25;
+const TASK_CREATE_BATCH_START_RESERVE_MS = 45 * 1000;
+const TASK_CREATE_PROGRESS_KEY = 'SYNC_TASK_CREATE_PROGRESS_V1';
+const TASK_CREATE_OPERATION_PROPERTY = 'SYNC_TASK_CREATE_OPERATION_JSON';
+const TASK_CREATE_RELEASE_CONFIRMATION = 'I_UNDERSTAND_DUPLICATE_RISK_RELEASE_FOR_REPOST';
+let SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_ = false;
+let SYNC_TASK_CREATE_BATCH_PENDING_STATE_ = null;
 const RUN_LIMIT_MS = 5.25 * 60 * 1000;
 const DESTRUCTIVE_OPERATION_RESERVE_MS = 45 * 1000;
 // Apps Script permits a six-minute execution.  Ten minutes is the first
@@ -40,6 +47,11 @@ const MOVE_EXTENSION_NAME = 'com.tasksTodoSync.move';
 const MOVE_EXTENSION_IDS = [
   'microsoft.graph.openTypeExtension.' + MOVE_EXTENSION_NAME,
   'Microsoft.OutlookServices.OpenTypeExtension.' + MOVE_EXTENSION_NAME
+];
+const TASK_CREATE_EXTENSION_NAME = 'com.tasksTodoSync.create';
+const TASK_CREATE_EXTENSION_IDS = [
+  'microsoft.graph.openTypeExtension.' + TASK_CREATE_EXTENSION_NAME,
+  'Microsoft.OutlookServices.OpenTypeExtension.' + TASK_CREATE_EXTENSION_NAME
 ];
 const TASK_MOVE_OPERATION_PROPERTY = 'SYNC_TASK_MOVE_OPERATION_JSON';
 const TASK_MOVE_OPERATION_RECEIPT_KEY = 'sync_task_move_operation_before_image';

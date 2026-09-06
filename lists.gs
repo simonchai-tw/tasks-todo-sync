@@ -428,6 +428,10 @@ function buildSnapshot_(state, startedAt) {
   // read completed successfully; all other lists keep their lean snapshot.
   const moveExtensionInventoryListIds = {};
   const unresolvedMoveTargets = unresolvedMoveExtensionTargetListIds_(state);
+  const taskCreateExtensionTargets = {};
+  if (state.taskCreateBatch && state.taskCreateBatch.direction === 'google_to_microsoft') {
+    state.taskCreateBatch.items.forEach(function(item) { taskCreateExtensionTargets[item.destinationListId] = true; });
+  }
   let inventoryComplete = true;
 
   for (const gList of gLists) {
@@ -483,7 +487,8 @@ function buildSnapshot_(state, startedAt) {
     if (!remainingTimeOk_(startedAt, 90000)) throw new Error('TIME_BUDGET_SNAPSHOT');
     try {
       const includeMoveExtension = !!unresolvedMoveTargets[msListId];
-      const tasks = getMsTasks_(msListId, { includeMoveExtension: includeMoveExtension });
+      const includeTaskCreateExtension = !!taskCreateExtensionTargets[msListId];
+      const tasks = getMsTasks_(msListId, { includeMoveExtension: includeMoveExtension, includeTaskCreateExtension: includeTaskCreateExtension });
       msTaskInventoryListIds[msListId] = true;
       if (includeMoveExtension) moveExtensionInventoryListIds[msListId] = true;
       tasks.forEach(function(task) {

@@ -15,6 +15,7 @@ function newState_() {
     // remote create from being mistaken for an ordinary unmapped task, while
     // a created record lets a later run finish deleting the old counterpart.
     taskMoveJournal: {},
+    taskCreateBatch: null,
     // Kept separately from list faults so delete-vs-edit does not hide a whole list.
     taskDeletionConflicts: {},
     // List lifecycle state is intentionally separate from task deletion.  A
@@ -73,11 +74,14 @@ function assertStrictSchema3StateShape_(state, errorCode) {
   if (!state || state.schema !== 3) return;
   const allowedTopLevel = [
     'schema', 'listMap', 'g2m', 'm2g', 'tombstones', 'pendingTaskDeletions',
-    'deletionJournal', 'taskMoveJournal', 'taskDeletionConflicts', 'listPairMeta',
+    'deletionJournal', 'taskMoveJournal', 'taskCreateBatch', 'taskDeletionConflicts', 'listPairMeta',
     'pendingListDeletions', 'listDeletionJournal', 'listDeletionConflicts',
     'listTombstones', 'listTombstoneNames', 'listFaults', 'health', 'updatedAt'
   ];
   assertKnownObjectKeys_(state, allowedTopLevel, 'state', errorCode);
+  if (state.taskCreateBatch !== undefined && state.taskCreateBatch !== null && !validTaskCreateBatch_(state.taskCreateBatch)) {
+    throw new Error((errorCode || 'STATE_MALFORMED') + ': taskCreateBatch has an invalid structured shape; overwrite refused.');
+  }
   const recordFields = {
     g2m: ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated'],
     pendingTaskDeletions: ['gId', 'msId', 'missingSide', 'gListId', 'msListId', 'gUpdated', 'msUpdated',
@@ -223,6 +227,34 @@ function newMoveCorrelationId_() {
   return hex(8) + '-' + hex(4) + '-4' + hex(3) + '-8' + hex(3) + '-' + hex(12);
 }
 
+function validTaskCreateBatch_(batch) {
+  if (!batch || typeof batch !== 'object' || Array.isArray(batch) ||
+      !validMoveCorrelationId_(batch.batchId) ||
+      ['google_to_microsoft', 'microsoft_to_google'].indexOf(batch.direction) < 0 ||
+      ['PREPARED', 'CLEANUP_PENDING'].indexOf(batch.phase) < 0 ||
+      !validTimestampMs_(batch.preparedAt) || !Array.isArray(batch.items) ||
+      batch.items.length < 1 || batch.items.length > TASK_CREATE_BATCH_SIZE) return false;
+  if (Object.keys(batch).some(function(key) {
+    return ['batchId', 'direction', 'phase', 'items', 'preparedAt'].indexOf(key) < 0;
+  })) return false;
+  return batch.items.every(function(item) {
+    return item && typeof item === 'object' && !Array.isArray(item) &&
+      !Object.keys(item).some(function(key) {
+        return ['uuid', 'sourceListId', 'sourceTaskId', 'destinationListId',
+          'sourceFingerprint', 'payloadJson', 'sentinel', 'originalGoogleNotes'].indexOf(key) < 0;
+      }) &&
+      validMoveCorrelationId_(item.uuid) &&
+      typeof item.sourceListId === 'string' && !!item.sourceListId &&
+      typeof item.sourceTaskId === 'string' && !!item.sourceTaskId &&
+      typeof item.destinationListId === 'string' && !!item.destinationListId &&
+      typeof item.sourceFingerprint === 'string' && !!item.sourceFingerprint &&
+      typeof item.payloadJson === 'string' && !!item.payloadJson &&
+      (batch.direction === 'google_to_microsoft' ||
+        (typeof item.sentinel === 'string' && !!item.sentinel &&
+         typeof item.originalGoogleNotes === 'string'));
+  });
+}
+
 function normalizeState_(state) {
   if (state === undefined || state === null) return newState_();
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
@@ -240,6 +272,10 @@ function normalizeState_(state) {
   // Schema 2 has no list lifecycle provenance.  Upgrade only by adding empty
   // fields; never infer proof or discard unknown malformed values.
   if (isSchema2) state.schema = 3;
+  if (state.taskCreateBatch === undefined) state.taskCreateBatch = null;
+  if (state.taskCreateBatch !== undefined && state.taskCreateBatch !== null && !validTaskCreateBatch_(state.taskCreateBatch)) {
+    throw new Error('STATE_MALFORMED: taskCreateBatch invalid; overwrite refused.');
+  }
   const requiredObjects = [
     'listMap', 'g2m', 'm2g', 'tombstones', 'pendingTaskDeletions',
     'deletionJournal', 'taskDeletionConflicts', 'listFaults', 'health'
@@ -1359,6 +1395,9 @@ function validateImportedState_(state) {
     }
   });
   validateImportedTaskDeletionState_(state);
+  if (state.taskCreateBatch !== undefined && state.taskCreateBatch !== null) {
+    throw new Error('IMPORT_INVALID_STATE: an active taskCreateBatch cannot be imported without its matching durable progress sidecar. Resolve the batch before exporting or importing state.');
+  }
   if (state.schema === 3) validateImportedListDeletionState_(state);
 }
 

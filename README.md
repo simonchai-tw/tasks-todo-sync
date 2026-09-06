@@ -83,7 +83,9 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The core loop is covered by 265 automated tests, GitHub CI, CodeQL, and recorded real-account validation. Local deterministic validation exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. Detailed evidence and runtime boundaries are recorded in the [engineering audit](docs/audit.md).
+The core loop is covered by 279 automated tests, GitHub CI, CodeQL, and recorded real-account validation. Local deterministic validation exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. Detailed evidence and runtime boundaries are recorded in the [engineering audit](docs/audit.md).
+
+Ordinary creates run in bounded batches of 25 with durable progress checkpointing. If a create response is uncertain, recovery is fail-closed: the synchronizer adopts only one exact provider marker, waits for positive verification before removing a Google notes sentinel, and never automatically reposts an ambiguous create.
 
 ## Get started
 

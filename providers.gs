@@ -131,6 +131,15 @@ function getGTasks_(listId) {
   return getAllPages_(first, function(path) { return gFetch_(path); }, 'items', 'google');
 }
 
+function getGTask_(listId, taskId) {
+  try {
+    return gFetch_('/lists/' + encodeURIComponent(listId) + '/tasks/' + encodeURIComponent(taskId));
+  } catch (e) {
+    if (isNotFoundError_(e)) return null;
+    throw e;
+  }
+}
+
 function getMsLists_() {
   return getAllPages_(MS_TODO_BASE, function(url) { return graphFetch_(url); }, 'value', 'graph');
 }
@@ -141,16 +150,19 @@ function getMsList_(listId) {
 
 function getMsTasks_(listId, options) {
   const includeMoveExtension = !!(options && options.includeMoveExtension);
+  const includeTaskCreateExtension = !!(options && options.includeTaskCreateExtension);
   // A full extension expansion is intentionally reserved for the small set of
   // destination lists which contain an unresolved correlation journal.  Normal
   // inventories and dry runs retain their previous Graph request shape.
   // todoTask extension expansion requires the documented unqualified extension
   // name filter. The response is still checked locally against the exact
   // service-normalized ID allowlist, extensionName, and correlation UUID.
-  const extensionQuery = includeMoveExtension
-    ? '&$expand=extensions($filter=id%20eq%20%27' +
-      encodeURIComponent(MOVE_EXTENSION_NAME) + '%27)'
-    : '';
+  const extensionQuery = includeMoveExtension && includeTaskCreateExtension
+    ? '&$expand=extensions'
+    : includeMoveExtension || includeTaskCreateExtension
+      ? '&$expand=extensions($filter=id%20eq%20%27' +
+        encodeURIComponent(includeTaskCreateExtension ? TASK_CREATE_EXTENSION_NAME : MOVE_EXTENSION_NAME) + '%27)'
+      : '';
   const first = MS_TODO_BASE + '/' + encodeURIComponent(listId) + '/tasks?$top=100' + extensionQuery;
   return getAllPages_(first, function(url) {
     return graphFetch_(url, microsoftTaskRequestOptions_());

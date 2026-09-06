@@ -57,7 +57,7 @@ for (const { filename, source } of gasSources) {
   }
 }
 const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
-assert(publicEntrypoints.length === 43, `Expected 43 public entrypoints, found ${publicEntrypoints.length}`);
+assert(publicEntrypoints.length === 46, `Expected 46 public entrypoints, found ${publicEntrypoints.length}`);
 assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs'),
   'All public and compatibility entrypoints must remain in Code.gs');
 
@@ -106,6 +106,9 @@ const requiredFunctions = [
   'inspectTaskMoveJournals',
   'previewTaskMoveJournalOperation',
   'applyTaskMoveJournalOperation',
+  'inspectTaskCreateBatch',
+  'previewTaskCreateBatchOperation',
+  'applyTaskCreateBatchOperation',
   'healthCheck'
 ];
 

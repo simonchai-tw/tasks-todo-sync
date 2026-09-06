@@ -10,6 +10,10 @@ Historical entries below describe each release at the time it shipped, including
 - Added canonical, reverse, and deterministic shuffled VM load-order gates plus duplicate-global and deploy-set validation.
 - Updated the CLI, npm package, and both private/public `.claspignore` templates to use one canonical Apps Script source set.
 - Kept legacy single-file directories read-only during upgrade. Migrate through a new directory containing only a copied `.clasp.json` so the same Apps Script project and remote state are retained.
+- Added bounded ordinary task-create batches of 25 with a durable per-item User Property progress sidecar (`SYNC_TASK_CREATE_PROGRESS_V1`); each completed batch is checkpointed while the round fence remains open.
+- Added fail-closed recovery for uncertain creates: Google→Microsoft uses the dedicated `com.tasksTodoSync.create` extension identity, Microsoft→Google uses a temporary `<!-- tasks-todo-sync-create:<uuid> -->` notes sentinel, and cleanup waits for a positive GET verification. Zero or multiple exact candidates never trigger an automatic repost because provider POST idempotency is undocumented.
+- Added guarded operator recovery through `inspectTaskCreateBatch()`, `previewTaskCreateBatchOperation()`, and `applyTaskCreateBatchOperation()`, including explicit duplicate-risk confirmation for `RELEASE_FOR_REPOST`.
+- Expanded the release evidence to 279 automated tests.
 
 ## 0.3.0 — 2026-09-06
 

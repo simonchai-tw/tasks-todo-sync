@@ -552,6 +552,16 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
+function checkpointTaskCreateBatch_(state) {
+  if (!SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) return false;
+  normalizeState_(state);
+  persistSyncState_(state, { finalCommit: true });
+  taskCreateProgressClear_();
+  SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_ = false;
+  SYNC_TASK_CREATE_BATCH_PENDING_STATE_ = null;
+  return true;
+}
+
 function syncAll() {
   const entryStartedAt = initializeExecutionBudget_();
   beginSyncObservability_(entryStartedAt);
@@ -610,8 +620,18 @@ function syncAll() {
       cleanupTombstones_(state);
       cleanupListTombstones_(state);
       snap = buildSnapshot_(state, startedAt);
+      while (true) {
+        if (state.taskCreateBatch) {
+          createUnmapped_(state, snap, startedAt);
+          if (state.taskCreateBatch) throw new Error('TASK_CREATE_RECOVERY_PENDING: create batch is held; ordinary sync is fenced.');
+        } else {
+          if (!remainingTimeOk_(startedAt, TASK_CREATE_BATCH_START_RESERVE_MS) || !taskCreateBatchCandidates_(state, snap).length) break;
+          createUnmapped_(state, snap, startedAt);
+          if (state.taskCreateBatch) throw new Error('TASK_CREATE_RECOVERY_PENDING: create batch held; ordinary sync is fenced.');
+        }
+        if (SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) checkpointTaskCreateBatch_(state);
+      }
       reconcileMapped_(state, snap, startedAt, roundId, deletionProgress);
-      createUnmapped_(state, snap, startedAt);
       deletionStateBeforeApply = captureTaskDeletionState_(state);
       applyConfirmedTaskDeletions_(state, snap, roundId, deletionProgress);
       applyConfirmedListDeletions_(state, snap, roundId, listDeletionProgress, deletionProgress);
@@ -623,6 +643,11 @@ function syncAll() {
       state.health.roundFenceProjectionId = null;
       normalizeState_(state);
       const finalGeneration = persistSyncState_(state, { finalCommit: true });
+      if (SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) {
+        taskCreateProgressClear_();
+        SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_ = false;
+        SYNC_TASK_CREATE_BATCH_PENDING_STATE_ = null;
+      }
       finalStateCommitted = true;
       recordSuccessfulSyncRound_(roundId, finalGeneration);
       clearSyncRoundFence_();
@@ -630,6 +655,9 @@ function syncAll() {
       logSyncSummary_('success');
     } catch (e) {
       const isTimeBudget = String(e.message).indexOf('TIME_BUDGET_') === 0;
+      if (!finalStateCommitted && SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_ && SYNC_TASK_CREATE_BATCH_PENDING_STATE_) {
+        state.taskCreateBatch = SYNC_TASK_CREATE_BATCH_PENDING_STATE_;
+      }
       try {
         // A final state commit followed by a failed fence clear is a special
         // crash-recovery state. Do not overwrite it or clear the fence here:
@@ -1153,6 +1181,89 @@ function inspectTaskMoveJournals() {
   });
 }
 
+function inspectTaskCreateBatch() {
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('TASK_CREATE_OPERATION');
+    const state = loadStateForSync_();
+    const batch = state.taskCreateBatch;
+    const progress = batch ? taskCreateProgressRead_(batch) : { batchId: null, boundary: null, entries: {} };
+    const report = {
+      active: !!batch,
+      batchId: batch ? batch.batchId : null,
+      direction: batch ? batch.direction : null,
+      phase: batch ? batch.phase : null,
+      itemCount: batch ? batch.items.length : 0,
+      boundary: progress.boundary,
+      entries: progress.entries,
+      note: 'Read-only report. Set SYNC_TASK_CREATE_OPERATION_JSON and call previewTaskCreateBatchOperation() before any operator action.'
+    };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
+
+function previewTaskCreateBatchOperation() {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('TASK_CREATE_OPERATION');
+    const operation = parseTaskCreateOperation_(false);
+    const state = loadStateForSync_();
+    const entry = taskCreateOperationEntry_(state, operation);
+    const progress = taskCreateProgressRead_(entry.batch);
+    const evidence = taskCreateOperationEvidence_(entry);
+    const token = taskCreateOperationDigest_(operation, entry, evidence);
+    const held = progress.boundary === entry.index && progress.entries[entry.index] &&
+      ['HELD_ZERO', 'HELD_MULTI'].indexOf(progress.entries[entry.index].status) >= 0;
+    const ok = operation.action === 'RESOLVE_EXISTING'
+      ? evidence.candidateIds.length === 1 && evidence.candidateIds[0] === operation.destinationId &&
+        progress.boundary === entry.index
+      : held && evidence.candidateIds.length === 0;
+    const report = { action: operation.action, batchId: entry.batch.batchId, index: entry.index,
+      ok: ok, code: ok ? 'READY' : 'NOT_SAFE', candidateIds: evidence.candidateIds,
+      inventoryComplete: evidence.inventoryComplete, previewToken: token,
+      note: 'Apply rereads complete live evidence under the global lock; no provider mutation occurs in preview.' };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
+
+function applyTaskCreateBatchOperation() {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('TASK_CREATE_OPERATION');
+    const operation = parseTaskCreateOperation_(true);
+    const state = loadStateForSync_();
+    const entry = taskCreateOperationEntry_(state, operation);
+    const progress = taskCreateProgressRead_(entry.batch);
+    const evidence = taskCreateOperationEvidence_(entry);
+    if (operation.previewToken !== taskCreateOperationDigest_(operation, entry, evidence)) {
+      throw new Error('TASK_CREATE_OPERATION_STALE_PREVIEW: Live evidence changed; preview again.');
+    }
+    const held = progress.boundary === entry.index && progress.entries[entry.index] &&
+      ['HELD_ZERO', 'HELD_MULTI'].indexOf(progress.entries[entry.index].status) >= 0;
+    if (operation.action === 'RESOLVE_EXISTING') {
+      if (evidence.candidateIds.length !== 1 || evidence.candidateIds[0] !== operation.destinationId ||
+          progress.boundary !== entry.index) {
+        throw new Error('TASK_CREATE_OPERATION_NOT_SAFE: exact destination marker verification failed.');
+      }
+      progress.entries[entry.index] = { status: 'ACKED', destinationId: operation.destinationId };
+      if (progress.boundary === entry.index) delete progress.boundary;
+    } else {
+      if (!held || evidence.candidateIds.length !== 0) {
+        throw new Error('TASK_CREATE_OPERATION_NOT_SAFE: release requires a held boundary and zero exact candidates.');
+      }
+      progress.entries[entry.index] = { status: 'REPOST_ALLOWED' };
+      delete progress.boundary;
+    }
+    taskCreateProgressWrite_(progress);
+    const report = { action: operation.action, batchId: entry.batch.batchId, index: entry.index,
+      destinationId: operation.action === 'RESOLVE_EXISTING' ? operation.destinationId : null,
+      ok: true, note: 'Operator sidecar action applied; the next syncAll performs the bounded recovery.' };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
+
 function previewTaskMoveJournalOperation() {
   initializeExecutionBudget_();
   return withGlobalLock_(function() {
@@ -1346,6 +1457,7 @@ function exportRawSyncState() {
   const raw = {};
   Object.keys(all).forEach(function(key) {
     if (key === STATE_KEY + '_manifest' || key === SUCCESSFUL_ROUND_MANIFEST_KEY ||
+        key === TASK_CREATE_PROGRESS_KEY ||
         key === ROUND_FENCE_KEY || key.indexOf(STATE_KEY + '_gen_') === 0) {
       raw[key] = all[key];
     }
