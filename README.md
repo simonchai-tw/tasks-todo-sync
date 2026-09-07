@@ -5,7 +5,7 @@
 <h1 align="center">Tasks–To Do Sync</h1>
 
 <p align="center">
-  <strong>Keep Google Task and Microsoft To Do in the same task loop.</strong><br>
+  <strong>Keep Google Tasks and Microsoft To Do in the same task loop.</strong><br>
   A private, self-hosted bridge for people who capture tasks in Google and continue them in Microsoft.
 </p>
 
@@ -13,7 +13,7 @@
   <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL"></a>
   <a href="https://www.npmjs.com/package/tasks-todo-sync"><img src="https://img.shields.io/npm/v/tasks-todo-sync?style=flat-square" alt="npm version"></a>
-  <a href="https://github.com/simonchai-tw/tasks-todo-sync/releases"><img src="https://img.shields.io/github/v/release/simonchai-tw/tasks-todo-sync?include_prereleases&amp;sort=semver&amp;style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/simonchai-tw/tasks-todo-sync/releases"><img src="https://img.shields.io/github/v/release/simonchai-tw/tasks-todo-sync?include_prereleases&sort=semver&style=flat-square" alt="Latest release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/simonchai-tw/tasks-todo-sync?style=flat-square" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/runtime-Google%20Apps%20Script-4285F4?style=flat-square" alt="Google Apps Script">
 </p>
@@ -52,9 +52,9 @@ Tasks–To Do Sync adds that connection. A task captured on one side can follow 
 2. **Sync through your own project.** A private Google Apps Script installation keeps Google Tasks and Microsoft To Do aligned in both directions.
 3. **Continue in Microsoft.** Use the synchronized tasks in Microsoft To Do and the Microsoft 365 experiences already connected to it. If your Microsoft account is part of your Apple Reminders setup, that existing connection can keep your Apple devices in the same personal workflow.
 
-The project directly synchronizes **Google Tasks ↔ Microsoft To Do**. The surrounding Google, Microsoft 365, and Apple experiences are their native integrations—not features claimed or recreated by this project.
+Tasks–To Do Sync directly synchronizes Google Tasks and Microsoft To Do; the surrounding Google, Microsoft 365, and Apple workflows continue through their existing native integrations.
 
-The private trigger runs every 10 minutes. Ordinary changes normally appear within 0–10 minutes; operations that require two complete confirmation rounds normally settle within 10–20 minutes.
+The private trigger runs every 10 minutes. Ordinary changes normally appear within 0–10 minutes. Some guarded operations may take an additional sync cycle to settle.
 
 ## What stays in sync
 
@@ -70,10 +70,6 @@ The private trigger runs every 10 minutes. Ordinary changes normally appear with
 
 See the [field compatibility matrix](docs/field-compatibility.md) for verified projections, provider-specific or unverified fields, and planned research.
 
-## Supported environments
-
-Initial installation and source updates require a Windows, macOS, or Linux desktop/laptop with Node.js 22+, a terminal, and a modern browser. Chromebook Linux is best effort. npm installation is not supported on phones; the Microsoft connection wizard remains mobile-responsive for reauthorization.
-
 ## A sync engine, not a chain of recipes
 
 General automation platforms such as [Zapier](https://zapier.com/apps/google-tasks/integrations/microsoft-todo) and [Make](https://www.make.com/en/integrations/microsoft-to-do) can connect Google Tasks and Microsoft To Do through configurable triggers and actions. That flexibility is useful when every workflow is different. Keeping two task systems aligned, however, is a state problem—not just a “when this happens, do that” recipe.
@@ -83,11 +79,11 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The core loop is covered by 279 automated tests, GitHub CI, CodeQL, and recorded real-account validation. Local deterministic validation exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. Detailed evidence and runtime boundaries are recorded in the [engineering audit](docs/audit.md).
-
-Ordinary creates run in bounded batches of 25 with durable progress checkpointing. If a create response is uncertain, recovery is fail-closed: the synchronizer adopts only one exact provider marker, waits for positive verification before removing a Google notes sentinel, and never automatically reposts an ambiguous create.
+The synchronization engine is covered by automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md).
 
 ## Get started
+
+Initial installation and source updates require a Windows, macOS, or Linux desktop/laptop with Node.js 22+, a terminal, and a modern browser. Chromebook Linux is best effort. npm installation is not supported on phones; the Microsoft connection wizard remains mobile-responsive for reauthorization.
 
 Create your private Apps Script project:
 
