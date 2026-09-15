@@ -206,3 +206,30 @@ function appendTaskMovePreview_(state, inventory, safety, actions, warnings, pen
   sortPendingMovePreviews_(pendingMoves);
   return pendingMoves;
 }
+
+/**
+ * Safely reset sync state storage while strictly preserving Microsoft OAuth credentials.
+ * Clears manifest, generation chunks, create progress, and round fences.
+ */
+function safeResetSyncState_() {
+  const userProps = PropertiesService.getUserProperties();
+  const scriptProps = PropertiesService.getScriptProperties();
+  const deleted = [];
+
+  userProps.getKeys().forEach(function(key) {
+    if (key.indexOf('sync_state_') === 0 || key.indexOf('TASK_CREATE_') === 0 || key.indexOf('SYNC_') === 0) {
+      userProps.deleteProperty(key);
+      deleted.push('user:' + key);
+    }
+  });
+
+  scriptProps.getKeys().forEach(function(key) {
+    if (key.indexOf('sync_state_') === 0) {
+      scriptProps.deleteProperty(key);
+      deleted.push('script:' + key);
+    }
+  });
+
+  return { deletedProperties: deleted };
+}
+

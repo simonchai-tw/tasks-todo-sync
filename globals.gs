@@ -55,6 +55,7 @@ const TASK_CREATE_EXTENSION_IDS = [
 ];
 const TASK_MOVE_OPERATION_PROPERTY = 'SYNC_TASK_MOVE_OPERATION_JSON';
 const TASK_MOVE_OPERATION_RECEIPT_KEY = 'sync_task_move_operation_before_image';
+const SUBTASK_OPERATION_PROPERTY = 'SYNC_SUBTASK_OPERATION_JSON';
 const HTTP_MAX_RETRIES = 4;
 // Execution-local only. The durable fence lives in User Properties; this flag
 // makes every sync-path checkpoint write a stripped safety projection until a
@@ -81,6 +82,7 @@ const STATE_INTEGRITY_ALGORITHM = 'SHA-256';
 const STATE_INTEGRITY_ENCODING = 'base64';
 const PAGINATION_MAX_PAGES = 100;
 const PAGINATION_RESERVE_MS = 20000;
+const CONTAINED_MUTATION_FAILURE_ID_LIMIT = 20;
 const ALLOW_NAME_PAIRING = false;
 const REQUIRE_LIST_ALLOWLIST = true;
 const DEFAULT_ALLOW_DELETIONS = false;
@@ -89,6 +91,7 @@ const DEFAULT_ALLOW_DELETIONS = false;
 // controlled mode and must never turn a property typo into a remote delete.
 const DEFAULT_ALLOW_LIST_DELETIONS = false;
 const DEFAULT_ALLOW_TASK_MOVES = false;
+const DEFAULT_ENABLE_NATIVE_LINKED_RESOURCES = false;
 const DEFAULT_LIST_DISCOVERY_MODE = 'explicit';
 const DEFAULT_SYNC_TIME_ZONE = 'Asia/Taipei';
 // These public-deployment defaults are intentionally explicit and limited to
@@ -136,7 +139,8 @@ const ALERT_KEYS = {
   reauth: 'alert_reauth_last_at',
   fatal: 'alert_fatal_last_at',
   storagePressure: 'alert_storage_pressure_last_at',
-  listFault: 'alert_listfault_last_at'
+  listFault: 'alert_listfault_last_at',
+  bothRecurrence: 'alert_both_recurrence_last_at'
 };
 let RUN_STARTED_AT = 0;
 let SYNC_OBSERVABILITY_ = null;

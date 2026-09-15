@@ -7,10 +7,28 @@ function beginSyncObservability_(startedAt) {
   SYNC_OBSERVABILITY_ = {
     startedAt: startedAt,
     urlFetchCalls: 0,
+    providerRetryCalls: 0,
     stateSaveCalls: 0,
     stateCodecMs: 0,
     stateCodecEncodeCalls: 0,
     stateCodecDecodeCalls: 0
+  };
+}
+
+function recordProviderRetry_() {
+  if (SYNC_OBSERVABILITY_) SYNC_OBSERVABILITY_.providerRetryCalls += 1;
+}
+
+/* Pure read, bounded observability snapshot. Exposes only the per-round provider
+ * request count and retry count for monitoring; it never surfaces IDs, contents,
+ * tokens, or provider bodies — numbers only. Returns zeros when no round is
+ * active (SYNC_OBSERVABILITY_ is null). */
+function providerCallTelemetry_() {
+  const obs = SYNC_OBSERVABILITY_;
+  if (!obs) return { providerRequests: 0, providerRetries: 0 };
+  return {
+    providerRequests: Number(obs.urlFetchCalls) || 0,
+    providerRetries: Number(obs.providerRetryCalls) || 0
   };
 }
 
@@ -89,6 +107,30 @@ function isNotFoundError_(e) {
   // 500 response can legitimately include a quoted "HTTP 404" from another
   // service and must remain retryable rather than being treated as deleted.
   return /^HTTP (404|410)(?:\b|:)/.test(msg);
+}
+
+function providerHttpStatus_(e) {
+  if (e && typeof e.httpStatus === 'number' && isFinite(e.httpStatus)) return e.httpStatus;
+  // The provider layer does not yet attach a structured status, so the leading
+  // response status remains the only authoritative source, as in
+  // isNotFoundError_ above.  A status quoted deeper in the message is ignored.
+  const m = /^HTTP (\d{3})(?:\b|:)/.exec(String((e && e.message) || ''));
+  return m ? Number(m[1]) : null;
+}
+
+/* A provider explicitly refusing one pair's own write (a PATCH the service
+ * rejects, or a mutation target that vanished concurrently) is scoped to that
+ * pair.  Everything else must keep aborting the whole round, because it either
+ * makes the round meaningless (authorization), unsafe to continue (malformed
+ * state, exhausted time budget) or harmful to retry in a loop (throttling).
+ * Anything unrecognised returns false: the fail-closed default is to abort. */
+function isContainedPairMutationError_(e) {
+  const status = providerHttpStatus_(e);
+  if (status === null) return false;
+  if (status === 401 || status === 403) return false;
+  if (status === 408 || status === 429) return false;
+  if (status >= 500) return false;
+  return status >= 400;
 }
 
 function taskLabel_(id, title) {
@@ -261,6 +303,30 @@ function sendListFaultAlert_(message) {
   }
   const sent = sendMailAlert_('[Sync engine] List isolation warning', message + '\n\nRun listSyncFaults() and dryRunReport().');
   if (sent) markAlertSent_(ALERT_KEYS.listFault);
+}
+
+// Both sides carry recurrence: the sync engine carries no recurrence, so each
+// side regenerates on its own schedule and they drift. Tell the operator to
+// keep recurrence on ONE side only. Runs on BOTH the deletions-on and
+// deletions-off paths (single pre-branch check by the caller), one email per
+// day per script via ALERT_COOLDOWN_MS.
+function sendBothRecurrenceAlert_(info) {
+  if (!canSendAlert_(ALERT_KEYS.bothRecurrence, ALERT_COOLDOWN_MS)) {
+    console.warn('[Recurrence] Both-recurrence alert is still in its cooldown period; email skipped.');
+    return false;
+  }
+  const title = (info && info.title) || '(Untitled)';
+  const body = 'A mapped task carries recurrence on BOTH sides, which the sync engine cannot carry.\n' +
+    'Keep recurrence on ONE side only; the other side should be a plain task.\n\n' +
+    'Task: ' + title + '\n' +
+    'Google task id: ' + ((info && info.gId) || '(unknown)') + '\n' +
+    'Microsoft task id: ' + ((info && info.msId) || '(unknown)') + '\n' +
+    'Marker: ' + ((info && info.marker) || '(unknown)') + '\n\n' +
+    'The mapping was left in place and nothing was deleted. ' +
+    'Turn off recurrence on one side, then run dryRunReport().';
+  const sent = sendMailAlert_('[Sync engine] Recurring task needs one-side-only setup', body);
+  if (sent) markAlertSent_(ALERT_KEYS.bothRecurrence);
+  return sent;
 }
 
 function forceMicrosoftRefresh_(service) {

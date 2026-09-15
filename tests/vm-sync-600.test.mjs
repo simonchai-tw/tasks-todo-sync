@@ -113,11 +113,56 @@ function smallUnmappedHarness(direction) {
 
 test('VM dense 1x600 pagination and steady no-op mapping', () => { const h = harness({ listCount: 1, tasksPerList: 600 }); h.context.syncAll(); assert.equal(h.provider.gPages, 6); assert.equal(h.provider.msPages, 6); assert.equal(h.provider.gWrites + h.provider.msWrites, 0); assertIntegrity(h); });
 test('VM sparse 60x10 pagination and inventory', () => { const h = harness({ listCount: 60, tasksPerList: 10 }); h.context.syncAll(); assert.equal(h.provider.gPages, 60); assert.equal(h.provider.msPages, 60); assert.equal(h.provider.gListPages, 1); assert.equal(h.provider.msListPages, 1); assertIntegrity(h); });
-test('VM 600-pair LWW edits use Google on equal timestamps', () => { const h = harness({ listCount: 1, tasksPerList: 600 }); h.provider.google.get(gid(0)).forEach((g, i) => { const m = h.provider.microsoft.get(mid(0))[i]; g.title = `Google ${i}`; m.title = `Microsoft ${i}`; if (i % 3 === 0) { g.updated = '2026-08-29T02:00:00.000Z'; m.lastModifiedDateTime = '2026-08-29T01:00:00.000Z'; } else if (i % 3 === 1) { g.updated = '2026-08-29T01:00:00.000Z'; m.lastModifiedDateTime = '2026-08-29T02:00:00.000Z'; } else g.updated = m.lastModifiedDateTime = '2026-08-29T02:00:00.000Z'; }); h.context.syncAll(); assert.equal(h.provider.msWrites, 400); assert.equal(h.provider.gWrites, 200); for (let i = 0; i < TASK_COUNT; i++) { const expected = i % 3 === 1 ? `Microsoft ${i}` : `Google ${i}`; assert.equal(h.provider.google.get(gid(0))[i].title, expected); assert.equal(h.provider.microsoft.get(mid(0))[i].title, expected); } assertIntegrity(h); });
-test('VM 600 Google completions propagate to Microsoft', () => { const h = harness({ listCount: 1, tasksPerList: 600 }); h.provider.google.get(gid(0)).forEach((t) => { t.status = 'completed'; t.updated = '2026-08-29T02:00:00.000Z'; }); h.context.syncAll(); assert.equal(h.provider.msWrites, TASK_COUNT); assert.ok(h.provider.microsoft.get(mid(0)).every((t) => t.status === 'completed')); assertIntegrity(h); });
+test('VM 600-pair field merge writes one-side titles and freezes both-sides conflicts', () => {
+  const h = harness({ listCount: 1, tasksPerList: 600 });
+  h.context.syncAll();
+  assert.equal(h.provider.gWrites + h.provider.msWrites, 0);
+  h.provider.google.get(gid(0)).forEach((g, i) => {
+    const m = h.provider.microsoft.get(mid(0))[i];
+    if (i % 2 === 0) {
+      g.title = `Google ${i}`;
+      g.updated = '2026-08-29T02:00:00.000Z';
+    } else {
+      g.title = `Google ${i}`;
+      m.title = `Microsoft ${i}`;
+      g.updated = m.lastModifiedDateTime = '2026-08-29T02:00:00.000Z';
+    }
+  });
+  h.context.syncAll();
+  assert.equal(h.provider.msWrites, 300);
+  assert.equal(h.provider.gWrites, 0);
+  for (let i = 0; i < TASK_COUNT; i++) {
+    if (i % 2 === 0) {
+      assert.equal(h.provider.google.get(gid(0))[i].title, `Google ${i}`);
+      assert.equal(h.provider.microsoft.get(mid(0))[i].title, `Google ${i}`);
+    } else {
+      assert.equal(h.provider.google.get(gid(0))[i].title, `Google ${i}`);
+      assert.equal(h.provider.microsoft.get(mid(0))[i].title, `Microsoft ${i}`);
+      assert.equal(h.state().g2m[gtid(i)].fc.title.kind, 'TRUE_FIELD_CONFLICT');
+    }
+  }
+  assertIntegrity(h);
+});
+test('VM 600 Google completions propagate to Microsoft', () => {
+  const h = harness({ listCount: 1, tasksPerList: 600 });
+  h.context.syncAll();
+  h.provider.google.get(gid(0)).forEach((t) => { t.status = 'completed'; t.updated = '2026-08-29T02:00:00.000Z'; });
+  h.context.syncAll();
+  assert.equal(h.provider.msWrites, TASK_COUNT);
+  assert.ok(h.provider.microsoft.get(mid(0)).every((t) => t.status === 'completed'));
+  assertIntegrity(h);
+});
 test('VM two-round deletion journals 600 missing Google tasks', () => { const h = harness({ listCount: 1, tasksPerList: 600, deletions: true }); h.removeGoogle(); h.setTime(1000); h.context.syncAll(); assert.equal(Object.keys(h.state().pendingTaskDeletions).length, TASK_COUNT); assert.equal(h.provider.msDeletes, 0); h.setTime(2000); h.context.syncAll(); const s = h.state(); assert.equal(h.provider.msDeletes, TASK_COUNT); assert.equal(new Set(h.provider.calls.filter((x) => x.method === 'delete').map((x) => x.url || x.path)).size, TASK_COUNT); assert.equal(Object.keys(s.g2m).length, 0); assert.equal(Object.keys(s.tombstones.g).length, TASK_COUNT); assert.equal(Object.keys(s.tombstones.m).length, TASK_COUNT); });
 test('VM Google-origin moves across two paired lists have no duplicate mutations', () => { const h = harness({ listCount: 2, tasksPerList: 300, moves: true }); h.moveGoogle(); h.context.syncAll(); const s = h.state(); assert.equal(h.provider.msWrites, TASK_COUNT); assert.equal(h.provider.msDeletes, TASK_COUNT); assert.equal(Object.keys(s.taskMoveJournal).length, 0); assert.equal(new Set(h.provider.calls.filter((x) => x.method === 'post').map((x) => x.url)).size, TASK_COUNT); assert.equal(new Set(h.provider.calls.filter((x) => x.method === 'delete').map((x) => x.url)).size, TASK_COUNT); assertIntegrity(h); });
-test('VM long Unicode payload survives 600 Google-to-Microsoft updates', () => { const h = harness({ listCount: 1, tasksPerList: 600, unicode: true }); h.provider.google.get(gid(0)).forEach((t) => { t.notes += '\n追加変更'; t.updated = '2026-08-29T02:00:00.000Z'; }); h.context.syncAll(); assert.equal(h.provider.msWrites, TASK_COUNT); assert.ok(h.provider.microsoft.get(mid(0)).every((t) => t.body.content.includes('工作事項') && t.body.content.includes('😀'))); assertIntegrity(h); });
+test('VM long Unicode payload survives 600 Google-to-Microsoft updates', () => {
+  const h = harness({ listCount: 1, tasksPerList: 600, unicode: true });
+  h.context.syncAll();
+  h.provider.google.get(gid(0)).forEach((t) => { t.notes += '\n追加変更'; t.updated = '2026-08-29T02:00:00.000Z'; });
+  h.context.syncAll();
+  assert.equal(h.provider.msWrites, TASK_COUNT);
+  assert.ok(h.provider.microsoft.get(mid(0)).every((t) => t.body.content.includes('工作事項') && t.body.content.includes('😀')));
+  assertIntegrity(h);
+});
 test('VM injected provider failure and controllable time budget fail closed', () => { const failed = harness({ listCount: 1, tasksPerList: 600 }); failed.provider.fail = { side: 'google', status: 500 }; assert.throws(() => failed.context.syncAll(), /HTTP 500/); assert.equal(failed.provider.gWrites + failed.provider.msWrites, 0); assertIntegrity(failed); const timed = harness({ listCount: 1, tasksPerList: 600, advanceMs: 300000 }); timed.setTime(1000); assert.equal(timed.context.syncAll(), undefined); assert.equal(timed.provider.gWrites + timed.provider.msWrites, 0); assertIntegrity(timed); assert.ok(timed.logs.some((x) => x.includes('Near time limit') || x.includes('TIME_BUDGET'))); });
 test('VM bounded create batch recovers first unfenced Google POST by UUID', () => {
   const h = smallUnmappedHarness('google_to_microsoft');

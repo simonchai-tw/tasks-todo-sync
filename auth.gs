@@ -218,7 +218,7 @@ function safeMicrosoftOAuthErrorCode_(body) {
 }
 
 function validMicrosoftVerificationUri_(value) {
-  return /^https:\/\/(?:www\.)?microsoft\.com\/(?:link|devicelogin)\/?$/i.test(
+  return /^https:\/\/(?:microsoft\.com\/devicelogin|www\.microsoft\.com\/(?:link|devicelogin))\/?$/i.test(
     String(value || '').trim()
   );
 }

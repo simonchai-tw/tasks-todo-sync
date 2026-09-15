@@ -1,3 +1,41 @@
+// Both-recurrence guard: a Google rotation recognized via the [TTS-REC]
+// marker whose Microsoft counterpart still carries recurrence. Runs BEFORE
+// the deletions on/off branch so both paths are covered by one check.
+// Returns true when the pair was handled (caller must `continue`).
+// Mapping is left in place; nothing is deleted; one email per day.
+function bothRecurrenceGuard_(state, rec, gId, snap) {
+  if (!rec || !rec.msId || !snap) return false;
+  const msTask = snap.msTasksById && snap.msTasksById[rec.msId];
+  if (!msTaskHasRecurrence_(msTask)) return false;
+  // Only MS→Google stamped copies carry the marker. A Google task without the
+  // marker is either Google-native or predates the marker: not our case.
+  let marker = null;
+  const gTask = snap.gTasksById && snap.gTasksById[gId];
+  if (gTask && googleNotesHaveTtsRecMarker_(gTask.notes)) {
+    marker = String(gTask.notes).match(/\[TTS-REC:[0-9A-F]{6}\]/i);
+    marker = marker ? marker[0] : TTS_REC_MARKER_PREFIX_ + '*]';
+  } else {
+    // The mapped Google id is missing from inventory (rotation in progress):
+    // scan the destination list for a fresh id carrying the same marker family.
+    const candidates = Object.keys(snap.gTasksById || {}).filter(function(id) {
+      return snap.gListByTask[id] === rec.gListId &&
+        googleNotesHaveTtsRecMarker_(snap.gTasksById[id] && snap.gTasksById[id].notes);
+    });
+    if (!candidates.length) return false;
+    marker = String((snap.gTasksById[candidates[0]] || {}).notes).match(/\[TTS-REC:[0-9A-F]{6}\]/i);
+    marker = marker ? marker[0] : TTS_REC_MARKER_PREFIX_ + '*]';
+  }
+  recordTaskDeletionConflict_(state, gId, rec, 'BOTH_SIDES_RECURRENCE');
+  sendBothRecurrenceAlert_({
+    title: (gTask && gTask.title) || msTask.title || '(Untitled)',
+    gId: gId,
+    msId: rec.msId,
+    marker: marker
+  });
+  console.warn('[Recurrence] Both sides carry recurrence; mapping kept, nothing deleted: ' + taskLabel_(gId, null));
+  return true;
+}
+
 function epoch_(value) {
   const n = Date.parse(value || '');
   return isNaN(n) ? 0 : n;
@@ -12,6 +50,15 @@ function cleanupTombstones_(state, now) {
       if ((state.tombstones[side][id].at || 0) <= cutoff) delete state.tombstones[side][id];
     });
   });
+  if (state.subtasks && state.subtasks.tombstones) {
+    ['g', 'ms'].forEach(function(side) {
+      const table = state.subtasks.tombstones[side];
+      if (!table || typeof table !== 'object') return;
+      Object.keys(table).forEach(function(id) {
+        if ((table[id] && table[id].at || 0) <= cutoff) delete table[id];
+      });
+    });
+  }
 }
 
 function listPairKey_(gListId, msListId) {
@@ -1238,13 +1285,17 @@ function putMapping_(state, gTask, gListId, msTask, msListId) {
   if (previous && previous.msId && previous.msId !== msTask.id) {
     delete state.m2g[previous.msId];
   }
-  state.g2m[gTask.id] = {
+  const rec = {
     msId: msTask.id,
     gListId: gListId,
     msListId: msListId,
     gUpdated: gTask.updated || null,
     msUpdated: msTask.lastModifiedDateTime || null
   };
+  if (previous && previous.fp) rec.fp = previous.fp;
+  if (previous && previous.res) rec.res = previous.res;
+  if (previous && previous.fc) rec.fc = previous.fc;
+  state.g2m[gTask.id] = rec;
   state.m2g[msTask.id] = gTask.id;
 }
 
@@ -1378,14 +1429,174 @@ function deletionTargetIsSafe_(gId, rec, missingSide, gTask, msTask, snap) {
 
 function pauseTaskDeletions_(state) {
   Object.keys(state.pendingTaskDeletions).forEach(function(gId) {
+    const cand = state.pendingTaskDeletions[gId];
+    // A provider-proven candidate is a confirmed genuine deletion; the operator
+    // disable must not discard the only evidence we have. Keep it so the next
+    // round can still promote it.
+    if (cand && cand.providerProven) return;
     delete state.pendingTaskDeletions[gId];
   });
 }
 
 function pausePreparedDeletionJournals_(state) {
   Object.keys(state.deletionJournal).forEach(function(gId) {
-    state.deletionJournal[gId].phase = 'paused';
+    const journal = state.deletionJournal[gId];
+    if (!journal || journal.providerProven) return;
+    journal.phase = 'paused';
   });
+}
+
+// W2/W3: provider-level absence evidence and terminal states for deletions=false.
+// Retired completed mappings are bounded by a TTL so state does not grow forever;
+// unexplained holds are intentionally NOT auto-released by TTL (a human must clear
+// them) and they additionally block automatic creation on the surviving list.
+const RETIRED_PAIR_TTL_MS_ = 30 * 24 * 60 * 60 * 1000;
+const TIME_BUDGET_TASK_DELETE_ABSENCE_PROBE_ = 'TIME_BUDGET_TASK_DELETE_ABSENCE_PROBE';
+
+function absenceTerminalEnabled_(snap) {
+  return !!(snap && snap.safety && snap.safety.absenceProbe);
+}
+
+function ensureAbsenceTerminalState_(state) {
+  state.retiredPairs = state.retiredPairs || {};
+  state.absenceHolds = state.absenceHolds || {};
+  state.listCreateGuards = state.listCreateGuards || {};
+}
+
+// One-by-one, provider-scoped absence probe used only when a deletion candidate
+// is about to receive its second confirmation (W2). Returns:
+//   'absent'      -> GET-by-id 404 (or soft-deleted): genuine absence, proceed.
+//   'alive'       -> GET-by-id 200 and task present: the inventory absence was a
+//                    list-filter artifact, not a real deletion; must NOT delete.
+//   'unknown'     -> structured provider error (401/403/5xx/4xx): fail-closed,
+//                    do not promote to a second confirmation.
+//   'unavailable' -> no provider/network (non-structured error): fall back to the
+//                    established inventory-only two-round behaviour so existing
+//                    runs (and the test VM without UrlFetchApp) are unaffected.
+function providerAbsenceProbe_(state, rec, gId, missingSide) {
+  assertDestructiveTimeBudget_(TIME_BUDGET_TASK_DELETE_ABSENCE_PROBE_);
+  try {
+    // Probe the SIDE THAT IS MISSING from inventory (F1/F2: inventory absence is
+    // trustworthy, so a 404 here is genuine deletion, not a list filter).  A 200
+    // with a live task means the inventory gap was a filter artifact and the task
+    // must NOT be deleted.  Probing the present side would be meaningless.
+    const raw = missingSide === 'google'
+      ? getGTask_(rec.gListId, gId)
+      : (missingSide === 'microsoft' ? getMsTask_(rec.msListId, rec.msId) : null);
+    if (raw === null) return 'absent';
+    if (raw && raw.deleted === true) return 'absent';
+    return 'alive';
+  } catch (e) {
+    if (providerHttpStatus_(e) !== null) {
+      console.warn('[AbsenceProbe] provider error ' + providerHttpStatus_(e) +
+        '; fail-closed, no second confirmation: ' + taskLabel_(gId, null));
+      return 'unknown';
+    }
+    console.warn('[AbsenceProbe] provider unavailable; fall back to inventory-only confirmation: ' + taskLabel_(gId, null));
+    return 'unavailable';
+  }
+}
+
+function retireCompletedMapping_(state, rec, gId, missingSide, roundId) {
+  ensureAbsenceTerminalState_(state);
+  const now = Date.now();
+  state.retiredPairs[gId] = {
+    gId: gId,
+    msId: rec.msId,
+    gListId: rec.gListId,
+    msListId: rec.msListId,
+    retiredAt: new Date().toISOString(),
+    retiredRoundId: roundId,
+    reason: 'RETIRE_COMPLETED',
+    ttlExpiresAt: now + RETIRED_PAIR_TTL_MS_,
+    fp: rec.fp || null
+  };
+  // Retire the mapping only: the counterpart is NOT deleted, and a brand-new ID
+  // still flows through createUnmapped_ as usual.
+  removeMapping_(state, gId, rec.msId);
+  console.log('[RetireCompleted] mapping retired as terminal (counterpart not deleted): ' + taskLabel_(gId, null));
+}
+
+function holdAbsence_(state, rec, gId, missingSide, roundId) {
+  ensureAbsenceTerminalState_(state);
+  state.absenceHolds[gId] = {
+    gId: gId,
+    msId: rec.msId,
+    gListId: rec.gListId,
+    msListId: rec.msListId,
+    missingSide: missingSide,
+    heldAt: new Date().toISOString(),
+    heldRoundId: roundId,
+    reason: 'ABSENCE_UNEXPLAINED',
+    resolved: false
+  };
+  // Block automatic creation on the surviving side's list so a fresh ID cannot
+  // refill the gap while a human decides. Holds are never auto-released by TTL.
+  const guardSide = missingSide === 'google' ? rec.msListId : rec.gListId;
+  state.listCreateGuards[guardSide] = state.listCreateGuards[guardSide] ||
+    { reason: 'ABSENCE_HOLD', since: new Date().toISOString() };
+  if (missingSide === 'both') {
+    state.listCreateGuards[rec.gListId] = state.listCreateGuards[rec.gListId] ||
+      { reason: 'ABSENCE_HOLD', since: new Date().toISOString() };
+  }
+  console.warn('[AbsenceHold] unexplained absence held; list create blocked: ' + taskLabel_(gId, null));
+}
+
+function expireRetiredPairs_(state) {
+  if (!state.retiredPairs) return;
+  const now = Date.now();
+  Object.keys(state.retiredPairs).forEach(function(gId) {
+    const rec = state.retiredPairs[gId];
+    if (rec && typeof rec.ttlExpiresAt === 'number' && rec.ttlExpiresAt <= now) {
+      delete state.retiredPairs[gId];
+    }
+  });
+}
+
+function hasProviderProvenDeletionIntent_(state) {
+  return Object.keys(state.pendingTaskDeletions || {}).some(function(gId) {
+    return !!(state.pendingTaskDeletions[gId] && state.pendingTaskDeletions[gId].providerProven);
+  }) || Object.keys(state.deletionJournal || {}).some(function(gId) {
+    return !!(state.deletionJournal[gId] && state.deletionJournal[gId].providerProven);
+  });
+}
+
+// deletions=false terminal-state resolver (W3). Only runs when the absence-probe
+// capability is enabled for the round; otherwise the legacy [DeleteBlocked]
+// retain-and-wait behaviour is preserved unchanged.
+function resolveAbsenceTerminalState_(state, rec, gId, missingSide, snap, roundId, progress) {
+  ensureAbsenceTerminalState_(state);
+  const verdict = providerAbsenceProbe_(state, rec, gId, missingSide);
+  if (verdict === 'absent') {
+    // Provider-proven genuine deletion: enter the existing two-round flow, but
+    // mark it providerProven so it may bypass the operator disable at apply time.
+    const cand = observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, roundId, progress);
+    if (cand) cand.providerProven = true;
+    return;
+  }
+  if (verdict === 'alive') {
+    markTaskDeletionCandidateInvalidated_(progress, gId);
+    clearPendingTaskDeletion_(state, gId);
+    recordTaskDeletionConflict_(state, gId, rec, 'ABSENCE_WAS_FILTER_ARTIFACT');
+    return;
+  }
+  if (verdict === 'unknown') {
+    // Provider error: fail-closed. Leave the candidate untouched; do not retire
+    // or hold.
+    return;
+  }
+  // 'unavailable' (no provider) or deletions-off without proof: decide by baseline.
+  // rec.fp.completed is a FINGERPRINT (a hash of the boolean), not a boolean, so
+  // truthiness says nothing: a pair that was converged as NOT completed also
+  // carries a 32-hex digest there.  Compare against the digest of true, or every
+  // unexplained absence would be retired instead of held.
+  const completedDigest = ordinaryFieldFp_({ completed: true }, 'completed');
+  const completed = !!(rec.fp && rec.fp.completed && rec.fp.completed === completedDigest);
+  if (completed) {
+    retireCompletedMapping_(state, rec, gId, missingSide, roundId);
+    return;
+  }
+  holdAbsence_(state, rec, gId, missingSide, roundId, progress);
 }
 
 function observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, roundId, progress) {
@@ -1420,6 +1631,24 @@ function observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, round
     return candidate;
   }
   if (candidate.lastRoundId !== roundId) {
+    // W2: before promoting to the second confirmation, require provider-level
+    // absence evidence for this single candidate. One GET-by-id, only at the
+    // 2nd-round boundary, never a full inventory recheck.
+    const verdict = providerAbsenceProbe_(state, rec, gId, missingSide);
+    if (verdict === 'alive') {
+      // The task is actually present on the missing side: the inventory absence
+      // was a list-filter artifact, not a real deletion. Discard the candidate.
+      markTaskDeletionCandidateInvalidated_(progress, gId);
+      clearPendingTaskDeletion_(state, gId);
+      recordTaskDeletionConflict_(state, gId, rec, 'ABSENCE_WAS_FILTER_ARTIFACT');
+      return null;
+    }
+    if (verdict === 'unknown') {
+      // Provider error: fail-closed. Keep confirmations at 1 so the next round
+      // re-examines; do not promote to a second confirmation.
+      console.warn('[DeleteCandidate] absence probe errored; not confirmed this round: ' + taskLabel_(gId, null));
+      return candidate;
+    }
     candidate.confirmations = Math.min(2, Number(candidate.confirmations || 0) + 1);
     candidate.lastRoundId = roundId;
     candidate.lastConfirmedAt = new Date().toISOString();
@@ -1462,7 +1691,8 @@ function preparedDeletionJournal_(candidate) {
     msListId: candidate.msListId,
     gUpdated: candidate.gUpdated || null,
     msUpdated: candidate.msUpdated || null,
-    preparedAt: new Date().toISOString()
+    preparedAt: new Date().toISOString(),
+    providerProven: !!candidate.providerProven
   };
 }
 
@@ -1515,7 +1745,7 @@ function recoverPreparedTaskDeletions_(state, snap) {
       return;
     }
     clearDeletionJournalInventoryBlock_(journal);
-    if (journal.phase === 'paused') {
+    if (journal.phase === 'paused' && !journal.providerProven) {
       clearPendingTaskDeletion_(state, gId);
       if (snap.safety && snap.safety.allowDeletions) {
         // Re-enabling deletion starts confirmation from scratch; a paused
@@ -1524,7 +1754,7 @@ function recoverPreparedTaskDeletions_(state, snap) {
       }
       return;
     }
-    if (!snap.safety.allowDeletions) {
+    if (!snap.safety.allowDeletions && !journal.providerProven) {
       journal.phase = 'paused';
       clearPendingTaskDeletion_(state, gId);
       return;
@@ -1567,7 +1797,10 @@ function applyConfirmedTaskDeletions_(state, snap, roundId, progress) {
     }
   });
   recoverPreparedTaskDeletions_(state, snap);
-  if (!snap.safety.allowDeletions) return progress;
+  // A provider-proven absence (W3) is a confirmed genuine deletion and may
+  // bypass the operator disable: the only way deletions=false still deletes.
+  if (!snap.safety.allowDeletions && !hasProviderProvenDeletionIntent_(state)) return progress;
+  const toDelete = [];
   Object.keys(state.pendingTaskDeletions).forEach(function(gId) {
     const candidate = state.pendingTaskDeletions[gId];
     const rec = state.g2m[gId];
@@ -1604,14 +1837,17 @@ function applyConfirmedTaskDeletions_(state, snap, roundId, progress) {
     }
     assertDestructiveTimeBudget_('TIME_BUDGET_TASK_DELETE_JOURNAL_SAVE');
     state.deletionJournal[gId] = preparedDeletionJournal_(candidate);
-    // This save is intentionally before the remote call. A crash after the call
-    // leaves a durable journal that the next inventory can safely reconcile.
-    saveDeletionJournalDurably_(state, progress);
     progress.durableJournalTaskIds[gId] = true;
-    assertDestructiveTimeBudget_('TIME_BUDGET_TASK_DELETE_REMOTE');
-    remoteDeleteForMissingSide_(gId, rec, currentMissingSide);
-    finalizeTaskDeletion_(state, snap, gId, rec, currentMissingSide);
+    toDelete.push({ gId: gId, rec: rec, missingSide: currentMissingSide });
   });
+  if (toDelete.length > 0) {
+    saveDeletionJournalDurably_(state, progress);
+    toDelete.forEach(function(item) {
+      assertDestructiveTimeBudget_('TIME_BUDGET_TASK_DELETE_REMOTE');
+      remoteDeleteForMissingSide_(item.gId, item.rec, item.missingSide);
+      finalizeTaskDeletion_(state, snap, item.gId, item.rec, item.missingSide);
+    });
+  }
   return progress;
 }
 

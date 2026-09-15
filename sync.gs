@@ -1,9 +1,160 @@
+/* A provider rejection of one pair's write must not abort the rest of the
+ * round, and it must never be read as evidence: no fingerprint advance, no
+ * deletion candidate, no counterpart creation, no compensating delete, no
+ * mutation replay decision.  Only the fact that this pair's write was refused
+ * is recorded, and the pair is left for the next round to re-observe. */
+function containPairMutationFailure_(progress, gId, e) {
+  const status = providerHttpStatus_(e);
+  const statusKey = status === null ? 'unknown' : String(status);
+  if (progress && progress.containedMutationFailures) {
+    const bucket = progress.containedMutationFailures[statusKey] ||
+      { count: 0, taskIds: [] };
+    bucket.count += 1;
+    if (bucket.taskIds.length < CONTAINED_MUTATION_FAILURE_ID_LIMIT &&
+        bucket.taskIds.indexOf(gId) < 0) {
+      bucket.taskIds.push(gId);
+    }
+    progress.containedMutationFailures[statusKey] = bucket;
+  }
+  console.warn('[MutationContained] HTTP ' + statusKey +
+    '; pair skipped for this round with no fingerprint advance: ' + taskLabel_(gId, null));
+}
+
+function logContainedMutationFailures_(progress) {
+  const buckets = (progress && progress.containedMutationFailures) || {};
+  const keys = Object.keys(buckets);
+  if (!keys.length) return;
+  let total = 0;
+  const detail = keys.sort().map(function(key) {
+    total += buckets[key].count;
+    return key + ':' + buckets[key].count;
+  }).join(',');
+  console.warn('[MutationContainedSummary] pairs=' + total + ' statuses=' + detail);
+}
+
+/* ---------------------------------------------------------------------------
+ * W1c — durable per-pair mutation journal.
+ *
+ * A provider refusing one pair's write is contained to that pair.  Without a
+ * durable record the identical payload would be PATCHed again every round and
+ * alert every round, with no way for an operator to stop it.  The journal holds
+ * the pair instead: the same intent is skipped, no deletion evidence or
+ * counterpart creation is derived from the refusal, and the only ways out are a
+ * changed payload (the user edited something) or an explicit abandonment.
+ * ------------------------------------------------------------------------- */
+var MUTATION_JOURNAL_VERSION_ = 1;
+var MUTATION_JOURNAL_MAX_ENTRIES_ = 200;
+
+/* Identity of the intended write, derived from the field NAMES and values that
+ * are about to be sent.  Only the digest is persisted, never the payload. */
+function mutationPayloadFingerprint_(googlePayload, microsoftPayload) {
+  function shape(payload) {
+    return Object.keys(payload || {}).sort().map(function(key) {
+      return key + '=' + JSON.stringify(payload[key]);
+    });
+  }
+  return ordinaryFingerprintHex_(JSON.stringify({ g: shape(googlePayload), m: shape(microsoftPayload) }));
+}
+
+function mutationJournalEntry_(state, gId) {
+  return (state && state.mutationJournal && state.mutationJournal[gId]) || null;
+}
+
+function isPairAbandoned_(state, gId) {
+  const entry = mutationJournalEntry_(state, gId);
+  return !!(entry && entry.phase === 'ABANDONED');
+}
+
+/* True when this exact intent already failed and must not be repeated.  A record
+ * written by a newer schema version is held as well: an unknown shape is never
+ * treated as cleared. */
+function mutationJournalHoldsPayload_(state, gId, payloadFp) {
+  const entry = mutationJournalEntry_(state, gId);
+  if (!entry) return false;
+  if (entry.phase === 'ABANDONED') return true;
+  if (entry.jv > MUTATION_JOURNAL_VERSION_) return true;
+  return !!entry.payloadFp && entry.payloadFp === payloadFp;
+}
+
+function recordPairMutationFailure_(state, gId, rec, payloadFp, error, partial) {
+  if (!state || !gId || !rec) return;
+  state.mutationJournal = state.mutationJournal || {};
+  const existing = state.mutationJournal[gId];
+  if (existing && existing.phase === 'ABANDONED') return;
+  if (!existing && Object.keys(state.mutationJournal).length >= MUTATION_JOURNAL_MAX_ENTRIES_) {
+    console.warn('[MutationJournal] capacity reached; this refusal is contained but not journaled.');
+    return;
+  }
+  const now = new Date().toISOString();
+  state.mutationJournal[gId] = {
+    jv: MUTATION_JOURNAL_VERSION_,
+    gId: gId,
+    msId: rec.msId,
+    gListId: rec.gListId,
+    msListId: rec.msListId,
+    phase: 'OPEN',
+    reason: 'PROVIDER_REJECTED_MUTATION',
+    payloadFp: payloadFp || null,
+    httpStatus: providerHttpStatus_(error),
+    providerCode: (error && error.providerCode) || null,
+    providerMessage: (error && error.providerMessage) || null,
+    attempts: (existing && Number.isInteger(existing.attempts) ? existing.attempts : 0) + 1,
+    firstFailedAt: (existing && existing.firstFailedAt) || now,
+    lastFailedAt: now,
+    abandonedAt: null,
+    partial: partial || null
+  };
+  console.warn('[MutationJournal] pair held after a refused write: ' + taskLabel_(gId, null));
+}
+
+function clearPairMutationJournal_(state, gId) {
+  if (!state || !state.mutationJournal) return;
+  const entry = state.mutationJournal[gId];
+  if (!entry) return;
+  // A record from a newer schema version is never cleared by this version.
+  if (entry.jv > MUTATION_JOURNAL_VERSION_) return;
+  delete state.mutationJournal[gId];
+}
+
+/* Operator escape hatch.  Keeps the exact IDs excluded by leaving the mapping in
+ * place (so createUnmapped_ cannot refill the gap) and deletes nothing remotely. */
+function abandonPair_(gId) {
+  const state = loadStateForSync_();
+  const rec = state.g2m && state.g2m[gId];
+  if (!rec || !rec.msId) return { ok: false, reason: 'NO_SUCH_PAIR' };
+  state.mutationJournal = state.mutationJournal || {};
+  const prior = mutationJournalEntry_(state, gId) || {};
+  state.mutationJournal[gId] = {
+    jv: MUTATION_JOURNAL_VERSION_,
+    gId: gId,
+    msId: rec.msId,
+    gListId: rec.gListId,
+    msListId: rec.msListId,
+    phase: 'ABANDONED',
+    reason: 'OPERATOR_ABANDONED_PAIR',
+    payloadFp: prior.payloadFp || null,
+    httpStatus: null,
+    providerCode: null,
+    providerMessage: null,
+    attempts: Number.isInteger(prior.attempts) ? prior.attempts : 0,
+    firstFailedAt: prior.firstFailedAt || null,
+    lastFailedAt: prior.lastFailedAt || null,
+    abandonedAt: new Date().toISOString(),
+    partial: null
+  };
+  persistSyncState_(state);
+  console.log('[MutationJournal] pair abandoned by operator; nothing deleted remotely.');
+  return { ok: true, gId: gId, phase: 'ABANDONED', remoteDeletes: 0 };
+}
+
 function reconcileMapped_(state, snap, startedAt, roundId, progress) {
   roundId = roundId || deletionRoundId_(startedAt);
   progress = progress || { invalidatedCandidateTaskIds: {}, discardCandidateTaskIds: {} };
   progress.invalidatedCandidateTaskIds = progress.invalidatedCandidateTaskIds || {};
   progress.discardCandidateTaskIds = progress.discardCandidateTaskIds || {};
+  progress.containedMutationFailures = progress.containedMutationFailures || {};
   ensureTaskDeletionState_(state);
+  expireRetiredPairs_(state);
   const allowDeletions = !!(snap.safety && snap.safety.allowDeletions);
   if (!allowDeletions) {
     pauseTaskDeletions_(state);
@@ -13,6 +164,12 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
     pausePreparedDeletionJournals_(state);
   }
   const mappedGIds = Object.keys(state.g2m);
+  // W? — build the transient per-round M->G resource observation snapshot
+  // BEFORE the mapped reconciliation loop so ordinaryReconcileMappedPair_ can
+  // read it via currentResourceObservation_.  It is torn down immediately after
+  // the loop and is never written to persisted state.
+  buildResourceObservationSnapshot_(state, snap, startedAt);
+  try {
   for (const gId of mappedGIds) {
     if (!remainingTimeOk_(startedAt, 45000)) throw new Error('TIME_BUDGET_RECONCILE');
     const rec = state.g2m[gId];
@@ -20,6 +177,10 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
       delete state.g2m[gId];
       continue;
     }
+    // W1c: an operator-abandoned pair is excluded from ordinary reconciliation
+    // entirely.  The mapping stays in place, which is what keeps the exact IDs
+    // reserved so createUnmapped_ cannot refill the gap.
+    if (isPairAbandoned_(state, gId)) continue;
     if (isListPairReserved_(snap, rec.gListId, rec.msListId)) {
       // A list lifecycle candidate owns this pair.  Ordinary task deletion
       // candidates are cleared so they cannot race a later list finalization;
@@ -64,6 +225,10 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
 
     const missingSide = missingSide_(gTask, msTask);
     if (missingSide) {
+      // Both-recurrence guard runs BEFORE the deletions on/off split so one
+      // check covers both paths: recognized rotation + MS recurrence means
+      // keep the mapping, delete nothing, alert once per day.
+      if (bothRecurrenceGuard_(state, rec, gId, snap)) continue;
       if (missingSide === 'google' && msTask) {
         if (state.listMap[rec.gListId] !== rec.msListId) {
           markListFault_(state, 'g', rec.gListId, {
@@ -92,6 +257,12 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
         } else {
           console.warn('[DeleteBlocked] Both tasks are missing; SYNC_ALLOW_DELETIONS=false, retaining mapping and not creating a tombstone: ' + taskLabel_(gId, null));
         }
+        // W3: when the absence-probe capability is enabled, a deletions-disabled
+        // round still reaches a terminal state (retire completed / hold / proven
+        // deletion) instead of permanently retaining the mapping plus daily churn.
+        if (absenceTerminalEnabled_(snap)) {
+          resolveAbsenceTerminalState_(state, rec, gId, missingSide, snap, roundId, progress);
+        }
       } else {
         observeTaskDeletionCandidate_(state, rec, gId, missingSide, snap, roundId, progress);
       }
@@ -109,40 +280,17 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
       clearPendingTaskDeletion_(state, gId);
       clearTaskDeletionConflict_(state, gId);
     }
-    const gChanged = epoch_(gTask.updated) > epoch_(rec.gUpdated);
-    const mChanged = epoch_(msTask.lastModifiedDateTime) > epoch_(rec.msUpdated);
-    if (gChanged && !mChanged) {
-      const payload = msUpdatePayloadFromGoogle_(gTask, msTask);
-      const updatedMs = Object.keys(payload).length
-        ? updateMsTask_(rec.msListId, msId, payload)
-        : msTask;
-      putMapping_(state, gTask, currentGListId, updatedMs, rec.msListId);
-    } else if (!gChanged && mChanged) {
-      const payload = googleUpdatePayloadFromMs_(msTask, gTask);
-      const updatedG = Object.keys(payload).length
-        ? updateGTask_(rec.gListId, gId, payload)
-        : gTask;
-      putMapping_(state, updatedG, rec.gListId, msTask, rec.msListId);
-    } else if (gChanged && mChanged) {
-      if (epoch_(gTask.updated) >= epoch_(msTask.lastModifiedDateTime)) {
-        const payload = msUpdatePayloadFromGoogle_(gTask, msTask);
-        const updatedMs = Object.keys(payload).length
-          ? updateMsTask_(rec.msListId, msId, payload)
-          : msTask;
-        putMapping_(state, gTask, currentGListId, updatedMs, rec.msListId);
-        console.warn('[Conflict] LWW selected Google: ' + taskLabel_(gId, gTask.title));
-      } else {
-        const payload = googleUpdatePayloadFromMs_(msTask, gTask);
-        const updatedG = Object.keys(payload).length
-          ? updateGTask_(rec.gListId, gId, payload)
-          : gTask;
-        putMapping_(state, updatedG, rec.gListId, msTask, rec.msListId);
-        console.warn('[Conflict] LWW selected Microsoft: ' + taskLabel_(msId, msTask.title));
-      }
-    } else {
-      rec.gListId = currentGListId;
+    try {
+      ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, snap.safety);
+    } catch (e) {
+      // A pair-scoped provider rejection is contained here; every other failure
+      // keeps aborting the round so the existing fail-closed paths stay intact.
+      if (!isContainedPairMutationError_(e)) throw e;
+      containPairMutationFailure_(progress, gId, e);
     }
   }
+  } finally { clearResourceObservationSnapshot_(); }
+  logContainedMutationFailures_(progress);
 }
 
 function taskCreateProgressRead_(batch) {
@@ -262,22 +410,28 @@ function taskCreateOperationDigest_(operation, entry, evidence) {
 
 function taskCreateBatchCandidates_(state, snap) {
   const result = [];
+  // Ownership is a safety boundary even while subtask capability is OFF.
+  const subtaskReservations = typeof subtaskClassificationReservations_ === 'function'
+    ? subtaskClassificationReservations_(state, snap, snap && snap.safety)
+    : subtaskOwnershipReservations_(state);
   Object.keys(snap.gTasksById || {}).sort().forEach(function(gId) {
-    if (state.g2m[gId] || state.tombstones.g[gId] || state.deletionJournal[gId] || state.taskMoveJournal[gId]) return;
+    if (state.g2m[gId] || state.tombstones.g[gId] || state.deletionJournal[gId] || state.taskMoveJournal[gId] || subtaskReservations.reservedGoogleIds[gId]) return;
     const listId = snap.gListByTask[gId], destination = state.listMap[listId];
     if (listId && destination && !isGListFaulted_(state, listId) && !isMsListFaulted_(state, destination) &&
-        !isListPairReserved_(snap, listId, destination)) {
+        !isListPairReserved_(snap, listId, destination) &&
+        !(state.listCreateGuards && state.listCreateGuards[destination])) {
       result.push({ sourceListId: listId, sourceTaskId: gId, destinationListId: destination,
         sourceTask: snap.gTasksById[gId], direction: 'google_to_microsoft' });
     }
   });
   Object.keys(snap.msTasksById || {}).sort().forEach(function(msId) {
-    if (state.m2g[msId] || state.tombstones.m[msId] || hasDeletionJournalForMsTask_(state, msId) || hasMoveJournalForMsTask_(state, msId)) return;
+    if (state.m2g[msId] || state.tombstones.m[msId] || hasDeletionJournalForMsTask_(state, msId) || hasMoveJournalForMsTask_(state, msId) || subtaskReservations.reservedMicrosoftIds[msId]) return;
     const msListId = snap.msListByTask[msId];
     const gListId = Object.keys(state.listMap).find(function(id) {
       return state.listMap[id] === msListId && (!snap.activeGListIds || !!snap.activeGListIds[id]) && !isGListFaulted_(state, id);
     });
-    if (gListId && !isMsListFaulted_(state, msListId) && !isListPairReserved_(snap, gListId, msListId)) {
+    if (gListId && !isMsListFaulted_(state, msListId) && !isListPairReserved_(snap, gListId, msListId) &&
+        !(state.listCreateGuards && state.listCreateGuards[gListId])) {
       result.push({ sourceListId: msListId, sourceTaskId: msId, destinationListId: gListId,
         sourceTask: snap.msTasksById[msId], direction: 'microsoft_to_google' });
     }
@@ -471,3 +625,102 @@ function createUnmapped_(state, snap, startedAt) {
   if (SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) return;
   return createUnmappedBatch_(state, snap, startedAt);
 }
+
+/* ---------------------------------------------------------------------------
+ * W? — per-round M->G resource observation scheduling.
+ *
+ * The dedicated linkedResources collection GET (getMsTaskLinkedResources_) is
+ * the only reliable read path for Microsoft task links/attachments, and it is
+ * expensive, so observation is bounded per round and rotated across rounds.
+ * The results are strictly TRANSIENT: they live only in the module snapshot
+ * built around the mapped reconciliation loop in reconcileMapped_ and are
+ * discarded before it returns, so they can never reach a persisted snapshot of
+ * state.  Only the rotation CURSOR is durable (state.resourceObservationCursor)
+ * so the budget is spent on a different slice of pairs each round.
+ *
+ * Any read failure makes the whole pair UNOBSERVED (undefined): M->G is closed
+ * exactly as before, which is a fail-closed choice, not an error.
+ * ------------------------------------------------------------------------- */
+
+var RESOURCE_OBSERVATION_MAX_PAIRS_ = 10;
+var RESOURCE_OBSERVATION_RESERVE_MS_ = 30000;
+
+/* Per-round observation snapshot: msId -> observation object (see
+ * currentResourceObservation_).  Null between rounds / outside reconcile. */
+var _resourceObservationSnapshot_ = null;
+
+/* Return this round's observation for the given mapping record, or undefined
+ * when the pair was not observed this round (no msTask, budget exhausted, time
+ * ran out, or a read failed).  Called by resource-projection.gs via
+ * msLinkedObservationForPair_.  Keyed by msId because the mapping record does
+ * not carry its own gId at that call site. */
+function currentResourceObservation_(rec) {
+  if (!_resourceObservationSnapshot_) return undefined;
+  if (!rec || typeof rec !== 'object' || !rec.msId) return undefined;
+  return _resourceObservationSnapshot_[String(rec.msId)];
+}
+
+/* Read one pair's linkedResources (+ attachments) with fail-closed semantics:
+ * ANY read exception makes the entire pair UNOBSERVED.  Never throws. */
+function readResourceObservationForPair_(rec) {
+  if (!rec || !rec.msListId || !rec.msId) return undefined;
+  var linked;
+  try {
+    linked = getMsTaskLinkedResources_(rec.msListId, rec.msId);
+  } catch (e) {
+    return undefined;
+  }
+  if (!linked || linked.kind !== 'OBSERVED_COMPLETE' || !Array.isArray(linked.items)) {
+    return undefined;
+  }
+  var attachments = null;
+  if (typeof getMsTaskAttachments_ === 'function') {
+    try {
+      var att = getMsTaskAttachments_(rec.msListId, rec.msId);
+      if (att && att.kind === 'OBSERVED_COMPLETE' && Array.isArray(att.items)) {
+        attachments = { kind: 'OBSERVED_COMPLETE', items: att.items };
+      }
+    } catch (e) {
+      // The attachment collection is a SEPARATE observation from the linked
+      // resources above.  A failure to read it leaves attachments UNOBSERVED
+      // (null) and must NOT discard the linkedResources observation we already
+      // proved complete: M->G resource projection is about links, and the
+      // attachment section is separately gateable downstream.
+      attachments = null;
+    }
+  }
+  return { kind: 'OBSERVED_COMPLETE', items: linked.items, attachments: attachments };
+}
+
+/* Build the per-round snapshot and advance the durable rotation cursor.  Only
+ * pairs whose msTask is present in this round's snapshot are observed. */
+function buildResourceObservationSnapshot_(state, snap, startedAt) {
+  _resourceObservationSnapshot_ = {};
+  var cursor = (typeof state.resourceObservationCursor === 'number' && state.resourceObservationCursor >= 0)
+    ? state.resourceObservationCursor : 0;
+  var gIds = Object.keys(state.g2m || {}).filter(function(gId) {
+    var rec = state.g2m[gId];
+    return !!(rec && rec.msId && snap && snap.msTasksById && snap.msTasksById[rec.msId]);
+  }).sort();
+  var n = gIds.length;
+  if (n === 0) return;
+  var start = ((cursor % n) + n) % n;
+  var observed = 0;
+  for (var i = 0; i < n && observed < RESOURCE_OBSERVATION_MAX_PAIRS_; i++) {
+    if (!remainingTimeOk_(startedAt, RESOURCE_OBSERVATION_RESERVE_MS_)) break; // fail-closed
+    var gId = gIds[(start + i) % n];
+    var rec = state.g2m[gId];
+    var observation = readResourceObservationForPair_(rec);
+    // Store even an observed-but-empty collection; unobserved/failed slots are
+    // simply absent from the map (equivalently UNOBSERVED).
+    if (observation !== undefined) _resourceObservationSnapshot_[String(rec.msId)] = observation;
+    observed += 1;
+  }
+  var newCursor = ((start + observed) % n + n) % n;
+  if (newCursor !== cursor) state.resourceObservationCursor = newCursor;
+}
+
+function clearResourceObservationSnapshot_() {
+  _resourceObservationSnapshot_ = null;
+}
+
