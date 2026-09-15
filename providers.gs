@@ -1,3 +1,16 @@
+function isUrlFetchTransientError_(err) {
+  if (!err) return false;
+  const msg = String(err.message || err).toLowerCase();
+  return msg.includes('bandwidth quota exceeded') ||
+    msg.includes('address unavailable') ||
+    msg.includes('dns error') ||
+    msg.includes('rate limit') ||
+    msg.includes('timed out') ||
+    msg.includes('timeout') ||
+    msg.includes('connection reset') ||
+    msg.includes('socket');
+}
+
 function fetchJsonWithRetry_(url, options, authKind) {
   let lastError = null;
   let msAuth = null;
@@ -5,6 +18,8 @@ function fetchJsonWithRetry_(url, options, authKind) {
   let forcedRefreshAttempted = false;
   for (let attempt = 0; attempt <= HTTP_MAX_RETRIES; attempt++) {
     const opts = Object.assign({ muteHttpExceptions: true }, options || {});
+    const noRetry = opts.__noRetry === true;
+    delete opts.__noRetry;
     opts.headers = Object.assign({}, opts.headers || {});
     if (authKind === 'ms') {
       msAuth = msAuth || microsoftAuth_();
@@ -34,7 +49,26 @@ function fetchJsonWithRetry_(url, options, authKind) {
       opts.headers['Content-Type'] = 'application/json';
     }
     recordUrlFetchCall_();
-    const response = UrlFetchApp.fetch(url, opts);
+    let response;
+    try {
+      response = UrlFetchApp.fetch(url, opts);
+    } catch (fetchErr) {
+      if (isUrlFetchTransientError_(fetchErr)) {
+        lastError = fetchErr;
+        if (attempt === HTTP_MAX_RETRIES || noRetry) {
+          throw new Error('TIME_BUDGET_HTTP: UrlFetch transient error (' + (fetchErr.message || fetchErr) + ')');
+        }
+        const exponential = Math.min(30000, 1000 * Math.pow(2, attempt));
+        const delay = exponential + Math.floor(Math.random() * 750);
+        if (RUN_STARTED_AT && Date.now() + delay > RUN_STARTED_AT + RUN_LIMIT_MS) {
+          throw new Error('TIME_BUDGET_HTTP: Too close to timeout to retry UrlFetch transient error; the next round will rerun the full inventory, with no persisted page cursor.');
+        }
+        console.warn('[UrlFetch] Transient error: ' + (fetchErr.message || fetchErr) + '; retrying in ' + delay + ' ms.');
+        Utilities.sleep(delay);
+        continue;
+      }
+      throw fetchErr;
+    }
     const code = response.getResponseCode();
     const text = response.getContentText();
     if (code >= 200 && code < 300) {
@@ -61,18 +95,99 @@ function fetchJsonWithRetry_(url, options, authKind) {
       throw new Error('HTTP 401: Microsoft authorization requires reauthorization.');
     }
     const transient = code === 429 || code === 408 || (code >= 500 && code < 600);
-    lastError = new Error('HTTP ' + code + ': ' + text);
-    if (!transient || attempt === HTTP_MAX_RETRIES) throw lastError;
+    lastError = buildProviderHttpError_(code, text);
+    if (!transient || attempt === HTTP_MAX_RETRIES || noRetry) throw lastError;
     const retryAfter = parseRetryAfterMs_(response);
     const exponential = Math.min(30000, 1000 * Math.pow(2, attempt));
     const delay = Math.max(retryAfter, exponential + Math.floor(Math.random() * 750));
     if (RUN_STARTED_AT && Date.now() + delay > RUN_STARTED_AT + RUN_LIMIT_MS) {
       throw new Error('TIME_BUDGET_HTTP: Too close to timeout to retry; the next round will rerun the full inventory, with no persisted page cursor.');
     }
+    recordProviderRetry_();
     console.warn('[HTTP] ' + code + '; retrying in ' + delay + ' ms.');
     Utilities.sleep(delay);
   }
   throw lastError || new Error('HTTP request failed');
+}
+
+// Build a structured, redacted provider error from an HTTP status and a raw
+// response body. The message keeps the canonical "HTTP <code>: <message>" shape
+// so existing callers (isNotFoundError_, providerHttpStatus_) keep working; the
+// structured fields are attached separately for typed, non-leaking handling.
+function buildProviderHttpError_(code, text) {
+  const parsed = parseProviderErrorBody_(text);
+  const retryable = code === 429 || code === 408 || (code >= 500 && code < 600);
+  const error = new Error('HTTP ' + code + ': ' + parsed.boundedMessage);
+  error.httpStatus = code;
+  error.providerCode = parsed.providerCode;
+  error.providerMessage = parsed.boundedMessage;
+  error.retryable = retryable;
+  return error;
+}
+
+// Parse a provider error body into a bounded, sanitised provider code and a
+// redacted, length-bounded message. Provider bodies (Graph and Google Tasks)
+// nest the code differently: Graph uses a string error.code with a more specific
+// innerError.code, Google Tasks uses a numeric error.code and a machine-readable
+// errors[].reason. The most specific code wins when present, then the top-level
+// string code, then the numeric code's reason, then a safe default.
+function parseProviderErrorBody_(text) {
+  let providerCode = '';
+  let rawMessage = '';
+  const body = safeJsonParse_(text);
+  if (body && typeof body === 'object') {
+    const err = body.error;
+    if (err && typeof err === 'object') {
+      const inner = err.innerError;
+      const innerCode = inner && typeof inner === 'object' ? inner.code : undefined;
+      if (typeof innerCode === 'string' && innerCode) {
+        providerCode = sanitizeProviderCode_(innerCode);
+      }
+      if (!providerCode && typeof err.code === 'string' && err.code) {
+        providerCode = sanitizeProviderCode_(err.code);
+      }
+      if (!providerCode && typeof err.code === 'number') {
+        const reason = err.errors && Array.isArray(err.errors) && err.errors[0] &&
+          err.errors[0].reason;
+        if (typeof reason === 'string' && reason) providerCode = sanitizeProviderCode_(reason);
+      }
+      if (typeof err.message === 'string' && err.message) rawMessage = err.message;
+    }
+  }
+  if (!providerCode) providerCode = 'UNKNOWN_PROVIDER';
+  if (!rawMessage) rawMessage = text == null ? '' : String(text);
+  if (rawMessage.length > 2000) rawMessage = rawMessage.slice(0, 2000);
+  const redacted = redactSensitive_(rawMessage);
+  const boundedMessage = redacted.length > 200 ? redacted.slice(0, 200) : redacted;
+  return { providerCode: providerCode, boundedMessage: boundedMessage };
+}
+
+// Keep only an allow-listed character set and bound the length so a provider
+// code can never carry injected or oversized content into durable state.
+function sanitizeProviderCode_(raw) {
+  const safe = String(raw == null ? '' : raw).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+  return /^[A-Za-z0-9_-]+$/.test(safe) ? safe : '';
+}
+
+// Remove emails, URLs, and token-like opaque strings (long unbroken runs that
+// resemble secrets or IDs) before any provider text reaches logs or state.
+function redactSensitive_(text) {
+  return String(text == null ? '' : text)
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/www\.[^\s]+/gi, ' ')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, ' ')
+    .replace(/[A-Za-z0-9_-]{20,}/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function safeJsonParse_(text) {
+  if (text == null) return null;
+  try {
+    return JSON.parse(String(text));
+  } catch (e) {
+    return null;
+  }
 }
 
 function graphFetch_(url, options) {
@@ -167,6 +282,166 @@ function getMsTasks_(listId, options) {
   return getAllPages_(first, function(url) {
     return graphFetch_(url, microsoftTaskRequestOptions_());
   }, 'value', 'graph');
+}
+
+/* Read checklist items with a bounded, direct Graph collection GET. */
+function getMsChecklistItemsDirect_(listId, parentTaskId) {
+  if (typeof listId !== 'string' || !listId ||
+      typeof parentTaskId !== 'string' || !parentTaskId) {
+    throw new Error('RELATIONSHIP_MALFORMED_ID');
+  }
+  let url = MS_TODO_BASE + '/' + encodeURIComponent(listId) + '/tasks/' +
+    encodeURIComponent(parentTaskId) + '/checklistItems?$top=100';
+  const seen = {};
+  const items = [];
+  let pageCount = 0;
+  let directCollectionRequests = 0;
+  try {
+    while (url) {
+      if (RUN_STARTED_AT && !remainingTimeOk_(RUN_STARTED_AT, PAGINATION_RESERVE_MS)) {
+        throw new Error('TIME_BUDGET_RELATIONSHIP: insufficient time for another checklist page.');
+      }
+      if (seen[url]) throw new Error('RELATIONSHIP_PAGINATION_LOOP: repeated nextLink.');
+      if (pageCount >= PAGINATION_MAX_PAGES) throw new Error('RELATIONSHIP_PAGINATION_PAGE_CAP: page cap exceeded.');
+      seen[url] = true;
+      pageCount += 1;
+      directCollectionRequests += 1;
+      let page;
+      try {
+        page = graphFetch_(url, microsoftTaskRequestOptions_({ method: 'get' }));
+      } catch (error) {
+        try { error.directCollectionRequests = directCollectionRequests; } catch (ignored) {}
+        throw error;
+      }
+      if (!page || typeof page !== 'object' || Array.isArray(page) || !Array.isArray(page.value)) {
+        throw new Error('RELATIONSHIP_MALFORMED_PAGE: value must be an array.');
+      }
+      page.value.forEach(function(item) {
+        if (!item || typeof item !== 'object' || Array.isArray(item) ||
+            typeof item.id !== 'string' || !item.id ||
+            typeof item.displayName !== 'string' ||
+            typeof item.isChecked !== 'boolean') {
+          throw new Error('RELATIONSHIP_MALFORMED_ITEM: invalid checklist item.');
+        }
+        items.push({ id: item.id, displayName: item.displayName, isChecked: item.isChecked });
+      });
+      const hasNext = Object.prototype.hasOwnProperty.call(page, '@odata.nextLink');
+      if (!hasNext) {
+        url = null;
+      } else if (typeof page['@odata.nextLink'] !== 'string' || !page['@odata.nextLink']) {
+        throw new Error('RELATIONSHIP_MALFORMED_PAGE: nextLink must be a non-empty string.');
+      } else {
+        url = page['@odata.nextLink'];
+      }
+    }
+  } catch (error) {
+    // A later-page failure never returns a partial collection.  Keep only the
+    // numeric request count as caller-visible telemetry.
+    try { error.directCollectionRequests = directCollectionRequests; } catch (ignored) {}
+    throw error;
+  }
+  return {
+    kind: 'OBSERVED_COMPLETE',
+    items: items,
+    pageCount: pageCount,
+    directCollectionRequests: directCollectionRequests
+  };
+}
+
+/* Read a Microsoft task's linkedResources through the navigation endpoint.
+ * Graph silently ignores $expand=linkedResources on both the collection and the
+ * single-task endpoint, and rejects $select on it with HTTP 400, so this
+ * dedicated collection GET is the only reliable read path (verified live
+ * 2026-09-11). Returns OBSERVED_COMPLETE with the exact items, or throws. */
+function getMsTaskLinkedResources_(listId, taskId) {
+  if (typeof listId !== 'string' || !listId || typeof taskId !== 'string' || !taskId) {
+    throw new Error('RELATIONSHIP_MALFORMED_ID');
+  }
+  let url = MS_TODO_BASE + '/' + encodeURIComponent(listId) + '/tasks/' +
+    encodeURIComponent(taskId) + '/linkedResources?$top=100';
+  const seen = {};
+  const items = [];
+  let pageCount = 0;
+  while (url) {
+    if (RUN_STARTED_AT && !remainingTimeOk_(RUN_STARTED_AT, PAGINATION_RESERVE_MS)) {
+      throw new Error('TIME_BUDGET_RELATIONSHIP: insufficient time for another linkedResources page.');
+    }
+    if (seen[url]) throw new Error('RELATIONSHIP_PAGINATION_LOOP: repeated nextLink.');
+    if (pageCount >= PAGINATION_MAX_PAGES) throw new Error('RELATIONSHIP_PAGINATION_PAGE_CAP: page cap exceeded.');
+    seen[url] = true;
+    pageCount += 1;
+    const page = graphFetch_(url, microsoftTaskRequestOptions_({ method: 'get' }));
+    if (!page || typeof page !== 'object' || Array.isArray(page) || !Array.isArray(page.value)) {
+      throw new Error('RELATIONSHIP_MALFORMED_PAGE: value must be an array.');
+    }
+    page.value.forEach(function(item) {
+      if (!item || typeof item !== 'object' || Array.isArray(item) ||
+          typeof item.id !== 'string' || !item.id) {
+        throw new Error('RELATIONSHIP_MALFORMED_ITEM: invalid linkedResource.');
+      }
+      items.push(item);
+    });
+    const hasNext = Object.prototype.hasOwnProperty.call(page, '@odata.nextLink');
+    if (!hasNext) {
+      url = null;
+    } else if (typeof page['@odata.nextLink'] !== 'string' || !page['@odata.nextLink']) {
+      throw new Error('RELATIONSHIP_MALFORMED_PAGE: nextLink must be a non-empty string.');
+    } else {
+      url = page['@odata.nextLink'];
+    }
+  }
+  return { kind: 'OBSERVED_COMPLETE', items: items, pageCount: pageCount };
+}
+
+/* Read a Microsoft task's attachments through the navigation endpoint, mirroring
+ * getMsTaskLinkedResources_ exactly in structure and error semantics.
+ *
+ * NOTE: This endpoint has NOT been verified live against Microsoft Graph. It is
+ * implemented to the same bounded-observation contract so a future caller can
+ * rely on a frozen interface (function name, parameters, return shape
+ * {kind:'OBSERVED_COMPLETE', items, pageCount}, and the shared
+ * RELATIONSHIP_* and TIME_BUDGET_RELATIONSHIP error codes). It is intentionally
+ * NOT wired into any automatic sync path: it
+ * is fail-closed and off by default until live verification confirms the
+ * navigation endpoint exists and returns `id`-keyed items. */
+function getMsTaskAttachments_(listId, taskId) {
+  if (typeof listId !== 'string' || !listId || typeof taskId !== 'string' || !taskId) {
+    throw new Error('RELATIONSHIP_MALFORMED_ID');
+  }
+  let url = MS_TODO_BASE + '/' + encodeURIComponent(listId) + '/tasks/' +
+    encodeURIComponent(taskId) + '/attachments?$top=100';
+  const seen = {};
+  const items = [];
+  let pageCount = 0;
+  while (url) {
+    if (RUN_STARTED_AT && !remainingTimeOk_(RUN_STARTED_AT, PAGINATION_RESERVE_MS)) {
+      throw new Error('TIME_BUDGET_RELATIONSHIP: insufficient time for another attachments page.');
+    }
+    if (seen[url]) throw new Error('RELATIONSHIP_PAGINATION_LOOP: repeated nextLink.');
+    if (pageCount >= PAGINATION_MAX_PAGES) throw new Error('RELATIONSHIP_PAGINATION_PAGE_CAP: page cap exceeded.');
+    seen[url] = true;
+    pageCount += 1;
+    const page = graphFetch_(url, microsoftTaskRequestOptions_({ method: 'get' }));
+    if (!page || typeof page !== 'object' || Array.isArray(page) || !Array.isArray(page.value)) {
+      throw new Error('RELATIONSHIP_MALFORMED_PAGE: value must be an array.');
+    }
+    page.value.forEach(function(item) {
+      if (!item || typeof item !== 'object' || Array.isArray(item) ||
+          typeof item.id !== 'string' || !item.id) {
+        throw new Error('RELATIONSHIP_MALFORMED_ITEM: invalid attachment.');
+      }
+      items.push(item);
+    });
+    const hasNext = Object.prototype.hasOwnProperty.call(page, '@odata.nextLink');
+    if (!hasNext) {
+      url = null;
+    } else if (typeof page['@odata.nextLink'] !== 'string' || !page['@odata.nextLink']) {
+      throw new Error('RELATIONSHIP_MALFORMED_PAGE: nextLink must be a non-empty string.');
+    } else {
+      url = page['@odata.nextLink'];
+    }
+  }
+  return { kind: 'OBSERVED_COMPLETE', items: items, pageCount: pageCount };
 }
 
 function getMsTask_(listId, taskId) {
@@ -466,12 +741,44 @@ function microsoftPlainTextBodyCanonical_(text) {
  .replace(/\n$/, '');
 }
 
+/* Recurrence marker: MS has recurrence, Google cannot express it. Stamp the
+ * Google copy's notes with a single ASCII line so a later Google ID rotation
+ * (daily recurrence regenerates the Google task) can still be recognized.
+ * The marker is permanent (not a create sentinel); format [TTS-REC:xxxxxx]. */
+var TTS_REC_MARKER_PREFIX_ = '[TTS-REC:';
+var TTS_REC_MARKER_SUFFIX_ = ']';
+
+function newTtsRecMarker_() {
+  const raw = String(newMoveCorrelationId_()).replace(/[^0-9a-f]/gi, '').toUpperCase().slice(0, 6);
+  const code = (raw + '000000').slice(0, 6);
+  return TTS_REC_MARKER_PREFIX_ + code + TTS_REC_MARKER_SUFFIX_;
+}
+
+function msTaskHasRecurrence_(task) {
+  if (!task || typeof task !== 'object') return false;
+  const recurrence = task.recurrence;
+  if (recurrence === null || recurrence === undefined) return false;
+  if (typeof recurrence === 'object') return Object.keys(recurrence).length > 0;
+  return Boolean(recurrence);
+}
+
+function googleNotesHaveTtsRecMarker_(notes) {
+  return String(notes == null ? '' : notes).indexOf(TTS_REC_MARKER_PREFIX_) >= 0;
+}
+
 function googlePayloadFromMs_(task, mode) {
   const rawContent = task.body && task.body.content ? task.body.content : '';
   const isHtml = task.body && String(task.body.contentType || '').toLowerCase() === 'html';
+  const baseNotes = isHtml ? htmlToText_(rawContent) : microsoftPlainTextBodyCanonical_(rawContent);
+  let notes = baseNotes;
+  // Only MS→Google create stamps the marker: Google occurrence PATCH paths
+  // must never re-stamp (would fork the fingerprint on every round).
+  if (mode === 'create' && msTaskHasRecurrence_(task) && !googleNotesHaveTtsRecMarker_(baseNotes)) {
+    notes = newTtsRecMarker_() + (baseNotes ? '\n' + baseNotes : '');
+  }
   const payload = {
     title: task.title || '(Untitled)',
- notes: isHtml ? htmlToText_(rawContent) : microsoftPlainTextBodyCanonical_(rawContent),
+    notes: notes,
     status: task.status === 'completed' ? 'completed' : 'needsAction'
   };
   if (task && Object.prototype.hasOwnProperty.call(task, 'dueDateTime')) {
@@ -496,13 +803,25 @@ function googleNotesAreBlank_(notes) {
   return notes == null || /^[\t\n\v\f\r \u00A0]*$/.test(String(notes));
 }
 
+/* A title that is missing OR entirely whitespace is not a valid Microsoft task
+ * title: Graph rejects it with HTTP 400 "The property 'title' is required".
+ * Non-blank titles keep their exact spacing, matching the notes contract.
+ * Shared by the Microsoft payload projection and the Step 3 canonical title so
+ * both sides agree on the same placeholder for a blank task. */
+function canonicalTaskTitle_(task) {
+  const raw = task && task.title;
+  if (raw === null || raw === undefined) return '(Untitled)';
+  const text = String(raw);
+  return text.trim() ? text : '(Untitled)';
+}
+
 function msPayloadFromGoogle_(task, mode) {
   if (mode !== 'create' && mode !== 'update') {
     throw new Error('MS_PAYLOAD_MODE_REQUIRED: Google → Microsoft payload must specify create or update.');
   }
   const notes = task && task.notes;
   const payload = {
-    title: task.title || '(Untitled)'
+    title: canonicalTaskTitle_(task)
   };
   if (mode === 'update' || !googleNotesAreBlank_(notes)) {
     payload.body = {
@@ -591,6 +910,60 @@ function updateGTask_(listId, taskId, payload) {
   return gFetch_('/lists/' + encodeURIComponent(listId) + '/tasks/' + encodeURIComponent(taskId), {
     method: 'patch',
     payload: JSON.stringify(payload)
+  });
+}
+
+/* Subtask relationship writes deliberately bypass the ordinary retry loop.
+ * These endpoints have no client idempotency key; retrying an ambiguous POST
+ * can create a duplicate child.  The caller journals before invoking them. */
+function createMsChecklistItemNoRetry_(listId, parentTaskId, displayName, isChecked) {
+  return graphFetch_(MS_TODO_BASE + '/' + encodeURIComponent(listId) + '/tasks/' +
+    encodeURIComponent(parentTaskId) + '/checklistItems', {
+      method: 'post',
+      __noRetry: true,
+      payload: JSON.stringify({ displayName: displayName, isChecked: isChecked === true })
+    });
+}
+
+function updateMsChecklistItemNoRetry_(listId, parentTaskId, checklistId, patch) {
+  const keys = Object.keys(patch || {});
+  if (keys.length !== 1 || ['displayName', 'isChecked'].indexOf(keys[0]) < 0) {
+    throw new Error('SUBTASK_CHECKLIST_PATCH_INVALID');
+  }
+  return graphFetch_(MS_TODO_BASE + '/' + encodeURIComponent(listId) + '/tasks/' +
+    encodeURIComponent(parentTaskId) + '/checklistItems/' + encodeURIComponent(checklistId), {
+      method: 'patch', __noRetry: true, payload: JSON.stringify(patch)
+    });
+}
+
+function createGChecklistChildNoRetry_(listId, parentTaskId, title, status) {
+  return gFetch_('/lists/' + encodeURIComponent(listId) + '/tasks?parent=' +
+    encodeURIComponent(parentTaskId), {
+      method: 'post', __noRetry: true,
+      payload: JSON.stringify({ title: title, status: status })
+    });
+}
+
+function updateGChecklistChildNoRetry_(listId, taskId, patch) {
+  const keys = Object.keys(patch || {});
+  if (keys.length !== 1 || ['title', 'status'].indexOf(keys[0]) < 0) {
+    throw new Error('SUBTASK_GOOGLE_PATCH_INVALID');
+  }
+  return gFetch_('/lists/' + encodeURIComponent(listId) + '/tasks/' + encodeURIComponent(taskId), {
+    method: 'patch', __noRetry: true, payload: JSON.stringify(patch)
+  });
+}
+
+function deleteMsChecklistItemNoRetry_(listId, parentTaskId, checklistId) {
+  return graphFetch_(MS_TODO_BASE + '/' + encodeURIComponent(listId) + '/tasks/' +
+    encodeURIComponent(parentTaskId) + '/checklistItems/' + encodeURIComponent(checklistId), {
+      method: 'delete', __noRetry: true
+    });
+}
+
+function deleteGChecklistChildNoRetry_(listId, taskId) {
+  return gFetch_('/lists/' + encodeURIComponent(listId) + '/tasks/' + encodeURIComponent(taskId), {
+    method: 'delete', __noRetry: true
   });
 }
 

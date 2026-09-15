@@ -2,7 +2,19 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.4.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.5.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, and resource projection enabled.
+
+## 0.5.0 — 2026-09-16
+
+### Subtask synchronization, resource projection, and scheduler invariants
+
+- Expanded Apps Script runtime to 17 root-level `.gs` files (added `field-merge.gs`, `relationship-discovery.gs`, `resource-projection.gs`, `subtask-classification.gs`, and `subtask-sync.gs`).
+- Added bidirectional subtask / checklist synchronization with three-way merge and conflict isolation.
+- Added Microsoft-to-Google resource projection and rotating linked-resources observation scheduler with formal proofs.
+- Formalized and proved the 3 core scheduler invariants: R-completeness (fail-closed pagination), Two-round deletion with absence probe soundness, and Starvation-free rotating observation cursor (`docs/scheduler-invariants.md`).
+- Calibrated the runtime budget envelope on live real accounts across two disjoint execution rounds ($R_{\text{floor}} \approx 2.44\text{s}$, $C_{\text{reconcile}} \approx 0.37\text{s/pair}$, $V_{\text{inspect}} \approx 0.521\text{s/pair}$, $W_{\text{delete}} \approx 0.385\text{s/item}$ with S2 batching).
+- Added fail-closed `TIME_BUDGET_CREATE` batch entrypoint protection, `'(Untitled)'` placeholder contracts, and empty-title subtask creation guards.
+- Expanded automated test coverage to 412 automated tests (100% PASS).
 
 ## 0.4.0 — 2026-09-07
 

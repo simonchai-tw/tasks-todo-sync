@@ -1,9 +1,19 @@
 function newState_() {
   return {
-    schema: 3,
+    schema: 4,
     listMap: {},
     g2m: {},
     m2g: {},
+    subtasks: {
+      mappings: {},
+      parents: {},
+      createJournal: {},
+      pendingDeletions: {},
+      deletionJournal: {},
+      moveJournal: {},
+      conflicts: {},
+      tombstones: { g: {}, ms: {} }
+    },
     tombstones: { g: {}, m: {} },
     // A candidate is recorded during one complete sync. It cannot cause a remote
     // delete until a later, independently completed inventory confirms it again.
@@ -18,6 +28,21 @@ function newState_() {
     taskCreateBatch: null,
     // Kept separately from list faults so delete-vs-edit does not hide a whole list.
     taskDeletionConflicts: {},
+    // W2/W3 absence-state extensions (schema 4, additive).  Optional for migrated
+    // schema 2/3 generations, but every freshly built state includes them so the
+    // validators can rely on their shape.  See lifecycle.gs for the writer side.
+    retiredPairs: {},
+    absenceHolds: {},
+    listCreateGuards: {},
+    // W1c: durable per-pair mutation journal.  A provider mutation that is
+    // refused leaves a hold here so the same payload is not PATCHed again every
+    // round, and so an operator can abandon the pair explicitly.  Additive and
+    // optional for migrated generations, like the absence tables above.
+    mutationJournal: {},
+    // W? — durable rotation cursor for the per-round M->G resource observation
+    // budget (see sync.gs).  Additive and optional for migrated generations
+    // (defaulted in normalizeState_); old schema<=3 fixtures read back fine.
+    resourceObservationCursor: 0,
     // List lifecycle state is intentionally separate from task deletion.  A
     // list candidate owns its pair while it is pending/journaled/conflicted,
     // which prevents the ordinary planner from recreating a survivor.
@@ -76,7 +101,9 @@ function assertStrictSchema3StateShape_(state, errorCode) {
     'schema', 'listMap', 'g2m', 'm2g', 'tombstones', 'pendingTaskDeletions',
     'deletionJournal', 'taskMoveJournal', 'taskCreateBatch', 'taskDeletionConflicts', 'listPairMeta',
     'pendingListDeletions', 'listDeletionJournal', 'listDeletionConflicts',
-    'listTombstones', 'listTombstoneNames', 'listFaults', 'health', 'updatedAt'
+    'listTombstones', 'listTombstoneNames', 'listFaults', 'health', 'updatedAt',
+    'retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal',
+    'resourceObservationCursor'
   ];
   assertKnownObjectKeys_(state, allowedTopLevel, 'state', errorCode);
   if (state.taskCreateBatch !== undefined && state.taskCreateBatch !== null && !validTaskCreateBatch_(state.taskCreateBatch)) {
@@ -85,19 +112,21 @@ function assertStrictSchema3StateShape_(state, errorCode) {
   const recordFields = {
     g2m: ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated'],
     pendingTaskDeletions: ['gId', 'msId', 'missingSide', 'gListId', 'msListId', 'gUpdated', 'msUpdated',
-      'firstConfirmedAt', 'lastConfirmedAt', 'lastRoundId', 'confirmations'],
+      'firstConfirmedAt', 'lastConfirmedAt', 'lastRoundId', 'confirmations', 'providerProven'],
     deletionJournal: ['phase', 'gId', 'msId', 'missingSide', 'gListId', 'msListId', 'gUpdated', 'msUpdated',
-      'preparedAt', 'lastBlockedReason', 'lastBlockedAt'],
+      'preparedAt', 'lastBlockedReason', 'lastBlockedAt', 'providerProven'],
     taskMoveJournal: ['phase', 'gId', 'oldMsId', 'newMsId', 'gListId', 'oldMsListId',
       'targetMsListId', 'gUpdated', 'oldMsUpdated', 'preparedAt', 'fingerprint',
       'correlationId', 'uncertainConfirmations', 'lastRoundId', 'lastBlockedReason', 'lastBlockedAt'],
     taskDeletionConflicts: ['at', 'reason', 'msId', 'gListId', 'msListId'],
     listPairMeta: ['gListId', 'msListId', 'gTitle', 'msTitle', 'gFingerprint', 'msFingerprint',
       'gDeletable', 'msDeletable', 'autoBothLiveProvenAt'],
-    pendingListDeletions: ['key', 'gListId', 'msListId', 'gTitle', 'msTitle', 'missingSide',
+    pendingListDeletions: ['key', 'gListId', 'msListId', 'gTitle', 'msTitle', 'missingSide', 'gLive', 'msLive',
+      'status', 'gDefault', 'msDefault', 'tracked', 'tombstoned',
       'gFingerprint', 'msFingerprint', 'survivorFingerprint', 'taskPairs', 'taskFingerprint', 'deletable',
       'confirmations', 'lastRoundId', 'firstConfirmedAt', 'lastConfirmedAt'],
-    listDeletionJournal: ['key', 'gListId', 'msListId', 'gTitle', 'msTitle', 'missingSide',
+    listDeletionJournal: ['key', 'gListId', 'msListId', 'gTitle', 'msTitle', 'missingSide', 'gLive', 'msLive',
+      'status', 'gDefault', 'msDefault', 'tracked', 'tombstoned',
       'gFingerprint', 'msFingerprint', 'survivorFingerprint', 'taskPairs', 'taskFingerprint', 'deletable',
       'confirmations', 'lastRoundId', 'firstConfirmedAt', 'lastConfirmedAt', 'phase', 'preparedAt',
       'lastBlockedReason', 'lastBlockedAt'],
@@ -140,9 +169,9 @@ function assertStrictSchema2StateShape_(state, errorCode) {
   const recordFields = {
     g2m: ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated'],
     pendingTaskDeletions: ['gId', 'msId', 'missingSide', 'gListId', 'msListId', 'gUpdated', 'msUpdated',
-      'firstConfirmedAt', 'lastConfirmedAt', 'lastRoundId', 'confirmations'],
+      'firstConfirmedAt', 'lastConfirmedAt', 'lastRoundId', 'confirmations', 'providerProven'],
     deletionJournal: ['phase', 'gId', 'msId', 'missingSide', 'gListId', 'msListId', 'gUpdated', 'msUpdated',
-      'preparedAt', 'lastBlockedReason', 'lastBlockedAt'],
+      'preparedAt', 'lastBlockedReason', 'lastBlockedAt', 'providerProven'],
     taskDeletionConflicts: ['at', 'reason', 'msId', 'gListId', 'msListId'],
     tombstones: ['at', 'source'],
     listFaults: ['at', 'reason', 'gListId', 'msListId', 'gListTitle', 'msListTitle']
@@ -255,7 +284,7 @@ function validTaskCreateBatch_(batch) {
   });
 }
 
-function normalizeState_(state) {
+function normalizeStateV3_(state) {
   if (state === undefined || state === null) return newState_();
   if (!state || typeof state !== 'object' || Array.isArray(state)) {
     throw new Error('STATE_MALFORMED: Sync state must be an object; overwrite refused.');
@@ -1366,7 +1395,7 @@ function assertActiveDeletionEvidencePreserved_(current, replacement) {
   );
 }
 
-function validateImportedState_(state) {
+function validateImportedStateLegacy_(state) {
   const objectFields = ['listMap', 'g2m', 'm2g', 'tombstones', 'listFaults', 'health'];
   const optionalObjectFields = ['pendingTaskDeletions', 'deletionJournal', 'taskMoveJournal',
     'taskDeletionConflicts'];
@@ -1559,4 +1588,570 @@ function validateLoadedListDeletionState_(state) {
       throw new Error('STATE_MALFORMED: listDeletionConflicts[' + key + '] cannot be used safely.');
     }
   });
+}
+/* Phase 2A.3 schema-v4 foundation.  The v4 reader is intentionally additive:
+ * it delegates the already deployed v2/v3 reader and only admits the frozen
+ * subtask namespace described by the contract. */
+function cloneStateForValidation_(value) {
+  if (Array.isArray(value)) return value.map(cloneStateForValidation_);
+  if (value && typeof value === 'object') {
+    const copy = {};
+    Object.keys(value).forEach(function(key) { copy[key] = cloneStateForValidation_(value[key]); });
+    return copy;
+  }
+  return value;
+}
+
+function replaceStateContents_(target, source) {
+  Object.keys(target).forEach(function(key) { if (!Object.prototype.hasOwnProperty.call(source, key)) delete target[key]; });
+  Object.keys(source).forEach(function(key) {
+    if (isStateObject_(target[key]) && isStateObject_(source[key])) replaceStateContents_(target[key], source[key]);
+    else target[key] = source[key];
+  });
+  return target;
+}
+
+function isStateObject_(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function assertSubtaskId_(value, label) {
+  if (typeof value !== 'string' || !value) {
+    throw new Error('STATE_MALFORMED: ' + label + ' must be a non-empty opaque ID; overwrite refused.');
+  }
+}
+
+const SUBTASK_RECORD_FIELDS_ = [
+  'phase', 'gChildId', 'msChecklistId', 'nextMsChecklistId', 'gParentId', 'at', 'preparedAt',
+  'lastRoundId', 'attempts', 'correlationId', 'fingerprint', 'reason', 'missingSide',
+  'parentMsId', 'parentMsListId', 'intended', 'base', 'field', 'source', 'target', 'desired',
+  'missingStreak', 'lastMissingObservationRound', 'firstMissingAt', 'survivorSemanticBaseline'
+];
+
+function assertSubtaskTable_(table, field, allowRecords) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: subtasks.' + field + ' must be an object; overwrite refused.');
+  if (!allowRecords && Object.keys(table).length) {
+    throw new Error('STATE_MALFORMED: subtasks.' + field + ' is reserved and must remain empty; overwrite refused.');
+  }
+  if (!allowRecords) return;
+  Object.keys(table).forEach(function(key) {
+    assertSubtaskId_(key, 'subtasks.' + field + ' key');
+    const record = table[key];
+    if (!isStateObject_(record)) throw new Error('STATE_MALFORMED: subtasks.' + field + '[' + key + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(record, SUBTASK_RECORD_FIELDS_, 'subtasks.' + field + '[' + key + ']', 'STATE_MALFORMED');
+    ['gChildId', 'msChecklistId', 'gParentId', 'nextMsChecklistId'].forEach(function(idField) {
+      if (Object.prototype.hasOwnProperty.call(record, idField)) {
+        assertSubtaskId_(record[idField], 'subtasks.' + field + '[' + key + '].' + idField);
+      }
+    });
+  });
+}
+
+function assertRelationshipParentTable_(table) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: subtasks.parents must be an object; overwrite refused.');
+  const fields = [
+    'knowledge', 'lastAttemptEpoch', 'lastAttemptedAt', 'lastObservedRoundId',
+    'lastObservedAt', 'observationEpoch'
+  ];
+  Object.keys(table).forEach(function(key) {
+    assertSubtaskId_(key, 'subtasks.parents key');
+    const record = table[key];
+    if (!isStateObject_(record)) throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(record, fields, 'subtasks.parents[' + key + ']', 'STATE_MALFORMED');
+    if (Object.keys(record).length !== fields.length) {
+      throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '] has missing fields; overwrite refused.');
+    }
+    if (['unknown', 'empty', 'present'].indexOf(record.knowledge) < 0) {
+      throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '].knowledge is invalid; overwrite refused.');
+    }
+    if (!Number.isInteger(record.lastAttemptEpoch) || record.lastAttemptEpoch < 0 ||
+        !Number.isInteger(record.observationEpoch) || record.observationEpoch < 0) {
+      throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '] epochs are invalid; overwrite refused.');
+    }
+    ['lastAttemptedAt', 'lastObservedAt'].forEach(function(field) {
+      const value = record[field];
+      if (value !== null && (typeof value !== 'number' || !isFinite(value) || value < 0)) {
+        throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '].' + field + ' is invalid; overwrite refused.');
+      }
+    });
+    ['lastObservedRoundId'].forEach(function(field) {
+      const value = record[field];
+      if (value !== null && (typeof value !== 'string' || !value)) {
+        throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '].' + field + ' is invalid; overwrite refused.');
+      }
+    });
+    if (record.knowledge === 'unknown') {
+      if (record.lastObservedRoundId !== null || record.lastObservedAt !== null || record.observationEpoch !== 0) {
+        throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '] unknown knowledge has observation evidence; overwrite refused.');
+      }
+    } else if (record.lastObservedRoundId === null || record.lastObservedAt === null) {
+      throw new Error('STATE_MALFORMED: subtasks.parents[' + key + '] observed knowledge lacks observation evidence; overwrite refused.');
+    }
+  });
+}
+
+function assertSubtaskTombstoneTable_(tombstones) {
+  if (!isStateObject_(tombstones)) throw new Error('STATE_MALFORMED: subtasks.tombstones must be an object; overwrite refused.');
+  assertKnownObjectKeys_(tombstones, ['g', 'ms'], 'subtasks.tombstones', 'STATE_MALFORMED');
+  ['g', 'ms'].forEach(function(side) {
+    const table = tombstones[side];
+    if (!isStateObject_(table)) {
+      throw new Error('STATE_MALFORMED: subtasks.tombstones.' + side + ' must be an object; overwrite refused.');
+    }
+    Object.keys(table).forEach(function(key) {
+      assertSubtaskId_(key, 'subtasks.tombstones.' + side + ' key');
+      const record = table[key];
+      if (!isStateObject_(record)) {
+        throw new Error('STATE_MALFORMED: subtasks.tombstones.' + side + '[' + key + '] must be an object; overwrite refused.');
+      }
+      assertKnownObjectKeys_(record, ['at', 'source'], 'subtasks.tombstones.' + side + '[' + key + ']', 'STATE_MALFORMED');
+      if (!Number.isFinite(Number(record.at)) || Number(record.at) < 0) {
+        throw new Error('STATE_MALFORMED: subtasks.tombstones.' + side + '[' + key + '].at is invalid; overwrite refused.');
+      }
+      if (typeof record.source !== 'string' || !record.source || record.source.length > 64) {
+        throw new Error('STATE_MALFORMED: subtasks.tombstones.' + side + '[' + key + '].source is invalid; overwrite refused.');
+      }
+    });
+  });
+}
+
+function assertSubtaskOwnershipRecordShapes_(subtasks) {
+  const contracts = {
+    createJournal: {
+      fields: ['phase', 'gChildId', 'msChecklistId', 'gParentId', 'parentMsId', 'parentMsListId', 'intended', 'at', 'base', 'field', 'source', 'target', 'desired'],
+      phases: ['PREPARED', 'REMOTE_CREATED', 'UNCERTAIN'],
+      required: ['gParentId'],
+      requireOwnedSide: true
+    },
+    deletionJournal: {
+      fields: ['phase', 'gChildId', 'msChecklistId', 'gParentId', 'parentMsId', 'parentMsListId',
+        'missingSide', 'at', 'preparedAt'],
+      phases: ['PREPARED', 'REMOTE_DELETED', 'UNCERTAIN'],
+      required: ['gChildId', 'msChecklistId', 'gParentId']
+    },
+    pendingDeletions: {
+      fields: ['gChildId', 'msChecklistId', 'gParentId', 'parentMsId', 'parentMsListId',
+        'missingSide', 'missingStreak', 'lastMissingObservationRound', 'firstMissingAt',
+        'survivorSemanticBaseline'],
+      required: ['gChildId', 'msChecklistId', 'gParentId', 'missingSide']
+    },
+    moveJournal: {
+      fields: ['phase', 'gChildId', 'msChecklistId', 'nextMsChecklistId', 'gParentId'],
+      phases: ['PREPARED', 'REMOTE_CREATED', 'REBIND_PERSISTED', 'OLD_DELETE_PENDING', 'UNCERTAIN'],
+      required: ['gChildId', 'msChecklistId', 'gParentId']
+    },
+    conflicts: {
+      fields: ['gChildId', 'msChecklistId', 'gParentId', 'reason'],
+      required: [],
+      requireOwnedSide: true
+    },
+  };
+  Object.keys(contracts).forEach(function(tableName) {
+    const contract = contracts[tableName];
+    Object.keys(subtasks[tableName]).forEach(function(key) {
+      const record = subtasks[tableName][key];
+      assertKnownObjectKeys_(record, contract.fields,
+        'subtasks.' + tableName + '[' + key + ']', 'STATE_MALFORMED');
+      contract.required.forEach(function(field) {
+        assertSubtaskId_(record[field], 'subtasks.' + tableName + '[' + key + '].' + field);
+      });
+      if (contract.requireOwnedSide && !record.gChildId && !record.msChecklistId) {
+        throw new Error('STATE_MALFORMED: subtasks.' + tableName + '[' + key +
+          '] must identify at least one owned provider object; overwrite refused.');
+      }
+      if (contract.phases && contract.phases.indexOf(record.phase) < 0) {
+        throw new Error('STATE_MALFORMED: subtasks.' + tableName + '[' + key +
+          '] has an unknown or terminal phase; overwrite refused.');
+      }
+      if (Object.prototype.hasOwnProperty.call(record, 'reason') &&
+          (typeof record.reason !== 'string' || !record.reason || record.reason.length > 128)) {
+        throw new Error('STATE_MALFORMED: subtasks.' + tableName + '[' + key +
+          '].reason must be a bounded non-empty code; overwrite refused.');
+      }
+      if (tableName === 'pendingDeletions') {
+        if (['GOOGLE', 'MICROSOFT', 'BOTH'].indexOf(record.missingSide) < 0) {
+          throw new Error('STATE_MALFORMED: subtasks.pendingDeletions[' + key +
+            '].missingSide is invalid; overwrite refused.');
+        }
+        if (!Number.isInteger(Number(record.missingStreak)) || Number(record.missingStreak) < 1) {
+          throw new Error('STATE_MALFORMED: subtasks.pendingDeletions[' + key +
+            '].missingStreak is invalid; overwrite refused.');
+        }
+        if (typeof record.lastMissingObservationRound !== 'string' || !record.lastMissingObservationRound) {
+          throw new Error('STATE_MALFORMED: subtasks.pendingDeletions[' + key +
+            '].lastMissingObservationRound is invalid; overwrite refused.');
+        }
+        if (typeof record.survivorSemanticBaseline !== 'string') {
+          throw new Error('STATE_MALFORMED: subtasks.pendingDeletions[' + key +
+            '].survivorSemanticBaseline is invalid; overwrite refused.');
+        }
+      }
+    });
+  });
+}
+
+function assertOrdinaryFingerprint_(fp, label) {
+  if (fp === undefined) return;
+  if (!isStateObject_(fp)) throw new Error('STATE_MALFORMED: ' + label + '.fp must be an object; overwrite refused.');
+  assertKnownObjectKeys_(fp, ['v', 'title', 'notes', 'completed', 'due'], label + '.fp', 'STATE_MALFORMED');
+  if (fp.v !== 1) throw new Error('STATE_MALFORMED: ' + label + '.fp.v is invalid; overwrite refused.');
+  ['title', 'notes', 'completed', 'due'].forEach(function(field) {
+    if (fp[field] === undefined) return;
+    if (fp[field] !== null && (typeof fp[field] !== 'string' || !/^[0-9a-f]{32}$/.test(fp[field]))) {
+      throw new Error('STATE_MALFORMED: ' + label + '.fp.' + field + ' is invalid; overwrite refused.');
+    }
+  });
+}
+
+function assertOrdinaryMappingExtras_(state) {
+  Object.keys((state && state.g2m) || {}).forEach(function(gId) {
+    const rec = state.g2m[gId];
+    if (!rec || typeof rec !== 'object') return;
+    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc'],
+      'g2m[' + gId + ']', 'STATE_MALFORMED');
+    assertOrdinaryFingerprint_(rec.fp, 'g2m[' + gId + ']');
+    if (rec.res !== undefined) {
+      if (!isStateObject_(rec.res)) throw new Error('STATE_MALFORMED: g2m[' + gId + '].res must be an object; overwrite refused.');
+      assertKnownObjectKeys_(rec.res, ['gBlockFp', 'msBlockFp', 'gBlockIntentFp', 'msBlockIntentFp'],
+        'g2m[' + gId + '].res', 'STATE_MALFORMED');
+      ['gBlockFp', 'msBlockFp', 'gBlockIntentFp', 'msBlockIntentFp'].forEach(function(field) {
+        if (rec.res[field] === undefined || rec.res[field] === null) return;
+        if (typeof rec.res[field] !== 'string' || !/^[0-9a-f]{32}$/.test(rec.res[field])) {
+          throw new Error('STATE_MALFORMED: g2m[' + gId + '].res.' + field + ' is invalid; overwrite refused.');
+        }
+      });
+    }
+    if (rec.fc !== undefined) {
+      if (!isStateObject_(rec.fc)) throw new Error('STATE_MALFORMED: g2m[' + gId + '].fc must be an object; overwrite refused.');
+      Object.keys(rec.fc).forEach(function(field) {
+        if (['title', 'notes', 'completed', 'due'].indexOf(field) < 0) {
+          throw new Error('STATE_MALFORMED: g2m[' + gId + '].fc has unknown field ' + field + '; overwrite refused.');
+        }
+        const row = rec.fc[field];
+        if (!isStateObject_(row)) throw new Error('STATE_MALFORMED: g2m[' + gId + '].fc.' + field + ' must be an object; overwrite refused.');
+        assertKnownObjectKeys_(row, ['kind'], 'g2m[' + gId + '].fc.' + field, 'STATE_MALFORMED');
+        if (row.kind !== 'TRUE_FIELD_CONFLICT' && row.kind !== 'BOOTSTRAP_CONFLICT') {
+          throw new Error('STATE_MALFORMED: g2m[' + gId + '].fc.' + field + '.kind is invalid; overwrite refused.');
+        }
+      });
+    }
+  });
+}
+
+function assertStrictSchema4StateShape_(state) {
+  if (!state || state.schema !== 4) return;
+  const allowedTopLevel = [
+    'schema', 'listMap', 'g2m', 'm2g', 'subtasks', 'tombstones', 'pendingTaskDeletions',
+    'deletionJournal', 'taskMoveJournal', 'taskCreateBatch', 'taskDeletionConflicts',
+    'listPairMeta', 'pendingListDeletions', 'listDeletionJournal', 'listDeletionConflicts',
+    'listTombstones', 'listTombstoneNames', 'listFaults', 'health', 'updatedAt'
+  ];
+  // Absence terminal-state tables (W2/W3) are optional: they must be whitelisted
+  // so they can be written back, but they must not be required on every state so
+  // legacy fixtures and the strict migration tests keep passing.
+  const schema4OptionalTopLevel = ['retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal', 'resourceObservationCursor'];
+  assertKnownObjectKeys_(state, allowedTopLevel.concat(schema4OptionalTopLevel), 'schema=4 state', 'STATE_MALFORMED');
+  allowedTopLevel.forEach(function(field) {
+    if (!Object.prototype.hasOwnProperty.call(state, field)) {
+      throw new Error('STATE_MALFORMED: schema=4 missing ' + field + '; overwrite refused.');
+    }
+  });
+  if (state.resourceObservationCursor !== undefined &&
+      (!Number.isInteger(state.resourceObservationCursor) || state.resourceObservationCursor < 0)) {
+    throw new Error('STATE_MALFORMED: resourceObservationCursor must be a non-negative integer; overwrite refused.');
+  }
+  if (state.retiredPairs) assertRetiredPairsTable_(state.retiredPairs);
+  if (state.absenceHolds) assertAbsenceHoldsTable_(state.absenceHolds);
+  if (state.listCreateGuards) assertListCreateGuardsTable_(state.listCreateGuards);
+  if (state.mutationJournal) assertMutationJournalTable_(state.mutationJournal);
+  const legacy = cloneStateForValidation_(state);
+  delete legacy.subtasks;
+  legacy.schema = 3;
+  Object.keys(legacy.g2m || {}).forEach(function(gId) {
+    const rec = legacy.g2m[gId];
+    if (!rec || typeof rec !== 'object') return;
+    delete rec.fp;
+    delete rec.res;
+    delete rec.fc;
+  });
+  assertStrictSchema3StateShape_(legacy, 'STATE_MALFORMED');
+  assertOrdinaryMappingExtras_(state);
+  assertListMapOneToOne_(legacy, 'STATE_MALFORMED');
+  if (!isStateObject_(state.subtasks)) throw new Error('STATE_MALFORMED: schema=4 subtasks must be an object; overwrite refused.');
+  assertKnownObjectKeys_(state.subtasks, [
+  'mappings', 'parents', 'createJournal', 'pendingDeletions', 'deletionJournal', 'moveJournal', 'conflicts', 'tombstones'
+  ], 'schema=4 subtasks', 'STATE_MALFORMED');
+  ['mappings', 'parents', 'createJournal', 'pendingDeletions', 'deletionJournal', 'moveJournal', 'conflicts', 'tombstones'].forEach(function(field) {
+    if (!Object.prototype.hasOwnProperty.call(state.subtasks, field)) throw new Error('STATE_MALFORMED: schema=4 subtasks missing ' + field + '; overwrite refused.');
+  });
+  const mappings = state.subtasks.mappings;
+  if (!isStateObject_(mappings)) throw new Error('STATE_MALFORMED: subtasks.mappings must be an object; overwrite refused.');
+  Object.keys(mappings).forEach(function(gChildId) {
+    assertSubtaskId_(gChildId, 'subtasks.mappings key');
+    const mapping = mappings[gChildId];
+    if (!isStateObject_(mapping)) throw new Error('STATE_MALFORMED: subtasks.mappings[' + gChildId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(mapping, ['gParentId', 'msChecklistId', 'parentMsId', 'parentMsListId', 'base'], 'subtasks.mappings[' + gChildId + ']', 'STATE_MALFORMED');
+    if (Object.keys(mapping).length !== 2 && !Object.prototype.hasOwnProperty.call(mapping, 'base')) throw new Error('STATE_MALFORMED: subtasks.mappings[' + gChildId + '] has missing fields; overwrite refused.');
+    assertSubtaskId_(mapping.gParentId, 'subtasks.mappings[' + gChildId + '].gParentId');
+    assertSubtaskId_(mapping.msChecklistId, 'subtasks.mappings[' + gChildId + '].msChecklistId');
+    if (mapping.base !== undefined) {
+      if (!isStateObject_(mapping.base) || Object.keys(mapping.base).some(function(key) { return ['title', 'completed'].indexOf(key) < 0; }) ||
+          typeof mapping.base.title !== 'string' || !mapping.base.title || typeof mapping.base.completed !== 'boolean') {
+        throw new Error('STATE_MALFORMED: subtasks.mappings[' + gChildId + '].base is invalid; overwrite refused.');
+      }
+    }
+    ['parentMsId', 'parentMsListId'].forEach(function(field) {
+      if (mapping[field] !== undefined) assertSubtaskId_(mapping[field], 'subtasks.mappings[' + gChildId + '].' + field);
+    });
+  });
+  assertRelationshipParentTable_(state.subtasks.parents);
+  assertSubtaskTable_(state.subtasks.pendingDeletions, 'pendingDeletions', true);
+  assertSubtaskTombstoneTable_(state.subtasks.tombstones);
+  assertSubtaskTable_(state.subtasks.createJournal, 'createJournal', true);
+  assertSubtaskTable_(state.subtasks.deletionJournal, 'deletionJournal', true);
+  assertSubtaskTable_(state.subtasks.moveJournal, 'moveJournal', true);
+  assertSubtaskTable_(state.subtasks.conflicts, 'conflicts', true);
+  assertSubtaskOwnershipRecordShapes_(state.subtasks);
+  ['createJournal', 'deletionJournal', 'moveJournal', 'conflicts', 'pendingDeletions'].forEach(function(field) {
+    Object.keys(state.subtasks[field]).forEach(function(key) {
+      const record = state.subtasks[field][key];
+      ['gChildId', 'oldGChildId', 'newGChildId', 'sourceGChildId', 'targetGChildId'].forEach(function(idField) {
+        if (record[idField] && Object.prototype.hasOwnProperty.call(state.g2m, record[idField])) {
+          throw new Error('STATE_MALFORMED: subtask gChildId overlaps ordinary g2m mapping; overwrite refused.');
+        }
+      });
+    });
+  });
+  Object.keys(mappings).forEach(function(gChildId) {
+    if (Object.prototype.hasOwnProperty.call(state.g2m, gChildId)) throw new Error('STATE_MALFORMED: subtask gChildId overlaps ordinary g2m mapping; overwrite refused.');
+  });
+}
+
+function assertRetiredPairsTable_(table) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: retiredPairs must be an object; overwrite refused.');
+  Object.keys(table).forEach(function(gId) {
+    const rec = table[gId];
+    if (!isStateObject_(rec)) throw new Error('STATE_MALFORMED: retiredPairs[' + gId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(rec,
+      ['gId', 'msId', 'gListId', 'msListId', 'retiredAt', 'retiredRoundId', 'reason', 'ttlExpiresAt', 'fp'],
+      'retiredPairs[' + gId + ']', 'STATE_MALFORMED');
+    if (Object.prototype.hasOwnProperty.call(rec, 'ttlExpiresAt') &&
+        typeof rec.ttlExpiresAt !== 'number') {
+      throw new Error('STATE_MALFORMED: retiredPairs[' + gId + '].ttlExpiresAt must be a number; overwrite refused.');
+    }
+  });
+}
+
+function assertAbsenceHoldsTable_(table) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: absenceHolds must be an object; overwrite refused.');
+  Object.keys(table).forEach(function(gId) {
+    const rec = table[gId];
+    if (!isStateObject_(rec)) throw new Error('STATE_MALFORMED: absenceHolds[' + gId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(rec,
+      ['gId', 'msId', 'gListId', 'msListId', 'missingSide', 'heldAt', 'heldRoundId', 'reason', 'resolved'],
+      'absenceHolds[' + gId + ']', 'STATE_MALFORMED');
+  });
+}
+
+function assertListCreateGuardsTable_(table) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: listCreateGuards must be an object; overwrite refused.');
+  Object.keys(table).forEach(function(listId) {
+    const rec = table[listId];
+    if (!isStateObject_(rec)) throw new Error('STATE_MALFORMED: listCreateGuards[' + listId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(rec, ['reason', 'since'], 'listCreateGuards[' + listId + ']', 'STATE_MALFORMED');
+  });
+}
+
+/* W1c mutation journal.  Only bounded, non-content fields are allowed: the
+ * payload fingerprint and provider diagnostics, never the request body. */
+function assertMutationJournalTable_(table) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: mutationJournal must be an object; overwrite refused.');
+  Object.keys(table).forEach(function(gId) {
+    const rec = table[gId];
+    if (!isStateObject_(rec)) throw new Error('STATE_MALFORMED: mutationJournal[' + gId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(rec,
+      ['jv', 'gId', 'msId', 'gListId', 'msListId', 'phase', 'reason', 'payloadFp',
+        'httpStatus', 'providerCode', 'providerMessage', 'attempts',
+        'firstFailedAt', 'lastFailedAt', 'abandonedAt', 'partial'],
+      'mutationJournal[' + gId + ']', 'STATE_MALFORMED');
+    if (!Number.isInteger(rec.jv)) {
+      throw new Error('STATE_MALFORMED: mutationJournal[' + gId + '].jv must be an integer; overwrite refused.');
+    }
+    if (rec.phase !== 'OPEN' && rec.phase !== 'ABANDONED') {
+      throw new Error('STATE_MALFORMED: mutationJournal[' + gId + '].phase is invalid; overwrite refused.');
+    }
+    if (rec.payloadFp !== undefined && rec.payloadFp !== null &&
+        (typeof rec.payloadFp !== 'string' || !/^[0-9a-f]{32}$/.test(rec.payloadFp))) {
+      throw new Error('STATE_MALFORMED: mutationJournal[' + gId + '].payloadFp is invalid; overwrite refused.');
+    }
+    if (rec.httpStatus !== undefined && rec.httpStatus !== null && typeof rec.httpStatus !== 'number') {
+      throw new Error('STATE_MALFORMED: mutationJournal[' + gId + '].httpStatus must be a number; overwrite refused.');
+    }
+    if (rec.attempts !== undefined && (!Number.isInteger(rec.attempts) || rec.attempts < 0)) {
+      throw new Error('STATE_MALFORMED: mutationJournal[' + gId + '].attempts is invalid; overwrite refused.');
+    }
+  });
+}
+
+// The only schema versions this code can author or migrate forward. A higher
+// version written by newer code is rejected by normalizeState_ (fail-closed: no
+// write, no silent downgrade). See isStateSchemaWritable_ below.
+const MAX_STATE_SCHEMA_VERSION_ = 4;
+
+function isStateSchemaWritable_(schema) {
+  return schema === 2 || schema === 3 || schema === MAX_STATE_SCHEMA_VERSION_;
+}
+
+function normalizeState_(state) {
+  if (state === undefined || state === null) return newState_();
+  if (!isStateObject_(state)) throw new Error('STATE_MALFORMED: Sync state must be an object; overwrite refused.');
+  const source = cloneStateForValidation_(state);
+  if (source.schema !== 2 && source.schema !== 3 && source.schema !== MAX_STATE_SCHEMA_VERSION_) {
+    throw new Error('STATE_SCHEMA_UNSUPPORTED: Only schema=2, schema=3, or schema=' + MAX_STATE_SCHEMA_VERSION_ + ' supported; overwrite refused.');
+  }
+  let canonical;
+  if (source.schema === 4) {
+    if (!isStateObject_(source.subtasks)) throw new Error('STATE_MALFORMED: schema=4 subtasks missing; overwrite refused.');
+    assertStrictSchema4StateShape_(source);
+    const subtasks = source.subtasks;
+    const mappingExtras = {};
+    Object.keys(source.g2m || {}).forEach(function(gId) {
+      const rec = source.g2m[gId];
+      if (!rec || typeof rec !== 'object') return;
+      const extra = {};
+      if (rec.fp) extra.fp = rec.fp;
+      if (rec.res) extra.res = rec.res;
+      if (rec.fc) extra.fc = rec.fc;
+      if (Object.keys(extra).length) mappingExtras[gId] = extra;
+    });
+    const legacy = cloneStateForValidation_(source);
+    delete legacy.subtasks;
+    delete legacy.resourceObservationCursor;
+    legacy.schema = 3;
+    Object.keys(legacy.g2m || {}).forEach(function(gId) {
+      const rec = legacy.g2m[gId];
+      if (!rec || typeof rec !== 'object') return;
+      delete rec.fp;
+      delete rec.res;
+      delete rec.fc;
+    });
+    const normalizedLegacy = normalizeStateV3_(legacy);
+    canonical = source;
+    Object.keys(normalizedLegacy).forEach(function(key) { canonical[key] = normalizedLegacy[key]; });
+    canonical.schema = 4;
+    canonical.subtasks = subtasks;
+    Object.keys(mappingExtras).forEach(function(gId) {
+      if (!canonical.g2m || !canonical.g2m[gId]) return;
+      if (mappingExtras[gId].fp) canonical.g2m[gId].fp = mappingExtras[gId].fp;
+      if (mappingExtras[gId].res) canonical.g2m[gId].res = mappingExtras[gId].res;
+      if (mappingExtras[gId].fc) canonical.g2m[gId].fc = mappingExtras[gId].fc;
+    });
+  } else {
+    // normalizeStateV3_ performs the deployed strict source validation and
+    // the existing schema-2-to-3 migration on the cloned value.
+    canonical = normalizeStateV3_(source);
+    canonical.schema = 4;
+    canonical.subtasks = {
+      mappings: {}, parents: {}, createJournal: {}, pendingDeletions: {},
+      deletionJournal: {}, moveJournal: {}, conflicts: {}, tombstones: { g: {}, ms: {} }
+    };
+  }
+  if (canonical.updatedAt === undefined) canonical.updatedAt = null;
+  if (canonical.resourceObservationCursor === undefined) canonical.resourceObservationCursor = 0;
+  assertStrictSchema4StateShape_(canonical);
+  replaceStateContents_(state, canonical);
+  return state;
+}
+
+/* Return ownership only; this function never repairs or writes state. */
+function subtaskOwnershipReservations_(state) {
+  const result = {
+    reservedGoogleIds: {},
+    reservedMicrosoftIds: {},
+    quarantined: []
+  };
+  const sub = state && state.subtasks;
+  if (!isStateObject_(sub)) return result;
+  function reserve(side, id) {
+    if (typeof id !== 'string' || !id) return;
+    const table = side === 'g' ? result.reservedGoogleIds : result.reservedMicrosoftIds;
+    table[id] = true;
+  }
+  function quarantine(code) {
+    if (result.quarantined.length >= 8 || result.quarantined.some(function(item) { return item.code === code; })) return;
+    result.quarantined.push({ code: code });
+  }
+  function inspectRecord(tableName, key, record) {
+    if (!isStateObject_(record)) return;
+    if (record.gChildId) reserve('g', record.gChildId);
+    if (record.msChecklistId) reserve('m', record.msChecklistId);
+    if (record.nextMsChecklistId) reserve('m', record.nextMsChecklistId);
+    if (record.gParentId && (!state.g2m || !state.g2m[record.gParentId])) quarantine('PARENT_MAPPING_MISMATCH');
+  }
+  const mappings = isStateObject_(sub.mappings) ? sub.mappings : {};
+  Object.keys(mappings).forEach(function(gChildId) {
+    reserve('g', gChildId);
+    inspectRecord('mappings', gChildId, mappings[gChildId]);
+  });
+  const mappingChecklistOwners = {};
+  Object.keys(mappings).forEach(function(gChildId) {
+    const msChecklistId = mappings[gChildId] && mappings[gChildId].msChecklistId;
+    if (!msChecklistId) return;
+    if (mappingChecklistOwners[msChecklistId] && mappingChecklistOwners[msChecklistId] !== gChildId) {
+      quarantine('DUPLICATE_CHECKLIST_IDENTITY');
+    } else {
+      mappingChecklistOwners[msChecklistId] = gChildId;
+    }
+  });
+  ['createJournal', 'deletionJournal', 'moveJournal', 'conflicts', 'pendingDeletions'].forEach(function(tableName) {
+    const table = isStateObject_(sub[tableName]) ? sub[tableName] : {};
+    Object.keys(table).forEach(function(key) { inspectRecord(tableName, key, table[key]); });
+  });
+  if (isStateObject_(sub.tombstones)) {
+    Object.keys(sub.tombstones.g || {}).forEach(function(gChildId) { reserve('g', gChildId); });
+    Object.keys(sub.tombstones.ms || {}).forEach(function(key) {
+      try {
+        const parsed = JSON.parse(key);
+        if (parsed && typeof parsed.msChecklistId === 'string') reserve('m', parsed.msChecklistId);
+      } catch (ignored) {}
+    });
+  }
+  const googleOwners = {};
+  ['mappings', 'createJournal', 'deletionJournal', 'moveJournal', 'conflicts', 'pendingDeletions'].forEach(function(tableName) {
+    const table = isStateObject_(sub[tableName]) ? sub[tableName] : {};
+    Object.keys(table).forEach(function(key) {
+      const record = table[key];
+      const child = record && (record.gChildId || key);
+      if (!child) return;
+      const checklist = record && record.msChecklistId;
+      if (googleOwners[child] && checklist && googleOwners[child] !== checklist) quarantine('DUPLICATE_SUBTASK_GOOGLE_ID');
+      else if (checklist) googleOwners[child] = checklist;
+    });
+  });
+  const checklistOwners = {};
+  ['createJournal', 'deletionJournal', 'moveJournal', 'conflicts', 'pendingDeletions'].forEach(function(tableName) {
+    const table = isStateObject_(sub[tableName]) ? sub[tableName] : {};
+    Object.keys(table).forEach(function(key) {
+      const record = table[key];
+      if (!record || !record.msChecklistId) return;
+      const child = record.gChildId || key;
+      if (checklistOwners[record.msChecklistId] && checklistOwners[record.msChecklistId] !== child) quarantine('DUPLICATE_CHECKLIST_IDENTITY');
+      else checklistOwners[record.msChecklistId] = child;
+    });
+  });
+  return result;
+}
+
+function validateImportedState_(state) {
+  if (state && state.schema === 4) {
+    const legacy = cloneStateForValidation_(state);
+    delete legacy.subtasks;
+    delete legacy.resourceObservationCursor;
+    legacy.schema = 3;
+    validateImportedStateLegacy_(legacy);
+    try { assertStrictSchema4StateShape_(state); }
+    catch (e) { throw new Error('IMPORT_INVALID_STATE: ' + e.message.replace(/^STATE_MALFORMED:\s*/, '')); }
+    return state;
+  }
+  return validateImportedStateLegacy_(state);
 }

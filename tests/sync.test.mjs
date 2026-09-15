@@ -29,6 +29,210 @@ test('healthCheck and dryRunReport fail closed on invalid safety settings withou
   assert.deepEqual(userStore.values, beforeUser);
 });
 
+test('schema 4 foundation namespace is exact and migrations are idempotent', () => {
+  const { context } = loadContext();
+  const state = context.newState_();
+  assert.deepEqual(Object.keys(state.subtasks), ['mappings', 'parents', 'createJournal', 'pendingDeletions', 'deletionJournal', 'moveJournal', 'conflicts', 'tombstones']);
+  state.schema = 3;
+  delete state.subtasks;
+  state.g2m.parent = { msId: 'ms-parent', gListId: 'g-list', msListId: 'ms-list', gUpdated: '2026-08-01T00:00:00Z', msUpdated: '2026-08-01T00:00:00Z' };
+  const migrated = context.normalizeState_(state);
+  assert.equal(migrated.schema, 4);
+  assert.equal(migrated.g2m.parent.gUpdated, '2026-08-01T00:00:00Z');
+  const again = context.normalizeState_(JSON.parse(JSON.stringify(migrated)));
+  assert.equal(JSON.stringify(again), JSON.stringify(migrated));
+  const malformed = context.newState_();
+  malformed.subtasks.parents = { bad: true };
+  assert.throws(() => context.normalizeState_(malformed), /STATE_MALFORMED/);
+  const unknown = context.newState_();
+  unknown.subtasks.mappings.child = { gParentId: 'parent', msChecklistId: 'check', typo: true };
+  assert.throws(() => context.normalizeState_(unknown), /STATE_MALFORMED/);
+});
+
+test('subtask ownership reserves IDs independent of capability flag and quarantines unsafe ownership', () => {
+  const { context } = loadContext();
+  const state = context.newState_();
+  state.listMap['g-list'] = 'ms-list';
+  state.g2m.parent = { msId: 'ms-parent', gListId: 'g-list', msListId: 'ms-list', gUpdated: '2026-08-01T00:00:00Z', msUpdated: '2026-08-01T00:00:00Z' };
+  state.subtasks.mappings.child = { gParentId: 'parent', msChecklistId: 'check' };
+  state.subtasks.createJournal.job = { phase: 'PREPARED', gChildId: 'child', gParentId: 'parent', msChecklistId: 'check' };
+  state.subtasks.conflicts.other = { reason: 'CONFLICT', gChildId: 'other', gParentId: 'missing', msChecklistId: 'check' };
+  const reservations = context.subtaskOwnershipReservations_(state);
+  assert.equal(reservations.reservedGoogleIds.child, true);
+  assert.equal(reservations.reservedMicrosoftIds.check, true);
+  assert.ok(reservations.quarantined.some((item) => item.code === 'PARENT_MAPPING_MISMATCH'));
+  assert.ok(reservations.quarantined.some((item) => item.code === 'DUPLICATE_CHECKLIST_IDENTITY'));
+  const snap = { gTasksById: { child: {}, parent: {}, fresh: {} }, gListByTask: { child: 'g-list', parent: 'g-list', fresh: 'g-list' }, msTasksById: { check: {}, freshMs: {} }, msListByTask: { check: 'ms-list', freshMs: 'ms-list' }, activeGListIds: { 'g-list': true } };
+  const before = JSON.stringify(state);
+  const candidates = context.taskCreateBatchCandidates_(state, snap);
+  assert.equal(JSON.stringify(candidates.map((item) => item.sourceTaskId)), JSON.stringify(['fresh', 'freshMs']));
+  assert.equal(JSON.stringify(state), before);
+});
+
+test('SYNC_ENABLE_SUBTASKS parses strict true false with safe default off', () => {
+  const blank = loadContext().context.getSafetyConfig_();
+  assert.equal(blank.enableSubtasks, false);
+  assert.equal(loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: 'true' } }).context.getSafetyConfig_().enableSubtasks, true);
+  assert.equal(loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: ' false ' } }).context.getSafetyConfig_().enableSubtasks, false);
+  assert.throws(() => loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: 'yes' } }).context.getSafetyConfig_(), /SYNC_SUBTASKS_FLAG_INVALID/);
+});
+
+test('schema 4 migration preserves every schema 3 field and declared v4 never receives repair defaults', () => {
+  const { context } = loadContext();
+  const schema3 = context.newState_();
+  schema3.schema = 3;
+  delete schema3.subtasks;
+  schema3.listMap['g-list'] = 'ms-list';
+  schema3.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list' };
+  schema3.m2g['ms-task'] = 'g-task';
+  schema3.tombstones.g.old = { at: 1, source: 'google' };
+  schema3.health.lastErrorMessage = null;
+  const before = JSON.parse(JSON.stringify(schema3));
+  const migrated = context.normalizeState_(schema3);
+  const ordinary = JSON.parse(JSON.stringify(migrated));
+  delete ordinary.subtasks;
+  ordinary.schema = 3;
+  assert.deepEqual(ordinary, before);
+  assert.equal(
+    JSON.stringify(context.normalizeState_(JSON.parse(JSON.stringify(migrated)))),
+    JSON.stringify(migrated)
+  );
+
+  for (const table of Object.keys(migrated.subtasks)) {
+    const missing = JSON.parse(JSON.stringify(migrated));
+    delete missing.subtasks[table];
+    const unchanged = JSON.stringify(missing);
+    assert.throws(() => context.normalizeState_(missing), /STATE_MALFORMED/, `missing ${table}`);
+    assert.equal(JSON.stringify(missing), unchanged, `missing ${table} rejected before mutation`);
+  }
+  const unknown = JSON.parse(JSON.stringify(migrated));
+  unknown.subtasks.futureTable = {};
+  assert.throws(() => context.normalizeState_(unknown), /STATE_MALFORMED/);
+  for (const table of ['parents', 'pendingDeletions']) {
+    const nonempty = JSON.parse(JSON.stringify(migrated));
+    nonempty.subtasks[table].future = {};
+    assert.throws(() => context.normalizeState_(nonempty), /STATE_MALFORMED/, `${table} is empty-only`);
+  }
+  const tombstone = JSON.parse(JSON.stringify(migrated));
+  tombstone.subtasks.tombstones.g.future = {};
+  assert.throws(() => context.normalizeState_(tombstone), /STATE_MALFORMED/);
+});
+
+test('schema 4 ownership records enforce table-specific IDs phases and fail closed on ordinary overlap', () => {
+  const { context } = loadContext();
+  const parent = () => {
+    const state = context.newState_();
+    state.g2m.parent = { msId: 'ms-parent' };
+    return state;
+  };
+  const valid = [
+    ['createJournal', { phase: 'PREPARED', gChildId: 'g-child', gParentId: 'parent' }],
+    ['createJournal', { phase: 'REMOTE_CREATED', msChecklistId: 'ms-check', gParentId: 'parent' }],
+    ['deletionJournal', { phase: 'PREPARED', gChildId: 'g-child', msChecklistId: 'ms-check', gParentId: 'parent' }],
+    ['moveJournal', { phase: 'OLD_DELETE_PENDING', gChildId: 'g-child', msChecklistId: 'ms-old', nextMsChecklistId: 'ms-new', gParentId: 'parent' }],
+    ['conflicts', { gChildId: 'g-child', reason: 'TITLE_CONFLICT' }],
+    ['conflicts', { msChecklistId: 'ms-check', reason: 'COMPLETION_CONFLICT' }]
+  ];
+  for (const [table, record] of valid) {
+    const state = parent();
+    state.subtasks[table].operation = record;
+    assert.doesNotThrow(() => context.normalizeState_(state), `${table} valid ownership record`);
+  }
+  const invalid = [
+    ['createJournal', { phase: 'PREPARED', gParentId: 'parent' }],
+    ['createJournal', { phase: 'COMMITTED', gChildId: 'g-child', gParentId: 'parent' }],
+    ['deletionJournal', { phase: 'PREPARED', gChildId: 'g-child', gParentId: 'parent' }],
+    ['moveJournal', { phase: 'PREPARED', gChildId: 'g-child', msChecklistId: 'ms-check' }],
+    ['conflicts', { reason: 'NO_PROVIDER_ID' }],
+    ['conflicts', { gChildId: 'g-child', reason: '' }],
+    ['conflicts', { gChildId: 'g-child', reason: 'OK', unknown: true }]
+  ];
+  for (const [table, record] of invalid) {
+    const state = parent();
+    state.subtasks[table].operation = record;
+    assert.throws(() => context.normalizeState_(state), /STATE_MALFORMED/, `${table} malformed ownership record`);
+  }
+  const overlap = parent();
+  overlap.g2m['g-child'] = { msId: 'ordinary-ms' };
+  overlap.subtasks.mappings['g-child'] = { gParentId: 'parent', msChecklistId: 'ms-check' };
+  assert.throws(() => context.normalizeState_(overlap), /STATE_MALFORMED.*overlaps ordinary/);
+  assert.throws(() => context.validateImportedState_(overlap), /IMPORT_INVALID_STATE/);
+});
+
+test('malformed schema 4 import is rejected before any state save', () => {
+  const { context } = loadContext();
+  const current = context.newState_();
+  const malformed = context.newState_();
+  malformed.subtasks.parents.future = { knowledge: 'present' };
+  let saves = 0;
+  context.withGlobalLock_ = (fn) => fn();
+  context.loadStateForSync_ = () => current;
+  context.saveState_ = () => { saves += 1; };
+  assert.throws(() => context.importSyncState(malformed), /IMPORT_INVALID_STATE/);
+  assert.equal(saves, 0);
+});
+
+test('every subtask ownership source blocks ordinary duplicate candidates while leaving parents ordinary', () => {
+  const { context } = loadContext();
+  const records = [
+    ['mappings', { gParentId: 'parent', msChecklistId: 'ms-check' }],
+    ['createJournal', { phase: 'PREPARED', gChildId: 'g-child', msChecklistId: 'ms-check', gParentId: 'parent' }],
+    ['deletionJournal', { phase: 'PREPARED', gChildId: 'g-child', msChecklistId: 'ms-check', gParentId: 'parent' }],
+    ['moveJournal', { phase: 'PREPARED', gChildId: 'g-child', msChecklistId: 'ms-check', nextMsChecklistId: 'ms-next', gParentId: 'parent' }],
+    ['conflicts', { gChildId: 'g-child', msChecklistId: 'ms-check', gParentId: 'parent', reason: 'CONFLICT' }]
+  ];
+  for (const [table, record] of records) {
+    const state = context.newState_();
+    state.listMap['g-list'] = 'ms-list';
+    if (table === 'mappings') state.subtasks.mappings['g-child'] = record;
+    else state.subtasks[table].operation = record;
+    const snap = {
+      gTasksById: { 'g-child': {}, parent: {}, fresh: {} },
+      gListByTask: { 'g-child': 'g-list', parent: 'g-list', fresh: 'g-list' },
+      msTasksById: { 'ms-check': {}, 'ms-next': {}, 'ms-fresh': {} },
+      msListByTask: { 'ms-check': 'ms-list', 'ms-next': 'ms-list', 'ms-fresh': 'ms-list' },
+      activeGListIds: { 'g-list': true }
+    };
+    const before = JSON.stringify(state);
+    const candidates = context.taskCreateBatchCandidates_(state, snap).map((item) => item.sourceTaskId);
+    assert.equal(candidates.includes('g-child'), false, `${table} reserves Google child`);
+    assert.equal(candidates.includes('ms-check'), false, `${table} reserves Microsoft checklist`);
+    if (table === 'moveJournal') assert.equal(candidates.includes('ms-next'), false, 'move journal reserves new checklist ID');
+    assert.equal(candidates.includes('parent'), true, `${table} does not reserve ordinary parent`);
+    assert.equal(candidates.includes('fresh'), true);
+    assert.equal(candidates.includes('ms-fresh'), true);
+    assert.equal(JSON.stringify(state), before, `${table} reservation is pure`);
+  }
+});
+
+test('duplicate checklist claims and parent mismatch quarantine only affected subtask paths', () => {
+  const { context } = loadContext();
+  const state = context.newState_();
+  state.listMap['g-list'] = 'ms-list';
+  state.subtasks.mappings.first = { gParentId: 'missing-parent', msChecklistId: 'same-check' };
+  state.subtasks.mappings.second = { gParentId: 'missing-parent', msChecklistId: 'same-check' };
+  const before = JSON.stringify(state);
+  const reservations = context.subtaskOwnershipReservations_(state);
+  assert.equal(reservations.reservedGoogleIds.first, true);
+  assert.equal(reservations.reservedGoogleIds.second, true);
+  assert.equal(reservations.reservedMicrosoftIds['same-check'], true);
+  assert.ok(reservations.quarantined.some((item) => item.code === 'PARENT_MAPPING_MISMATCH'));
+  assert.ok(reservations.quarantined.some((item) => item.code === 'DUPLICATE_CHECKLIST_IDENTITY'));
+  assert.equal(JSON.stringify(reservations).includes('first'), true, 'IDs exist only in internal reservation maps');
+  assert.deepEqual([...new Set(reservations.quarantined.map((item) => item.code))].sort(),
+    ['DUPLICATE_CHECKLIST_IDENTITY', 'PARENT_MAPPING_MISMATCH']);
+  const snap = {
+    gTasksById: { first: {}, second: {}, 'missing-parent': {}, fresh: {} },
+    gListByTask: { first: 'g-list', second: 'g-list', 'missing-parent': 'g-list', fresh: 'g-list' },
+    msTasksById: { 'same-check': {}, freshMs: {} },
+    msListByTask: { 'same-check': 'ms-list', freshMs: 'ms-list' },
+    activeGListIds: { 'g-list': true }
+  };
+  const ids = context.taskCreateBatchCandidates_(state, snap).map((item) => item.sourceTaskId);
+  assert.equal(JSON.stringify(ids), JSON.stringify(['fresh', 'missing-parent', 'freshMs']));
+  assert.equal(JSON.stringify(state), before);
+});
+
 test('canonicalizes Microsoft plain-text Graph terminators while preserving internal newlines', () => {
  const { context } = loadContext();
  assert.equal(
@@ -219,8 +423,6 @@ test('Personal Device Flow begins with bounded public output and reuses an unexp
 test('Personal Device Flow accepts only exact Microsoft link and legacy devicelogin verification paths', () => {
   const { context } = loadContext();
   for (const uri of [
-    'https://microsoft.com/link',
-    'https://microsoft.com/link/',
     'https://www.microsoft.com/link',
     'https://www.microsoft.com/link/',
     'https://microsoft.com/devicelogin',
@@ -231,12 +433,20 @@ test('Personal Device Flow accepts only exact Microsoft link and legacy devicelo
     assert.equal(context.validMicrosoftVerificationUri_(uri), true, uri);
   }
   for (const uri of [
+    'https://microsoft.com/link',
+    'https://microsoft.com/link/',
     'http://www.microsoft.com/link',
     'https://login.microsoftonline.com/link',
     'https://microsoft.com/link/extra',
     'https://microsoft.com/devicelogin/extra',
+    'https://www.microsoft.com/link?x=1',
+    'https://www.microsoft.com/devicelogin#fragment',
+    'https://user:pass@www.microsoft.com/devicelogin',
+    'https://www.microsoft.com:443/devicelogin',
+    'https://login.microsoft.com/devicelogin',
     'https://microsoft.com/common/oauth2/deviceauth',
     'https://microsoft.com.evil.invalid/link',
+    'https://www.microsoft.com/devicelogin.evil',
     'https://evil.invalid/devicelogin'
   ]) {
     assert.equal(context.validMicrosoftVerificationUri_(uri), false, uri);
@@ -2031,6 +2241,53 @@ test('Graph exhausted 429 retries throw after HTTP_MAX_RETRIES plus one attempts
   assert.equal(sleeps.every(Number.isFinite), true);
 });
 
+test('UrlFetchApp transient error (e.g. Bandwidth quota exceeded) retries and throws TIME_BUDGET_HTTP upon exhaustion', () => {
+  const sleeps = [];
+  let fetches = 0;
+  const { context } = loadContext({
+    utilities: { sleep: (milliseconds) => sleeps.push(milliseconds) },
+    urlFetchApp: {
+      fetch() {
+        fetches += 1;
+        throw new Error('Exception: Bandwidth quota exceeded: https://graph.microsoft.com/v1.0/me/todo/lists/test. Try reducing the rate of data transfer.');
+      }
+    }
+  });
+  context.microsoftAuth_ = () => ({
+    hasAccess: () => true,
+    getAccessToken: () => 'test-token'
+  });
+  const maxRetries = vm.runInContext('HTTP_MAX_RETRIES', context);
+
+  assert.throws(() => {
+    context.graphFetch_('https://example.invalid/graph', { method: 'get' });
+  }, /TIME_BUDGET_HTTP: UrlFetch transient error \(Exception: Bandwidth quota exceeded/);
+  assert.equal(fetches, maxRetries + 1);
+  assert.equal(sleeps.length, maxRetries);
+  assert.equal(sleeps.every(Number.isFinite), true);
+});
+
+test('UrlFetchApp non-transient error re-throws immediately without retry', () => {
+  let fetches = 0;
+  const { context } = loadContext({
+    urlFetchApp: {
+      fetch() {
+        fetches += 1;
+        throw new Error('Invalid URL protocol');
+      }
+    }
+  });
+  context.microsoftAuth_ = () => ({
+    hasAccess: () => true,
+    getAccessToken: () => 'test-token'
+  });
+
+  assert.throws(() => {
+    context.graphFetch_('https://example.invalid/graph', { method: 'get' });
+  }, /Invalid URL protocol/);
+  assert.equal(fetches, 1);
+});
+
 test('uses create and update notes semantics without trimming non-empty text', () => {
   const { context } = loadContext();
   const emptyNotes = [undefined, null, '', ' ', '\t\n\r', '\u00a0', ' \t\n\u00a0 '];
@@ -2071,6 +2328,29 @@ test('uses create and update notes semantics without trimming non-empty text', (
   assert.equal(
     context.googlePayloadFromMs_({ title: 'Round trip', body: roundTripBody }).notes,
     roundTripText
+  );
+});
+
+test('blank titles collapse to one canonical placeholder and never reach Graph empty', () => {
+  const { context } = loadContext();
+  // Missing or entirely-whitespace titles must not produce an empty Microsoft
+  // title: Graph rejects that with HTTP 400 and the create batch would be held.
+  for (const title of [undefined, null, '', ' ', '   ', '\t\n\r', '\u00a0', '\u3000']) {
+    assert.equal(context.canonicalTaskTitle_({ title }), '(Untitled)', `title ${JSON.stringify(title)}`);
+    assert.equal(context.msPayloadFromGoogle_({ title }, 'create').title, '(Untitled)');
+    assert.equal(context.msPayloadFromGoogle_({ title }, 'update').title, '(Untitled)');
+    assert.equal(context.ordinaryCanonicalTitle_({ title }), '(Untitled)');
+  }
+  // A title that has content keeps its exact spacing, matching the notes contract.
+  for (const title of ['X', '  X  ', ' X ', 'X\t', '日本語 タイトル']) {
+    assert.equal(context.canonicalTaskTitle_({ title }), title, `title ${JSON.stringify(title)}`);
+    assert.equal(context.msPayloadFromGoogle_({ title }, 'create').title, title);
+    assert.equal(context.ordinaryCanonicalTitle_({ title }), title);
+  }
+  // Both projections must agree so the Step 3 fingerprint matches what Graph stores.
+  assert.equal(
+    context.ordinaryCanonicalTitle_({ title: '   ' }),
+    context.msPayloadFromGoogle_({ title: '   ' }, 'create').title
   );
 });
 
@@ -4485,12 +4765,9 @@ test('each of multiple prepared journals persists only completed-round candidate
     discardCandidateTaskIds: {}
   });
 
-  assert.equal(saves.length, 2);
+  assert.equal(saves.length, 1);
   assert.ok(saves[0].deletionJournal['g-task']);
-  assert.equal(saves[0].pendingTaskDeletions['g-task-b'].confirmations, 1);
-  assert.ok(saves[1].deletionJournal['g-task-b']);
-  assert.equal(saves[1].pendingTaskDeletions['g-task'], undefined);
-  assert.equal(saves[1].pendingTaskDeletions['g-task-b'].confirmations, 1);
+  assert.ok(saves[0].deletionJournal['g-task-b']);
 });
 
 test('a failed round never restores a candidate invalidated by a both-live observation', () => {
@@ -4800,11 +5077,11 @@ test('migrates schema 2 additively and rejects unknown or malformed schema 3 lis
     schema: 2, listMap: {}, g2m: {}, m2g: {}, tombstones: { g: {}, m: {} },
     listFaults: { g: {}, ms: {} }, health: {}
   });
-  assert.equal(migrated.schema, 3);
+  assert.equal(migrated.schema, 4);
   assert.equal(JSON.stringify(migrated.listTombstones), JSON.stringify({ g: {}, ms: {} }));
   assert.equal(JSON.stringify(migrated.listTombstoneNames), JSON.stringify({ g: {}, ms: {} }));
   assert.doesNotThrow(() => context.normalizeState_(migrated));
-  assert.throws(() => context.normalizeState_({ schema: 4 }), /STATE_SCHEMA_UNSUPPORTED/);
+  assert.throws(() => context.normalizeState_({ schema: 4 }), /STATE_MALFORMED/);
   const malformed = context.newState_();
   malformed.pendingListDeletions = 'discard me';
   assert.throws(() => context.normalizeState_(malformed), /STATE_MALFORMED/);
@@ -4831,7 +5108,7 @@ test('schema 2 migration rejects poison before import or restore save while reta
   });
   const { context } = loadContext();
   const migrated = context.normalizeState_(deployedSchema2());
-  assert.equal(migrated.schema, 3);
+  assert.equal(migrated.schema, 4);
   assert.doesNotThrow(() => context.normalizeState_(migrated));
 
   const poisoned = [
@@ -7888,3 +8165,28 @@ test('malformed prefixed move fingerprints fail normalization while legacy value
   state.taskMoveJournal['g-task'].fingerprint = 'legacy-fingerprint';
   assert.doesNotThrow(() => context.normalizeState_(state));
 });
+
+test('createUnmappedBatch_ throws TIME_BUDGET_CREATE and preserves progress sidecar when remaining time is insufficient', () => {
+  const { context } = loadContext();
+  context.remainingTimeOk_ = () => false;
+  const state = {
+    listMap: { 'g-list': 'ms-list' },
+    taskCreateBatch: null
+  };
+  const snap = {
+    activeGListIds: { 'g-list': true },
+    gTasksById: { 'g-1': { id: 'g-1', title: 'Task 1' } },
+    msTasksById: {},
+    gListByTask: { 'g-1': 'g-list' },
+    msListByTask: {}
+  };
+  const props = context.PropertiesService.getUserProperties();
+  const initialProgress = props.getProperty('SYNC_TASK_CREATE_PROGRESS_V1');
+
+  assert.throws(
+    () => context.createUnmappedBatch_(state, snap, Date.now()),
+    /TIME_BUDGET_CREATE/
+  );
+  assert.equal(props.getProperty('SYNC_TASK_CREATE_PROGRESS_V1'), initialProgress);
+});
+

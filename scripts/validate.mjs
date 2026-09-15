@@ -57,7 +57,7 @@ for (const { filename, source } of gasSources) {
   }
 }
 const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
-assert(publicEntrypoints.length === 46, `Expected 46 public entrypoints, found ${publicEntrypoints.length}`);
+assert(publicEntrypoints.length === 49, `Expected 49 public entrypoints, found ${publicEntrypoints.length}`);
 assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs'),
   'All public and compatibility entrypoints must remain in Code.gs');
 
@@ -68,6 +68,7 @@ function claspGasAllowlist(text) {
     .sort();
 }
 const canonicalGasFiles = [...GAS_SOURCE_FILES].sort();
+assert(canonicalGasFiles.length === 17, `Expected 17 canonical .gs files, found ${canonicalGasFiles.length}`);
 assert(JSON.stringify(claspGasAllowlist(rootClaspignore)) === JSON.stringify(canonicalGasFiles),
   'Root .claspignore GAS allowlist must match canonical deployable set');
 assert(JSON.stringify(claspGasAllowlist(packagedClaspignore)) === JSON.stringify(canonicalGasFiles),
@@ -103,6 +104,9 @@ const requiredFunctions = [
   'syncAll',
   'createTrigger',
   'deleteSyncTriggers',
+  'inspectSubtaskOperations',
+  'previewSubtaskOperation',
+  'applySubtaskOperation',
   'inspectTaskMoveJournals',
   'previewTaskMoveJournalOperation',
   'applyTaskMoveJournalOperation',

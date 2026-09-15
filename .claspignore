@@ -7,8 +7,14 @@
 !state.gs
 !runtime.gs
 !providers.gs
+!relationship-discovery.gs
+!subtask-classification.gs
+!subtask-sync.gs
+!resource-projection.gs
+!field-merge.gs
 !lifecycle.gs
 !lists.gs
 !sync.gs
 !operations.gs
 !appsscript.json
+!scripts/r-coefficient-probe.gs

@@ -620,6 +620,10 @@ function syncAll() {
       cleanupTombstones_(state);
       cleanupListTombstones_(state);
       snap = buildSnapshot_(state, startedAt);
+      if (safetyAtStart.enableSubtasks && typeof discoverSubtaskRelationships_ === 'function') {
+        discoverSubtaskRelationships_(state, snap, startedAt, roundId, Date.now());
+        reconcileSubtasks_(state, snap, { enableSubtasks: true, roundId: roundId });
+      }
       while (true) {
         if (state.taskCreateBatch) {
           createUnmapped_(state, snap, startedAt);
@@ -1163,7 +1167,72 @@ function inspectSyncState() {
 // Move-journal operations are deliberately two-stage.  The Script Property is
 // an auditable operator request, preview creates a token from fresh live
 // evidence, and apply obtains that evidence again before changing only local
-// state.  None of these helpers creates, updates, or deletes provider data.
+function inspectSubtaskOperations() {
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('SUBTASK_OPERATION');
+    const state = loadStateForSync_();
+    const operations = subtaskInspectEntries_(state).map(subtaskInspectPublic_);
+    const report = {
+      operationCount: operations.length,
+      operations: operations,
+      subtasks: subtaskObservability_(state),
+      note: 'Read-only bounded report. No titles, notes, tokens, or raw provider IDs. Set SYNC_SUBTASK_OPERATION_JSON and call previewSubtaskOperation() before ABANDON or RESOLVE. There is no retry-create action.'
+    };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
+
+function previewSubtaskOperation() {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('SUBTASK_OPERATION');
+    const operation = parseSubtaskOperation_(false);
+    const state = loadStateForSync_();
+    const entry = subtaskResolveInspectEntry_(state, operation.operationRef);
+    const plan = subtaskOperationPlan_(operation, entry);
+    const previewToken = subtaskOperationDigest_(operation, entry);
+    const report = {
+      action: operation.action,
+      operation: subtaskInspectPublic_(entry),
+      ok: plan.ok,
+      code: plan.ok ? 'READY' : plan.code,
+      previewToken: previewToken,
+      note: 'Apply rereads local journal state under the global lock; it never POSTs, PATCHes, or DELETEs a provider object.'
+    };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
+
+function applySubtaskOperation() {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('SUBTASK_OPERATION');
+    const operation = parseSubtaskOperation_(true);
+    const state = loadStateForSync_();
+    const entry = subtaskResolveInspectEntry_(state, operation.operationRef);
+    if (entry.revision !== operation.revision) {
+      throw new Error('SUBTASK_OPERATION_STALE_REVISION: Journal changed; inspect it again.');
+    }
+    const liveToken = subtaskOperationDigest_(operation, entry);
+    if (operation.previewToken !== liveToken) {
+      throw new Error('SUBTASK_OPERATION_STALE_PREVIEW: Journal changed; preview again.');
+    }
+    const plan = subtaskOperationPlan_(operation, entry);
+    if (!plan.ok) throw new Error('SUBTASK_OPERATION_NOT_SAFE: ' + plan.code);
+    subtaskApplyLocalOperation_(state, operation, entry, { persist: saveState_ });
+    const report = {
+      action: operation.action,
+      operation: subtaskInspectPublic_(entry),
+      ok: true,
+      applied: true,
+      note: 'Only local subtask journal/conflict/tombstone state was updated; no provider mutation occurred.'
+    };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
 
 function inspectTaskMoveJournals() {
   return withGlobalLock_(function() {
@@ -1420,6 +1489,10 @@ function healthCheck() {
     issues.push(taskMoves.legacyWithoutCorrelation +
       ' legacy task-move journals have no correlation marker; they will not be adopted or recreated automatically. Run inspectTaskMoveJournals().');
   }
+  const subtasks = loaded.corrupt ? null : subtaskObservability_(state);
+  if (subtasks && (subtasks.createUncertain || subtasks.updateUncertain || subtasks.deletionJournals || subtasks.parentLoss)) {
+    issues.push('Unresolved subtask operations exist. Run inspectSubtaskOperations(); do not retry creates.');
+  }
   if (roundFence.active) {
     issues.push('An unfinished sync-round safety fence exists; the next syncAll will verify final commit or preserve baseline proof before recovering safely.');
   }
@@ -1429,6 +1502,7 @@ function healthCheck() {
     health: state.health,
     taskDeletion: taskDeletion,
     taskMoves: taskMoves,
+    subtasks: subtasks,
     listDeletion: listDeletion,
     // These are bounded reason codes, deliberately not IDs or names.  Keeping
     // both directional codes visible makes a one-sided reservation diagnosable

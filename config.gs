@@ -27,6 +27,24 @@ function getSafetyConfig_() {
     p.getProperty('SYNC_ALLOW_LIST_DELETIONS') || ''
   ).trim().toLowerCase();
   const allowTaskMovesRaw = String(p.getProperty('SYNC_ALLOW_TASK_MOVES') || '').trim().toLowerCase();
+  const enableSubtasksRaw = String(p.getProperty('SYNC_ENABLE_SUBTASKS') || '').trim().toLowerCase();
+  if (enableSubtasksRaw && enableSubtasksRaw !== 'true' && enableSubtasksRaw !== 'false') {
+    throw new Error('SYNC_SUBTASKS_FLAG_INVALID: SYNC_ENABLE_SUBTASKS must be true or false.');
+  }
+  const enableSubtasks = enableSubtasksRaw === 'true';
+  const enableNativeLinkedRaw = String(p.getProperty('SYNC_ENABLE_NATIVE_LINKED_RESOURCES') || '').trim().toLowerCase();
+  if (enableNativeLinkedRaw && enableNativeLinkedRaw !== 'true' && enableNativeLinkedRaw !== 'false') {
+    throw new Error('SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID: SYNC_ENABLE_NATIVE_LINKED_RESOURCES must be true or false.');
+  }
+  const enableNativeLinkedResources = enableNativeLinkedRaw === 'true';
+  const enableAbsenceTerminalRaw = String(
+    p.getProperty('SYNC_ENABLE_ABSENCE_TERMINAL') || ''
+  ).trim().toLowerCase();
+  if (enableAbsenceTerminalRaw && enableAbsenceTerminalRaw !== 'true' &&
+      enableAbsenceTerminalRaw !== 'false') {
+    throw new Error('SYNC_ABSENCE_TERMINAL_FLAG_INVALID: SYNC_ENABLE_ABSENCE_TERMINAL must be true or false.');
+  }
+  const enableAbsenceTerminal = enableAbsenceTerminalRaw === 'true';
   const discoveryMode = String(
     p.getProperty('SYNC_LIST_DISCOVERY_MODE') || DEFAULT_LIST_DISCOVERY_MODE
   ).trim().toLowerCase();
@@ -63,6 +81,9 @@ function getSafetyConfig_() {
     requestedListDeletions: requestedListDeletions,
     allowListDeletions: requestedListDeletions && discoveryMode === 'auto',
     allowTaskMoves: allowTaskMovesRaw === 'true' || DEFAULT_ALLOW_TASK_MOVES,
+    enableSubtasks: enableSubtasks,
+    enableNativeLinkedResources: enableNativeLinkedResources,
+    absenceProbe: enableAbsenceTerminal,
     listDiscoveryMode: discoveryMode,
     excludedListNames: Array.from(new Set(excludedNames))
   };
@@ -70,7 +91,7 @@ function getSafetyConfig_() {
 
 function boundedSafetyConfigIssue_(error) {
   const code = String(error && error.message || error || '').match(
-    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID)\b/
+    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID)\b/
   );
   return 'SAFETY_CONFIGURATION_INVALID:' + (code ? code[1] : 'UNCLASSIFIED');
 }
