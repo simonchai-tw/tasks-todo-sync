@@ -22,7 +22,7 @@ Historical entries below describe each release at the time it shipped, including
 - Expanded Apps Script runtime to 17 root-level `.gs` files (added `field-merge.gs`, `relationship-discovery.gs`, `resource-projection.gs`, `subtask-classification.gs`, and `subtask-sync.gs`).
 - Added bidirectional subtask / checklist synchronization with three-way merge and conflict isolation.
 - Added Microsoft-to-Google resource projection and rotating linked-resources observation scheduler with formal proofs.
-- Formalized and proved the 3 core scheduler invariants: R-completeness (fail-closed pagination), Two-round deletion with absence probe soundness, and Starvation-free rotating observation cursor (`docs/scheduler-invariants.md`).
+- Hardened the 3 core scheduler invariants: R-completeness (fail-closed pagination), Two-round deletion with absence probe soundness, and Starvation-free rotating observation cursor.
 - Calibrated the runtime budget envelope on live real accounts across two disjoint execution rounds ($R_{\text{floor}} \approx 2.44\text{s}$, $C_{\text{reconcile}} \approx 0.37\text{s/pair}$, $V_{\text{inspect}} \approx 0.521\text{s/pair}$, $W_{\text{delete}} \approx 0.385\text{s/item}$ with S2 batching).
 - Added fail-closed `TIME_BUDGET_CREATE` batch entrypoint protection, `'(Untitled)'` placeholder contracts, and empty-title subtask creation guards.
 - Expanded automated test coverage to 416 automated tests (100% PASS).
