@@ -22,9 +22,6 @@
   <a href="#why-it-matters">Why it matters</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#what-stays-in-sync">Features</a> ·
-  <a href="#reliability--testing">Reliability</a> ·
-  <a href="#conflict-resolution">Conflict resolution</a> ·
-  <a href="#failure-handling--resilience">Failure handling</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="docs/quick-start.md">Quick start</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
@@ -68,13 +65,12 @@ The private trigger runs every 10 minutes. Ordinary changes normally appear with
 | Complete and reopen | Google ↔ Microsoft | Completion state follows the task |
 | Notes | Google ↔ Microsoft | Plain-text projection |
 | Due dates | Google ↔ Microsoft | Date only; Google Tasks has no time-of-day field |
-| Subtasks & checklists | Google ↔ Microsoft | Feature-gated, tree-aware subtask synchronization with completion & title alignment |
+| Subtasks & checklists | Google ↔ Microsoft | Keep task hierarchies and checklist items aligned |
 | Personal lists | Google ↔ Microsoft | Eligible lists are discovered and paired automatically |
-| Delete tasks and lists | Google ↔ Microsoft | Enabled by default with two-round confirmation, targeted absence probes, and tombstones |
+| Delete tasks and lists | Google ↔ Microsoft | Enabled by default with confirmation and recovery records |
 | Move tasks between lists | Google ↔ Microsoft | Enabled by default with a durable move journal and live revalidation |
-| Conflict isolation & self-heal | Google ↔ Microsoft | True field-level conflict isolation without cross-field clobbering; remote-write-free self-heal |
 
-See the [field compatibility matrix](docs/field-compatibility.md) for verified projections, provider-specific fields, and bounded sync behaviors.
+See the [field compatibility matrix](docs/field-compatibility.md) for verified projections, provider-specific or unverified fields, and planned research.
 
 ## A sync engine, not a chain of recipes
 
@@ -85,37 +81,7 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-## Reliability & Testing
-
-The synchronization engine is engineered to run unattended in lightweight serverless environments without data loss, ghost resuscitations, or runaway write amplification.
-
-- **Automated verification:** 416 automated tests passing across the Node.js test runner, backed by continuous GitHub Actions CI and CodeQL security scanning.
-- **Stress & real-world observation:** Verified under a 600-pair synthetic stress simulation (`npm run stress:600`) and live multi-round observation across 600 real tasks without state divergence or runaway memory.
-- **3 Formal Scheduler Invariants:** Formally proven in [Scheduler Invariants](docs/scheduler-invariants.md) and audited in the [Engineering Audit](docs/audit.md):
-  1. **$R$-Completeness (Fail-Closed Snapshotting):** The observed task snapshot $R$ across Google Tasks and Microsoft To Do must be complete. Any pagination truncation, network timeout, or schema anomaly fails closed—0 state mutations, 0 deletion candidate promotions, and 0 remote writes.
-  2. **Two-Round Deletion with Absence Probe Soundness:** A missing task on one side can never trigger immediate deletion on the other side. Round 1 records a candidate (`confirmations = 1`). Round 2 requires `confirmations >= 2` and dispatches a targeted GET-by-ID absence probe (`providerAbsenceProbe_`) to guarantee non-existence before deletion, eliminating false positives from search-indexing lags or list filtering.
-  3. **Starvation-Free Rotating Observation Cursor:** For $N$ mapped list pairs and per-round observation budget $B$ (default 10 pairs), the cursor advances deterministically. Every list pair is guaranteed to be observed within at most $\lceil N / B \rceil$ sync cycles, proven invariant to pair additions and removals.
-
-## Conflict Resolution
-
-Rather than relying on naive Last-Write-Wins (LWW) heuristics that silently discard concurrent edits, Tasks–To Do Sync implements a deterministic conflict engine:
-
-- **Field-Level 3-Way Merge:** True three-way merge (`base`, `Google`, `Microsoft`) applied across title, notes, completion status, and due dates. Independent changes made on different fields (e.g. updating notes on Google while marking complete on Microsoft) merge cleanly without cross-field clobbering.
-- **Bootstrap Conflict Fail-Closed:** When a task pair is discovered without a historical baseline and both providers present conflicting field values, the engine fails closed rather than guessing, safely isolating the pair until an operator resolves it.
-- **True Field Conflict Isolation:** When both providers concurrently modify the exact same field to different values, that specific field is quarantined safely with a conflict record while allowing all other uncontested fields on the task to continue synchronizing.
-- **Subtask Conflict Self-Heal:** Divergent subtask parentage or hierarchy conflicts self-heal gracefully once resolved on either provider, achieving structural convergence with zero remote write amplification.
-- **Bounded Reason Codes:** Every conflict records an inspectable, bounded reason code for transparency and operator diagnostics.
-
-## Failure Handling & Resilience
-
-Google Apps Script enforces strict execution timeouts and transient rate limits. The engine is architected with defensive failure boundaries:
-
-- **Exponential Backoff with Jitter:** API rate limits and transient network glitches trigger exponential backoff with jitter (up to 4 retries), strictly honoring provider `Retry-After` response headers.
-- **Status Code Partitioning:** Distinct error boundaries separate retryable transient faults (`429`, `408`, `5xx`) from non-retryable terminal errors (`400`, `401`, `403`, `404`, `410`).
-- **Proactive 401 Force Refresh:** Authentication expiration (`401 Unauthorized`) triggers an immediate forced token refresh cycle before flagging re-authentication requirements.
-- **Serverless Time Budgeting:** A strict 5.25-minute execution ceiling preserves a 45-second reserve safety margin, guaranteeing that in-flight state mutations, recovery journals, and cursor updates are safely flushed to storage before execution timeout.
-- **Mutation Journaling:** Quarantines rejected write payloads to prevent infinite destructive retry loops, generating diagnostic alerts while preserving task payload data.
-- **Round Fencing:** State mutations commit atomically at the completion of a round. Unhandled runtime crashes roll back cleanly to the prior verified baseline, discarding only volatile intra-round tentative state.
+The synchronization engine is covered by 416 automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md) and [scheduler invariants](docs/scheduler-invariants.md).
 
 ## Get started
 
@@ -146,9 +112,8 @@ Follow the **[quick start](docs/quick-start.md)** for the guided walkthrough, or
 |---|---|
 | [Quick start](docs/quick-start.md) | The shortest personal setup path |
 | [Deployment guide](docs/deployment.md) | Personal and Advanced Microsoft authorization, Apps Script, upgrades, and rollback |
+| [Engineering audit](docs/audit.md) | Verified behavior, limitations, and deferred work |
 | [Scheduler invariants](docs/scheduler-invariants.md) | Formal proofs of R-completeness, two-round deletion, and starvation-free cursor |
-| [Engineering audit](docs/audit.md) | Verified behavior, reliability evidence, runtime boundaries, and limitations |
-| [Field compatibility matrix](docs/field-compatibility.md) | Provider-specific projections, supported fields, and sync boundaries |
 | [Security policy](SECURITY.md) | Reporting a vulnerability privately |
 | [Changelog](CHANGELOG.md) | Release history |
 
@@ -156,9 +121,8 @@ Questions, ideas, or something not working? [Open an issue](https://github.com/s
 
 ## Roadmap
 
-- **Frictionless browser and desktop onboarding.** Expand self-hosting onboarding with pure-browser or native desktop helpers that eliminate terminal prerequisites for non-technical users.
-- **Rich operational diagnostics.** Dedicated diagnostic dashboards and CLI inspection to observe mapping tables, cursor progress, and conflict journals in real time.
-- **Incremental delta processing.** Transition from snapshot-based observation to webhook-driven and delta query synchronization where supported by provider APIs.
+- **Frictionless setup for everyone.** Explore a streamlined onboarding path that removes terminal and Node.js prerequisites, making private self-hosting effortless for everyday users.
+- **Scalable and resilient architecture.** Richer diagnostics and future incremental delta processing beyond lightweight serverless runtimes.
 
 ## License
 
