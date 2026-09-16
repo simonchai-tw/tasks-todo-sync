@@ -11,3 +11,6 @@ coverage/
 npm-debug.log*
 /Tasks-ToDo-Sync-Code.md
 .codex/
+*handover*
+.workbuddy*
+*.workbuddy*
