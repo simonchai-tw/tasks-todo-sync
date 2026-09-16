@@ -1,79 +1,82 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="t d" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="500" viewBox="0 0 760 500" role="img" aria-labelledby="t d" font-family="Segoe UI, system-ui, -apple-system, sans-serif">
   <title id="t">Tasks–To Do Sync install flow</title>
   <desc id="d">One command deploys the private project; a browser wizard needs one Google consent and one Microsoft sign-in, then schedules itself.</desc>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 z" fill="#93a4bd"/>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,1.5 L8.5,5 L0,8.5 z" fill="#94a3b8"/>
     </marker>
-    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0a1c31" flood-opacity="0.10"/>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0f172a" flood-opacity="0.06"/>
     </filter>
   </defs>
 
-  <!-- connectors -->
-  <g stroke="#93a4bd" stroke-width="2.2" fill="none" marker-end="url(#arrow)">
-    <line x1="282" y1="128" x2="312" y2="128"/>
-    <line x1="582" y1="128" x2="612" y2="128"/>
-    <line x1="882" y1="128" x2="912" y2="128"/>
+  <!-- Connectors -->
+  <g stroke="#94a3b8" stroke-width="2.2" fill="none" marker-end="url(#arrow)">
+    <!-- 1 -> 2 -->
+    <line x1="365" y1="115" x2="395" y2="115"/>
+    <!-- 3 -> 4 -->
+    <line x1="365" y1="325" x2="395" y2="325"/>
   </g>
+  <!-- Step 2 to Step 3 flow guidance -->
+  <path d="M 570 210 C 570 230, 190 205, 190 225" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="5,5" fill="none"/>
 
-  <!-- card 1 -->
+  <!-- Card 1: Deploy -->
   <g filter="url(#soft)">
-    <rect x="20" y="40" width="262" height="176" rx="16" fill="#ffffff" stroke="#dfe4ec"/>
-    <rect x="20" y="40" width="262" height="6" rx="3" fill="#4285f4"/>
-    <circle cx="56" cy="92" r="18" fill="#eaf1fd"/>
-    <text x="56" y="99" text-anchor="middle" font-size="18" font-weight="700" fill="#1769e0">1</text>
-    <text x="86" y="99" font-size="19" font-weight="700" fill="#172033">Deploy</text>
-    <text x="40" y="140" font-size="14.5" fill="#3c485d">Run one command in a terminal:</text>
-    <rect x="40" y="154" width="222" height="34" rx="8" fill="#0f1b2d"/>
-    <text x="52" y="176" font-size="14.5" font-family="Consolas, ui-monospace, monospace" fill="#9ec1ff">npx tasks-todo-sync init</text>
+    <rect x="20" y="20" width="345" height="190" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+    <rect x="20" y="20" width="345" height="6" rx="3" fill="#4285f4"/>
+    <circle cx="60" cy="65" r="20" fill="#eaf1fd"/>
+    <text x="60" y="72" text-anchor="middle" font-size="20" font-weight="800" fill="#1769e0">1</text>
+    <text x="95" y="73" font-size="22" font-weight="700" fill="#0f172a">Deploy</text>
+    <text x="40" y="115" font-size="16" fill="#334155">Run one command in a terminal:</text>
+    <rect x="40" y="132" width="305" height="44" rx="8" fill="#0f172a"/>
+    <text x="56" y="160" font-size="16" font-family="Consolas, ui-monospace, monospace" font-weight="600" fill="#9ec1ff">npx tasks-todo-sync init</text>
   </g>
 
-  <!-- card 2 -->
+  <!-- Card 2: Google sign-in -->
   <g filter="url(#soft)">
-    <rect x="320" y="40" width="262" height="176" rx="16" fill="#ffffff" stroke="#dfe4ec"/>
-    <rect x="320" y="40" width="262" height="6" rx="3" fill="#6ee7f9"/>
-    <circle cx="356" cy="92" r="18" fill="#e6fafd"/>
-    <text x="356" y="99" text-anchor="middle" font-size="18" font-weight="700" fill="#0e7490">2</text>
-    <text x="386" y="99" font-size="19" font-weight="700" fill="#172033">Google sign-in</text>
-    <text x="340" y="140" font-size="14.5" fill="#3c485d">One consent screen in the</text>
-    <text x="340" y="162" font-size="14.5" fill="#3c485d">browser wizard that opens.</text>
-    <text x="340" y="190" font-size="13" fill="#7a869c">“Unverified app” → Advanced → Allow</text>
+    <rect x="395" y="20" width="345" height="190" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+    <rect x="395" y="20" width="345" height="6" rx="3" fill="#0891b2"/>
+    <circle cx="435" cy="65" r="20" fill="#e0f2fe"/>
+    <text x="435" y="72" text-anchor="middle" font-size="20" font-weight="800" fill="#0284c7">2</text>
+    <text x="470" y="73" font-size="22" font-weight="700" fill="#0f172a">Google sign-in</text>
+    <text x="415" y="115" font-size="16" fill="#334155">One consent screen in the</text>
+    <text x="415" y="139" font-size="16" fill="#334155">browser wizard that opens.</text>
+    <text x="415" y="172" font-size="14.5" fill="#64748b">“Unverified app” → Advanced → Allow</text>
   </g>
 
-  <!-- card 3 -->
+  <!-- Card 3: Microsoft sign-in -->
   <g filter="url(#soft)">
-    <rect x="620" y="40" width="262" height="176" rx="16" fill="#ffffff" stroke="#dfe4ec"/>
-    <rect x="620" y="40" width="262" height="6" rx="3" fill="#8b5cf6"/>
-    <circle cx="656" cy="92" r="18" fill="#f1ecfd"/>
-    <text x="656" y="99" text-anchor="middle" font-size="18" font-weight="700" fill="#6d39d6">3</text>
-    <text x="686" y="99" font-size="19" font-weight="700" fill="#172033">Microsoft sign-in</text>
-    <text x="640" y="140" font-size="14.5" fill="#3c485d">Enter a short code at the</text>
-    <text x="640" y="162" font-size="14.5" fill="#3c485d">official microsoft.com/link page.</text>
-    <text x="640" y="190" font-size="13" fill="#7a869c">No Entra app, secret, or redirect URI</text>
+    <rect x="20" y="230" width="345" height="190" rx="16" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+    <rect x="20" y="230" width="345" height="6" rx="3" fill="#7c3aed"/>
+    <circle cx="60" cy="275" r="20" fill="#f3e8ff"/>
+    <text x="60" y="282" text-anchor="middle" font-size="20" font-weight="800" fill="#7c3aed">3</text>
+    <text x="95" y="283" font-size="22" font-weight="700" fill="#0f172a">Microsoft sign-in</text>
+    <text x="40" y="325" font-size="16" fill="#334155">Enter a short code at the</text>
+    <text x="40" y="349" font-size="16" fill="#334155">official microsoft.com/link page.</text>
+    <text x="40" y="382" font-size="14.5" fill="#64748b">No Entra app, secret, or redirect URI</text>
   </g>
 
-  <!-- card 4 -->
+  <!-- Card 4: Finalize -->
   <g filter="url(#soft)">
-    <rect x="920" y="40" width="262" height="176" rx="16" fill="#ffffff" stroke="#bfe3cd"/>
-    <rect x="920" y="40" width="262" height="6" rx="3" fill="#1e7d46"/>
-    <circle cx="956" cy="92" r="18" fill="#e8f5ee"/>
-    <text x="956" y="99" text-anchor="middle" font-size="18" font-weight="700" fill="#1e7d46">✓</text>
-    <text x="986" y="99" font-size="19" font-weight="700" fill="#172033">Finalize</text>
-    <text x="940" y="140" font-size="14.5" fill="#3c485d">Preview, 10-minute trigger,</text>
-    <text x="940" y="162" font-size="14.5" fill="#3c485d">and health check run themselves.</text>
-    <text x="940" y="190" font-size="13" fill="#1e7d46" font-weight="600">Sync is live — changes land in 0–10 min</text>
+    <rect x="395" y="230" width="345" height="190" rx="16" fill="#ffffff" stroke="#bbf7d0" stroke-width="1.5"/>
+    <rect x="395" y="230" width="345" height="6" rx="3" fill="#16a34a"/>
+    <circle cx="435" cy="275" r="20" fill="#dcfce7"/>
+    <text x="435" y="282" text-anchor="middle" font-size="20" font-weight="800" fill="#16a34a">✓</text>
+    <text x="470" y="283" font-size="22" font-weight="700" fill="#0f172a">Finalize</text>
+    <text x="415" y="325" font-size="16" fill="#334155">Preview, 10-minute trigger,</text>
+    <text x="415" y="349" font-size="16" fill="#334155">and health check run themselves.</text>
+    <text x="415" y="382" font-size="14.5" fill="#15803d" font-weight="600">Sync is live — changes land in 0–10 min</text>
   </g>
 
-  <!-- footer strip -->
-  <rect x="20" y="248" width="1162" height="52" rx="12" fill="#f5f7fa" stroke="#dfe4ec"/>
-  <g font-size="15" fill="#3c485d">
-    <text x="48" y="281">Two sign-ins total</text>
-    <text x="330" y="281">About 3 minutes</text>
-    <text x="600" y="281">Runs entirely in your own Google account</text>
-    <text x="980" y="281" fill="#1769e0" font-weight="700">No hosted service</text>
-  </g>
-  <g fill="#93a4bd">
-    <circle cx="300" cy="277" r="2.5"/><circle cx="570" cy="277" r="2.5"/><circle cx="950" cy="277" r="2.5"/>
+  <!-- Footer Banner -->
+  <rect x="20" y="440" width="720" height="44" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+  <g font-size="14.5" font-weight="500" fill="#334155">
+    <text x="36" y="467">Two sign-ins total</text>
+    <circle cx="172" cy="463" r="2.5" fill="#94a3b8"/>
+    <text x="187" y="467">About 3 minutes</text>
+    <circle cx="310" cy="463" r="2.5" fill="#94a3b8"/>
+    <text x="325" y="467">Runs in your Google account</text>
+    <circle cx="538" cy="463" r="2.5" fill="#94a3b8"/>
+    <text x="553" y="467" fill="#0284c7" font-weight="700">No hosted service</text>
   </g>
 </svg>

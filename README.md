@@ -46,7 +46,9 @@ Tasks–To Do Sync adds that connection. A task captured on one side can follow 
 ## How it works
 
 <p align="center">
-  <img src="docs/assets/ecosystem-loop.png" width="100%" alt="Tasks–To Do Sync connects Google Tasks and Microsoft To Do while native integrations extend the workflow across Google, Microsoft 365, and Apple devices">
+  <a href="docs/assets/ecosystem-loop.svg">
+    <img src="docs/assets/ecosystem-loop.svg" width="100%" alt="Tasks–To Do Sync connects Google Tasks and Microsoft To Do while native integrations extend the workflow across Google, Microsoft 365, and Apple devices">
+  </a>
 </p>
 
 1. **Capture in Google.** Gemini, Gmail, Android, and other Google experiences can place work in Google Tasks.
@@ -55,7 +57,7 @@ Tasks–To Do Sync adds that connection. A task captured on one side can follow 
 
 Tasks–To Do Sync directly synchronizes Google Tasks and Microsoft To Do; the surrounding Google, Microsoft 365, and Apple workflows continue through their existing native integrations.
 
-The private trigger runs every 10 minutes. Ordinary changes normally appear within 0–10 minutes. Some guarded operations may take an additional sync cycle to settle.
+The private trigger runs every 10 minutes. Ordinary changes normally appear within 0–10 min. Some guarded operations may take an additional sync cycle to settle.
 
 ## What stays in sync
 
@@ -86,7 +88,9 @@ The synchronization engine is covered by 417 automated tests, GitHub CI, CodeQL,
 ## Get started
 
 <p align="center">
-  <img src="docs/assets/install-flow.svg" width="100%" alt="Tasks–To Do Sync install flow: one command, two sign-ins, and automatic scheduling">
+  <a href="docs/assets/install-flow.svg">
+    <img src="docs/assets/install-flow.svg" width="100%" alt="Tasks–To Do Sync install flow: one command, two sign-ins, and automatic scheduling">
+  </a>
 </p>
 
 Create and launch your private Google Apps Script project with one command:
