@@ -99,7 +99,7 @@ npx tasks-todo-sync init
 | **1 · Deploy** | Run `npx tasks-todo-sync init` | Creates your private Apps Script project, pushes the release, and opens the setup wizard |
 | **2 · Google sign-in** | Click through the consent screen | Validates safe defaults and script timezone ("Unverified app" → Advanced → Allow) |
 | **3 · Microsoft sign-in** | Enter short code at `microsoft.com/link` | Connects personal Microsoft To Do via Device Code Flow — no Azure setup or secrets |
-| **4 · Auto finalize** | Click **Activate 10-Min Auto-Sync** | Sets up the background trigger, performs a health check, and starts synchronization |
+| **4 · Finalize** | Click "Activate" in the wizard | Schedules the 10-minute trigger, runs a health check, and starts synchronization |
 
 > **Self-Hosted & Advanced Entra:** For full self-hosted control without device codes, self-managed Entra OAuth (custom Client ID, Client Secret, and redirect URI) remains fully supported. See the [deployment guide](docs/deployment.md) for custom credentials and manual clasp workflows.
 

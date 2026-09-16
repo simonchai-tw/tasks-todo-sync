@@ -59,7 +59,7 @@
     <rect x="920" y="40" width="262" height="6" rx="3" fill="#1e7d46"/>
     <circle cx="956" cy="92" r="18" fill="#e8f5ee"/>
     <text x="956" y="99" text-anchor="middle" font-size="18" font-weight="700" fill="#1e7d46">✓</text>
-    <text x="986" y="99" font-size="19" font-weight="700" fill="#172033">Auto finalize</text>
+    <text x="986" y="99" font-size="19" font-weight="700" fill="#172033">Finalize</text>
     <text x="940" y="140" font-size="14.5" fill="#3c485d">Preview, 10-minute trigger,</text>
     <text x="940" y="162" font-size="14.5" fill="#3c485d">and health check run themselves.</text>
     <text x="940" y="190" font-size="13" fill="#1e7d46" font-weight="600">Sync is live — changes land in 0–10 min</text>
