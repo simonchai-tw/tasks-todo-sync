@@ -124,3 +124,25 @@ test('default native linked resources flag is off', () => {
   const { c } = load();
   assert.equal(c.getSafetyConfig_().enableNativeLinkedResources, false);
 });
+
+test('Style A: resource block renders clean [Tag] Title without category headers or bullet lists', () => {
+  const { c } = load();
+  const gTask = {
+    id: 'g1', title: 'Task', notes: 'My note', status: 'needsAction',
+    links: [
+      { type: 'email', description: '恭喜加入鉅亨買基金！立即登入挑選你的第一檔基金', link: 'https://mail.google.com/x' }
+    ]
+  };
+  const msTask = {
+    id: 'm1', title: 'Task', body: { contentType: 'text', content: 'My note' }, status: 'notStarted'
+  };
+  const rec = { msId: 'm1', gListId: 'gl', msListId: 'ml' };
+  const plan = c.planResourceProjection_(gTask, msTask, rec, {}, 'My note', 'My note');
+  assert.equal(plan.writeMicrosoft, true);
+  const expectedBlock = [
+    '--- tasks-todo-sync ---',
+    '[Gmail] 恭喜加入鉅亨買基金！立即登入挑選你的第一檔基金',
+    '--- tasks-todo-sync end ---'
+  ].join('\n');
+  assert.equal(plan.microsoftBody.content, 'My note\n\n' + expectedBlock);
+});

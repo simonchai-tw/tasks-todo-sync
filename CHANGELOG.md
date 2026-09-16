@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.6.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, and resource projection enabled.
 
+## 0.6.1 — 2026-09-16
+
+### Streamlined resource projection formatting and tag labels
+
+- Refined managed resource projection block to use clean source tags (`[Gmail]`, `[Google Docs]`, `[Google Chat]`, `[Outlook]`, `[File]`, `[Link]`) instead of redundant category headers (`Google Tasks links`) and bullet markers (`- `).
+- Avoided appending raw, percent-encoded long URLs when a human-readable title or description is present, preventing clutter in plain-text task notes.
+- Seamless in-place overwrite: existing managed blocks in notes are refreshed automatically during the next synchronization cycle.
+- Expanded automated test coverage to 417 tests (100% PASS).
+
 ## 0.6.0 — 2026-09-16
 
 ### 3-step setup wizard, clean resource projection, and frictionless onboarding

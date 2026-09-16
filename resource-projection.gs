@@ -201,9 +201,9 @@ function resourceNormalizeDisplayName_(text) {
 function resourceLabelForGoogleLinkType_(type) {
   var t = String(type || '').toLowerCase();
   if (t === 'email') return 'Gmail';
-  if (t === 'chat') return 'Google Chat assignment';
-  if (t === 'document' || t === 'docs') return 'Google Docs assignment';
-  return 'Google link';
+  if (t === 'chat') return 'Google Chat';
+  if (t === 'document' || t === 'docs') return 'Google Docs';
+  return 'Link';
 }
 
 function projectGoogleResources_(googleTask) {
@@ -219,10 +219,17 @@ function projectGoogleResources_(googleTask) {
     if (seen[key]) continue;
     seen[key] = true;
     var named = resourceNormalizeDisplayName_(link && link.description);
+    var rawType = String(link && link.type || '').toLowerCase();
+    var tag = '[Link]';
+    if (rawType === 'email') tag = '[Gmail]';
+    else if (rawType === 'chat') tag = '[Google Chat]';
+    else if (rawType === 'document' || rawType === 'docs') tag = '[Google Docs]';
+
     out.push({
       kind: 'google_link',
+      tag: tag,
       stableKey: url.raw,
-      displayName: named || resourceLabelForGoogleLinkType_(link && link.type),
+      displayName: named || (url.clickable ? url.raw : resourceLabelForGoogleLinkType_(link && link.type)),
       webUrl: url.clickable ? url.raw : null
     });
   }
@@ -239,13 +246,16 @@ function projectGoogleResources_(googleTask) {
       if (!seen[aKey]) {
         seen[aKey] = true;
         var display = resourceNormalizeDisplayName_(info.displayName || info.title);
+        var aTag = '[Google Docs]';
+        if (space) aTag = '[Google Chat]';
         if (!display) {
           if (driveId) display = 'Google Docs assignment';
           else if (space) display = 'Google Chat assignment';
-          else display = 'Google assignment';
+          else display = urlInfo.raw || 'Google assignment';
         }
         out.push({
           kind: 'google_assignment',
+          tag: aTag,
           stableKey: stableKey,
           displayName: display,
           webUrl: urlInfo.clickable ? urlInfo.raw : null
@@ -283,10 +293,15 @@ function projectMicrosoftResources_(msTask, msLinkedResources) {
     if (seen[key]) continue;
     seen[key] = true;
     var named = resourceNormalizeDisplayName_(item.displayName);
+    var app = String(item.applicationName || '').toLowerCase();
+    var tag = '[Link]';
+    if (app === 'outlook') tag = '[Outlook]';
+    else if (app === 'teams') tag = '[Teams]';
     out.push({
       kind: 'ms_linked_resource',
+      tag: tag,
       stableKey: stableKey,
-      displayName: named || 'Microsoft link',
+      displayName: named || (url.clickable ? url.raw : 'Microsoft link'),
       webUrl: url.clickable ? url.raw : null
     });
   }
@@ -299,6 +314,7 @@ function projectMicrosoftResources_(msTask, msLinkedResources) {
     seen[attKey] = true;
     out.push({
       kind: 'ms_attachment',
+      tag: '[File]',
       stableKey: String(att.id || att.name || i),
       displayName: resourceNormalizeDisplayName_(att.name) || 'Microsoft attachment',
       webUrl: null
@@ -342,9 +358,7 @@ function renderManagedResourceBlock_(resources, direction, userNotes, limit) {
   var list = Array.isArray(resources) ? resources.slice() : [];
   if (!list.length) return { block: null, omitted: 0 };
 
-  function blockFor(included) {
-    var groups = {};
-    var i;
+  function blockFor(included, omittedCount) {
     var sorted = included.slice().sort(function(a, b) {
       var pa = resourcePriorityRank_(a, direction);
       var pb = resourcePriorityRank_(b, direction);
@@ -355,31 +369,21 @@ function renderManagedResourceBlock_(resources, direction, userNotes, limit) {
       if (sa > sb) return 1;
       return 0;
     });
-    for (i = 0; i < sorted.length; i += 1) {
-      var heading = resourceHeading_(sorted[i], direction);
-      if (!groups[heading]) groups[heading] = [];
-      groups[heading].push(sorted[i]);
-    }
-    var order = direction === 'm2g'
-      ? [RESOURCE_HEADING_.MS_LINKS, RESOURCE_HEADING_.MS_ATTACHMENTS]
-      : [RESOURCE_HEADING_.G_LINKS, RESOURCE_HEADING_.G_ASSIGNMENTS];
     var lines = [];
-    var h;
-    for (h = 0; h < order.length; h += 1) {
-      var items = groups[order[h]] || [];
-      if (!items.length) continue;
-      if (lines.length) lines.push('');
-      lines.push(order[h]);
-      var j;
-      for (j = 0; j < items.length; j += 1) {
-        lines.push('- ' + items[j].displayName);
-        if (items[j].webUrl) lines.push('  ' + items[j].webUrl);
-      }
+    var j;
+    for (j = 0; j < sorted.length; j += 1) {
+      var item = sorted[j];
+      var tag = item.tag || (item.kind === 'ms_attachment' ? '[File]' : '[Link]');
+      var text = item.displayName || item.webUrl || '';
+      lines.push(tag + ' ' + text);
+    }
+    if (omittedCount && omittedCount > 0) {
+      lines.push('+ ' + omittedCount + ' more');
     }
     return wrapResourceBlock_(lines);
   }
 
-  var full = blockFor(list);
+  var full = blockFor(list, 0);
   if (full.length <= available) return { block: full, omitted: 0 };
   var ranked = list.slice().sort(function(a, b) {
     return resourcePriorityRank_(a, direction) - resourcePriorityRank_(b, direction);
@@ -389,15 +393,13 @@ function renderManagedResourceBlock_(resources, direction, userNotes, limit) {
   for (r = 0; r < ranked.length; r += 1) {
     var trial = included.concat([ranked[r]]);
     var omitted = list.length - trial.length;
-    var candidate = blockFor(trial);
-    var sized = omitted > 0 ? candidate + '\n+ ' + omitted + ' more' : candidate;
-    if (sized.length <= available) included.push(ranked[r]);
+    var candidate = blockFor(trial, omitted);
+    if (candidate.length <= available) included.push(ranked[r]);
     else break;
   }
   if (!included.length) return { block: null, omitted: list.length };
   var left = list.length - included.length;
-  var block = blockFor(included);
-  if (left > 0) block = block + '\n+ ' + left + ' more';
+  var block = blockFor(included, left);
   if (block.length > available) return { block: null, omitted: list.length };
   return { block: block, omitted: left };
 }
