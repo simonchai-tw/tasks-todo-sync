@@ -4,8 +4,8 @@
  * The managed block is stripped before ordinary notes fingerprints and merge.
  */
 
-var RESOURCE_BLOCK_BEGIN_ = '--- tasks-todo-sync related resources (v1) ---';
-var RESOURCE_BLOCK_END_ = '--- end tasks-todo-sync related resources ---';
+var RESOURCE_BLOCK_BEGIN_ = '--- tasks-todo-sync ---';
+var RESOURCE_BLOCK_END_ = '--- tasks-todo-sync end ---';
 var RESOURCE_NOTES_MAX_ = 8192;
 var RESOURCE_DISPLAY_NAME_MAX_ = 200;
 var RESOURCE_OWNED_APP_NAME_ = 'tasks-todo-sync';

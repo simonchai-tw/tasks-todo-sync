@@ -1,99 +1,921 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
-    <base target="_blank">
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tasks–To Do Sync — Easy Setup</title>
     <style>
-      :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      body { margin: 0; background: #f5f7fa; color: #172033; }
-      main { box-sizing: border-box; max-width: 680px; margin: 48px auto; padding: 0 20px; }
-      section { background: #fff; border: 1px solid #dfe4ec; border-radius: 14px; padding: 28px; box-shadow: 0 8px 28px rgba(20, 35, 60, .07); }
-      h1 { margin: 0 0 8px; font-size: 1.65rem; }
-      p { line-height: 1.55; }
-      .muted { color: #5d687a; }
-      .warning { border-left: 4px solid #c97700; background: #fff8e8; padding: 12px 14px; }
-      .status { margin: 20px 0; padding: 12px 14px; border-radius: 8px; background: #eef3f9; }
-      .code-panel { margin: 18px 0; padding: 20px; text-align: center; border: 1px solid #cbd4e1; border-radius: 10px; }
-      .code { display: block; margin: 8px 0 16px; font: 700 2rem ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .08em; overflow-wrap: anywhere; }
-      .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-      button, .link-button { box-sizing: border-box; min-height: 44px; border: 0; border-radius: 8px; padding: 10px 15px; font: inherit; cursor: pointer; }
-      button { background: #1769e0; color: white; }
-      button.secondary, .link-button.secondary { background: #e8edf4; color: #263247; }
-      button.danger { background: #a33030; }
-      button:disabled { cursor: wait; opacity: .6; }
-      button:focus-visible, a:focus-visible { outline: 3px solid #f0a500; outline-offset: 2px; }
-      .link-button { display: inline-flex; align-items: center; justify-content: center; background: #1769e0; color: white; text-decoration: none; }
+      :root {
+        --primary: #2563eb;
+        --primary-hover: #1d4ed8;
+        --primary-soft: #eff6ff;
+        --success: #16a34a;
+        --success-soft: #f0fdf4;
+        --warning: #d97706;
+        --warning-soft: #fffbeb;
+        --danger: #dc2626;
+        --danger-soft: #fef2f2;
+        --bg: #f8fafc;
+        --card-bg: #ffffff;
+        --text: #0f172a;
+        --text-muted: #64748b;
+        --text-light: #94a3b8;
+        --border: #e2e8f0;
+        --border-focus: #93c5fd;
+        --radius-lg: 16px;
+        --radius-md: 10px;
+        --radius-sm: 6px;
+        --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+        --shadow-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
+      }
+
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+        background-color: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px 16px;
+      }
+
+      .wizard-container {
+        width: 100%;
+        max-width: 680px;
+        margin: 0 auto;
+      }
+
+      /* Header */
+      .brand-header {
+        text-align: center;
+        margin-bottom: 28px;
+      }
+      .brand-logo {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #2563eb, #3b82f6);
+        color: #ffffff;
+        margin-bottom: 12px;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+      }
+      .brand-header h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--text);
+      }
+      .brand-header p {
+        color: var(--text-muted);
+        font-size: 0.95rem;
+        margin-top: 4px;
+      }
+
+      /* Stepper */
+      .stepper {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 24px;
+      }
+      .step-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        transition: all 0.2s ease;
+        cursor: pointer;
+        user-select: none;
+      }
+      .step-item.active {
+        border-color: var(--primary);
+        background: var(--primary-soft);
+        box-shadow: 0 0 0 1px var(--primary);
+      }
+      .step-item.done {
+        border-color: #bbf7d0;
+        background: #f0fdf4;
+      }
+      .step-badge {
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: #e2e8f0;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.85rem;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+      .step-item.active .step-badge {
+        background: var(--primary);
+        color: #ffffff;
+      }
+      .step-item.done .step-badge {
+        background: var(--success);
+        color: #ffffff;
+      }
+      .step-info {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .step-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+      }
+      .step-sub {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+      }
+
+      /* Card Panels */
+      .panel-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow-card);
+        padding: 32px 28px;
+        margin-bottom: 20px;
+      }
+      .panel-card h2 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .panel-card p.subtitle {
+        color: var(--text-muted);
+        font-size: 0.9rem;
+        margin-bottom: 24px;
+        line-height: 1.5;
+      }
+
+      /* Checklist */
+      .check-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+      .check-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+        background: #f8fafc;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+      }
+      .check-row.ok {
+        background: var(--success-soft);
+        border-color: #bbf7d0;
+      }
+      .check-icon {
+        flex-shrink: 0;
+        margin-top: 2px;
+      }
+      .check-body {
+        flex: 1;
+      }
+      .check-label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--text);
+      }
+      .check-detail {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        margin-top: 2px;
+      }
+
+      /* Device Code Display Box */
+      .code-card {
+        background: #0f172a;
+        color: #f8fafc;
+        border-radius: var(--radius-md);
+        padding: 24px;
+        text-align: center;
+        margin: 20px 0;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+      }
+      .code-card p.instruction {
+        color: #94a3b8;
+        font-size: 0.85rem;
+        margin-bottom: 12px;
+      }
+      .code-display {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font-size: 2.2rem;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        color: #38bdf8;
+        user-select: all;
+        margin-bottom: 16px;
+      }
+      .code-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
+      /* Banner Messages */
+      .banner {
+        padding: 14px 16px;
+        border-radius: var(--radius-md);
+        font-size: 0.88rem;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .banner-info {
+        background: var(--primary-soft);
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+      }
+      .banner-success {
+        background: var(--success-soft);
+        border: 1px solid #bbf7d0;
+        color: #166534;
+      }
+      .banner-warning {
+        background: var(--warning-soft);
+        border: 1px solid #fde68a;
+        color: #92400e;
+      }
+
+      /* Buttons & Actions */
+      .actions-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 24px;
+      }
+      button, .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 20px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        border-radius: var(--radius-sm);
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        text-decoration: none;
+      }
+      button:focus-visible, .btn:focus-visible {
+        outline: 2px solid var(--border-focus);
+        outline-offset: 2px;
+      }
+      .btn-primary {
+        background: var(--primary);
+        color: #ffffff;
+        border-color: var(--primary);
+        box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+      }
+      .btn-primary:hover:not(:disabled) {
+        background: var(--primary-hover);
+        border-color: var(--primary-hover);
+      }
+      .btn-secondary {
+        background: #f1f5f9;
+        color: #334155;
+        border-color: var(--border);
+      }
+      .btn-secondary:hover:not(:disabled) {
+        background: #e2e8f0;
+      }
+      .btn-danger {
+        background: var(--danger-soft);
+        color: var(--danger);
+        border-color: #fecaca;
+      }
+      .btn-danger:hover:not(:disabled) {
+        background: #fee2e2;
+      }
+      button:disabled, .btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 9999px;
+        font-size: 0.85rem;
+        background: #f1f5f9;
+        color: var(--text-muted);
+        margin-top: 14px;
+      }
+      .spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid #cbd5e1;
+        border-top-color: var(--primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      /* Footer */
+      footer {
+        margin-top: 24px;
+        text-align: center;
+        font-size: 0.8rem;
+        color: var(--text-light);
+      }
+      footer a {
+        color: var(--text-muted);
+        text-decoration: none;
+      }
+      footer a:hover {
+        text-decoration: underline;
+      }
+
       [hidden] { display: none !important; }
-      @media (max-width: 420px) { main { margin: 20px auto; padding: 0 10px; } section { padding: 20px 16px; } .actions > * { flex: 1 1 100%; } }
-      @media (min-width: 421px) { .actions > * { flex: 1 1 0; } }
+
+      @media (max-width: 540px) {
+        .stepper { grid-template-columns: 1fr; }
+        .panel-card { padding: 20px 16px; }
+        .actions-bar > * { flex: 1 1 100%; }
+        .code-display { font-size: 1.7rem; }
+      }
     </style>
   </head>
   <body>
-    <main>
-      <section aria-labelledby="title">
-        <h1 id="title">Connect Microsoft To Do</h1>
-        <p class="muted">This private setup page connects your Apps Script deployment to Microsoft To Do. Existing Advanced Entra settings and task data are kept.</p>
-        <p class="warning"><strong>Enter your Microsoft password only on Microsoft’s official sign-in page.</strong> This project never asks for, receives, or stores your password. Use only <code>microsoft.com/link</code> or <code>microsoft.com/devicelogin</code> before entering the code.</p>
-        <div class="status" role="status" aria-live="polite" aria-atomic="true"><strong>Status:</strong> <span id="statusText">Checking…</span><div id="expiryRow" hidden>Code expires in <span id="expiryText"></span>.</div></div>
-        <div id="codePanel" class="code-panel" hidden aria-live="polite"><span>One-time Microsoft code</span><span id="userCode" class="code" aria-label="Microsoft one-time code"></span><div class="actions"><button id="copyButton" class="secondary" type="button">Copy code</button><a id="verificationLink" class="link-button" rel="noopener noreferrer">Open Microsoft sign-in</a></div></div>
-        <div class="actions" aria-label="Connection actions"><button id="connectButton" type="button">Connect</button><button id="cancelButton" class="secondary" type="button" hidden>Cancel</button><button id="disconnectButton" class="danger" type="button" hidden>Disconnect</button></div>
+    <div class="wizard-container">
+      <header class="brand-header">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="17 1 21 5 17 9"></polyline>
+            <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+            <polyline points="7 23 3 19 7 15"></polyline>
+            <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+          </svg>
+        </div>
+        <h1>Tasks–To Do Sync</h1>
+        <p>Private &amp; Self-Hosted Setup · About 2 minutes</p>
+      </header>
+
+      <!-- Stepper Header -->
+      <nav class="stepper" aria-label="Setup Steps">
+        <div class="step-item active" id="stepIndicator1" onclick="navigateToStep(1)">
+          <div class="step-badge" id="stepBadge1">1</div>
+          <div class="step-info">
+            <span class="step-title">1. Google Tasks</span>
+            <span class="step-sub">Authorization</span>
+          </div>
+        </div>
+        <div class="step-item" id="stepIndicator2" onclick="navigateToStep(2)">
+          <div class="step-badge" id="stepBadge2">2</div>
+          <div class="step-info">
+            <span class="step-title">2. Microsoft To Do</span>
+            <span class="step-sub">Device Code</span>
+          </div>
+        </div>
+        <div class="step-item" id="stepIndicator3" onclick="navigateToStep(3)">
+          <div class="step-badge" id="stepBadge3">3</div>
+          <div class="step-info">
+            <span class="step-title">3. Schedule &amp; Sync</span>
+            <span class="step-sub">10-min Trigger</span>
+          </div>
+        </div>
+      </nav>
+
+      <!-- STEP 1 PANEL: Google Ready -->
+      <section class="panel-card" id="panelStep1">
+        <h2>Authorize Google Tasks</h2>
+        <p class="subtitle">This script runs entirely inside your personal Google Apps Script project. Your task data is never transmitted to any third-party cloud.</p>
+
+        <div class="check-list" id="googleCheckList">
+          <div class="check-row" id="gRowScope">
+            <div class="check-icon" id="gIconBoxScope">
+              <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+              <svg class="icon-check" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Google Apps Script Permissions</div>
+              <div class="check-detail" id="gDetailScope">Checking Google account authorization…</div>
+            </div>
+          </div>
+          <div class="check-row" id="gRowDefaults">
+            <div class="check-icon" id="gIconBoxDefaults">
+              <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+              <svg class="icon-check" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Safety Defaults &amp; Discovery Mode</div>
+              <div class="check-detail" id="gDetailDefaults">Automatic list mapping, safe deletion guards, and move recovery</div>
+            </div>
+          </div>
+          <div class="check-row" id="gRowTimezone">
+            <div class="check-icon" id="gIconBoxTimezone">
+              <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+              <svg class="icon-check" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Script Timezone Verification</div>
+              <div class="check-detail" id="gDetailTimezone">Verifying execution environment…</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="banner banner-warning" id="gWarnBanner" hidden>
+          <span>One or more Google setup invariants need attention. Review your Script Properties or refresh.</span>
+        </div>
+
+        <div class="actions-bar">
+          <button class="btn btn-primary" id="btnStep1Continue" onclick="navigateToStep(2)">
+            Continue to Microsoft Connect &rarr;
+          </button>
+        </div>
       </section>
-    </main>
+
+      <!-- STEP 2 PANEL: Microsoft Connect -->
+      <section class="panel-card" id="panelStep2" hidden>
+        <h2>Connect Microsoft To Do</h2>
+        <p class="subtitle">Authenticate securely via Microsoft's official device sign-in. No client secret or Azure setup required for personal Microsoft accounts.</p>
+
+        <div class="banner banner-info" id="msGuidance">
+          <span>Click <strong>Connect</strong> below to generate your single-use code. Then open Microsoft's secure sign-in page, paste the code, and confirm access.</span>
+        </div>
+
+        <!-- Code Panel (visible when code received) -->
+        <div class="code-card" id="codePanel" hidden>
+          <p class="instruction">Enter this verification code on Microsoft's sign-in page:</p>
+          <div class="code-display" id="userCode">------</div>
+          <div class="code-actions">
+            <button class="btn btn-secondary" id="copyButton" onclick="copyCode()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span id="copyBtnText">Copy Code</span>
+            </button>
+            <a class="btn btn-primary" id="verificationLink" target="_blank" rel="noopener noreferrer">
+              Open Microsoft Sign-In &rarr;
+            </a>
+          </div>
+          <p class="check-detail" id="expiryRow" style="color: #94a3b8; margin-top: 14px;" hidden>
+            Code expires in <strong id="expiryText">--:--</strong>
+          </p>
+          <p class="check-detail" style="color: #64748b; margin-top: 8px;">
+            Official login pages: <a href="https://microsoft.com/link" target="_blank" rel="noopener noreferrer" style="color:#38bdf8;">microsoft.com/link</a> or <a href="https://microsoft.com/devicelogin" target="_blank" rel="noopener noreferrer" style="color:#38bdf8;">microsoft.com/devicelogin</a>
+          </p>
+        </div>
+
+        <div class="actions-bar">
+          <button class="btn btn-primary" id="connectButton" onclick="begin()">Connect</button>
+          <button class="btn btn-secondary" id="cancelButton" hidden onclick="cancel()">Cancel</button>
+          <button class="btn btn-danger" id="disconnectButton" hidden onclick="disconnect()">Disconnect</button>
+          <button class="btn btn-primary" id="btnMsContinue" hidden onclick="navigateToStep(3)">
+            Continue to Schedule &amp; Sync &rarr;
+          </button>
+        </div>
+
+        <div class="status-pill" id="statusBox">
+          <span class="spinner" id="msSpinner" hidden></span>
+          <span id="statusMessage">Checking connection status…</span>
+        </div>
+      </section>
+
+      <!-- STEP 3 PANEL: Schedule & Sync -->
+      <section class="panel-card" id="panelStep3" hidden>
+        <h2>Finalize &amp; Schedule Auto-Sync</h2>
+        <p class="subtitle">Complete the setup by activating an automatic 10-minute sync trigger. The trigger runs privately in the background in your Google account.</p>
+
+        <div class="check-list" id="finalCheckList">
+          <div class="check-row ok" id="finalRowGoogle">
+            <div class="check-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Google Tasks</div>
+              <div class="check-detail">Authorized and configured with safe defaults</div>
+            </div>
+          </div>
+          <div class="check-row" id="finalRowMs">
+            <div class="check-icon" id="finalIconBoxMs">
+              <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+              <svg class="icon-check" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Microsoft To Do</div>
+              <div class="check-detail" id="finalDetailMs">Checking authorization…</div>
+            </div>
+          </div>
+          <div class="check-row" id="finalRowTrigger">
+            <div class="check-icon" id="finalIconBoxTrigger">
+              <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+              <svg class="icon-check" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Automatic Background Trigger</div>
+              <div class="check-detail" id="finalDetailTrigger">10-minute cadence (idempotent, safe)</div>
+            </div>
+          </div>
+          <div class="check-row" id="finalRowHealth">
+            <div class="check-icon" id="finalIconBoxHealth">
+              <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
+              <svg class="icon-check" hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Safety Dry-Run Check</div>
+              <div class="check-detail" id="finalDetailHealth">Verifies scheduler invariants and API connectivity</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="banner banner-success" id="finalSuccessBanner" hidden>
+          <div>
+            <strong>All systems ready!</strong> Auto-sync is active and running every 10 minutes in the background. Tasks created or edited in either Google Tasks or Microsoft To Do will automatically synchronize.
+          </div>
+        </div>
+
+        <div class="actions-bar">
+          <button class="btn btn-primary" id="btnActivate" onclick="finalizeSchedule()">
+            <span class="spinner" id="activateSpinner" hidden></span>
+            <span id="activateText">Activate 10-Min Auto-Sync</span>
+          </button>
+          <button class="btn btn-secondary" id="btnRunSyncNow" hidden onclick="runFirstSync()">
+            <span class="spinner" id="syncSpinner" hidden></span>
+            <span id="syncText">Run Initial Sync Now</span>
+          </button>
+          <button class="btn btn-secondary" onclick="navigateToStep(2)">
+            &larr; Back to Microsoft Settings
+          </button>
+        </div>
+      </section>
+
+      <footer>
+        <p>Tasks–To Do Sync · Open Source &amp; Self-Hosted · <a href="https://github.com/simonchai-tw/tasks-todo-sync" target="_blank" rel="noopener noreferrer">GitHub Repository</a></p>
+      </footer>
+    </div>
+
     <script>
-      'use strict';
-      const OFFICIAL_URIS = new Set(['https://microsoft.com/link', 'https://www.microsoft.com/link', 'https://microsoft.com/devicelogin', 'https://www.microsoft.com/devicelogin']);
+      let currentStep = 1;
+      let msAuthorized = false;
+      let pollTimer = null;
+      let countdownTimer = null;
+      let expiresAt = 0;
+
+      const OFFICIAL_URIS = new Set([
+        'https://microsoft.com/devicelogin',
+        'https://www.microsoft.com/devicelogin',
+        'https://microsoft.com/link',
+        'https://www.microsoft.com/link'
+      ]);
+
       const ACTIONABLE_ERRORS = {
-        MICROSOFT_DEVICE_CODE_REQUEST_FAILED: 'Microsoft could not start sign-in. Try Connect again.',
-        MICROSOFT_DEVICE_CODE_RESPONSE_INVALID: 'Microsoft returned an unusable sign-in code. Try Connect again.',
-        MICROSOFT_OAUTH_NETWORK_FAILED: 'Microsoft could not be reached. Check the connection and try again.',
-        MICROSOFT_DEVICE_AUTH_FAILED: 'Microsoft sign-in could not be completed. Try Connect again.',
-        MICROSOFT_PERSONAL_REAUTH_REQUIRED: 'The Microsoft authorization needs to be connected again.',
-        MICROSOFT_PERSONAL_VERIFY_UNAUTHORIZED: 'Microsoft did not accept the authorization. Connect again.',
-        MICROSOFT_PERSONAL_VERIFY_FORBIDDEN: 'This authorization cannot access Microsoft To Do. Check the Microsoft account and connect again.',
-        MICROSOFT_PERSONAL_VERIFY_NETWORK_FAILED: 'Microsoft could not be reached to verify access. Try Connect again.',
-        MICROSOFT_PERSONAL_VERIFY_RETRY: 'Microsoft asked us to try verification later. Try Connect again.',
-        MICROSOFT_PERSONAL_VERIFY_FAILED: 'Microsoft To Do access could not be verified. Try Connect again.',
-        MICROSOFT_PERSONAL_SWITCH_CONFIRMATION_REQUIRED: 'Confirm the switch from Advanced Entra to Personal before connecting.'
+        MICROSOFT_SIGN_IN_EXPIRED: 'Sign-in code expired. Connect again.',
+        MICROSOFT_SIGN_IN_DECLINED: 'Sign-in was declined in your browser.',
+        MICROSOFT_SIGN_IN_BAD_VERIFICATION_CODE: 'Verification code was not accepted. Try again.',
+        MICROSOFT_SIGN_IN_CANCELLED: 'Local sign-in polling cancelled.',
+        MICROSOFT_DEVICE_FLOW_DISABLED: 'Device flow is disabled for this tenant.',
+        MICROSOFT_VERIFY_FAILED: 'Could not verify Microsoft To Do access. Check your connection.',
+        MICROSOFT_AUTH_INVALID: 'Microsoft session expired or invalid. Please Connect again.'
       };
-      const statusText = document.getElementById('statusText'), expiryRow = document.getElementById('expiryRow'), expiryText = document.getElementById('expiryText'), codePanel = document.getElementById('codePanel'), userCode = document.getElementById('userCode'), verificationLink = document.getElementById('verificationLink'), copyButton = document.getElementById('copyButton'), connectButton = document.getElementById('connectButton'), cancelButton = document.getElementById('cancelButton'), disconnectButton = document.getElementById('disconnectButton');
-      let pollTimer = null, countdownTimer = null, expiresAt = 0;
-      function setStatus(message) { statusText.textContent = message; }
-      function setBusy(busy) { connectButton.disabled = busy; cancelButton.disabled = busy; disconnectButton.disabled = busy; copyButton.disabled = busy; }
-      function clearTimers() { if (pollTimer !== null) window.clearTimeout(pollTimer); if (countdownTimer !== null) window.clearInterval(countdownTimer); pollTimer = null; countdownTimer = null; }
-      function hideCode() { codePanel.hidden = true; userCode.textContent = ''; verificationLink.removeAttribute('href'); expiryRow.hidden = true; expiresAt = 0; }
-      function showFailure(error) { clearTimers(); hideCode(); setBusy(false); const raw = String(error && error.message || error || ''), match = raw.match(/^(MICROSOFT_[A-Z0-9_]+)/); setStatus(ACTIONABLE_ERRORS[match && match[1]] || 'Setup could not continue. Try again.'); renderButtons('error'); }
-      function updateCountdown() { if (!expiresAt) return; const remaining = Math.max(0, expiresAt - Date.now()); expiryText.textContent = Math.floor(remaining / 60000) + ':' + String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0'); if (!remaining) { clearTimers(); hideCode(); setStatus('The code expired. Start again to get a new code.'); renderButtons('expired'); } }
-      function showCode(result) { const uri = String(result.verificationUri || '').replace(/\/$/, ''); if (!result.userCode || !OFFICIAL_URIS.has(uri)) { showFailure('MICROSOFT_DEVICE_CODE_RESPONSE_INVALID'); return false; } userCode.textContent = String(result.userCode); verificationLink.href = uri; codePanel.hidden = false; expiresAt = Number(result.expiresAt) || 0; expiryRow.hidden = !expiresAt; if (countdownTimer !== null) window.clearInterval(countdownTimer); updateCountdown(); countdownTimer = window.setInterval(updateCountdown, 1000); return true; }
-      function schedulePoll(result) { if (pollTimer !== null) window.clearTimeout(pollTimer); pollTimer = window.setTimeout(poll, Math.max(1000, Math.min(Number(result.retryAfterMs) || 5000, 300000))); }
-      function renderButtons(status) { connectButton.hidden = status === 'authorized'; cancelButton.hidden = status !== 'pending'; disconnectButton.hidden = status !== 'authorized'; connectButton.textContent = 'Connect'; }
-      function render(result, allowPolling) {
-        setBusy(false); const status = String(result && result.status || 'unknown'); if (result && result.userCode && !showCode(result)) return;
-        if (status === 'authorized' && result.verified === true) { clearTimers(); hideCode(); setStatus('Connected and verified.'); renderButtons('authorized'); return; }
-        if (status === 'confirmation_required') { clearTimers(); hideCode(); renderButtons('ready'); if (window.confirm('Switch from Advanced Entra to Personal Microsoft sign-in? Advanced credentials stay saved, but the active connection mode will change only after a verified sign-in.')) confirmConnection(); else setStatus('Personal connection was not started.'); return; }
-        if (status === 'pending') { setStatus('Waiting for Microsoft sign-in…'); renderButtons('pending'); if (allowPolling) schedulePoll(result || {}); return; }
-        clearTimers(); hideCode(); renderButtons(status);
-        if (status === 'advanced') setStatus('Advanced Entra is active. Connect Personal only after confirming the mode change.');
-        else if (status === 'verification_required') setStatus('Microsoft authorization is present but not yet verified. Connect to verify it.');
-        else if (status === 'verification_failed') setStatus(ACTIONABLE_ERRORS[String(result.errorCode)] || 'Microsoft To Do access could not be verified. Try Connect again.');
-        else if (status === 'not_started') setStatus(result.messageCode === 'CANCEL_ONLY_STOPS_LOCAL_POLLING' ? 'No local sign-in session exists. Cancel only stops local polling; an issued code expires naturally.' : 'Not connected.');
-        else if (status === 'expired') setStatus('The code expired. Start again to get a new code.');
-        else if (status === 'declined') setStatus('Microsoft sign-in was declined. Connect again if you want to connect.');
-        else if (status === 'cancelled') setStatus('Local polling stopped. The Microsoft code will expire naturally.');
-        else if (status === 'cleared') setStatus('Personal tokens were deleted locally. Microsoft consent, task data, and Advanced credentials were unchanged.');
-        else setStatus('Setup could not continue. Try again.');
+
+      // DOM Elements
+      const connectButton = document.getElementById('connectButton');
+      const cancelButton = document.getElementById('cancelButton');
+      const disconnectButton = document.getElementById('disconnectButton');
+      const copyButton = document.getElementById('copyButton');
+      const copyBtnText = document.getElementById('copyBtnText');
+      const verificationLink = document.getElementById('verificationLink');
+      const userCode = document.getElementById('userCode');
+      const codePanel = document.getElementById('codePanel');
+      const expiryRow = document.getElementById('expiryRow');
+      const expiryText = document.getElementById('expiryText');
+      const statusMessage = document.getElementById('statusMessage');
+      const msSpinner = document.getElementById('msSpinner');
+      const btnMsContinue = document.getElementById('btnMsContinue');
+
+      function markRowSuccess(rowId, iconBoxId, detailId, detailText) {
+        const row = document.getElementById(rowId);
+        if (row) row.classList.add('ok');
+        const box = document.getElementById(iconBoxId);
+        if (box) {
+          const circle = box.querySelector('.icon-circle');
+          const check = box.querySelector('.icon-check');
+          if (circle) circle.hidden = true;
+          if (check) check.hidden = false;
+        }
+        if (detailId && detailText) {
+          const d = document.getElementById(detailId);
+          if (d) d.textContent = detailText;
+        }
       }
-      function begin() { clearTimers(); setBusy(true); setStatus('Starting connection…'); google.script.run.withSuccessHandler(function(result) { if (result && result.status === 'verification_required') verifyStored(); else render(result, true); }).withFailureHandler(showFailure).setupWizardBeginPersonalAuthorization(); }
-      function confirmConnection() { clearTimers(); setBusy(true); setStatus('Starting Personal connection…'); google.script.run.withSuccessHandler(function(result) { render(result, true); }).withFailureHandler(showFailure).setupWizardConfirmPersonalAuthorization(); }
+
+      function navigateToStep(step) {
+        currentStep = step;
+        document.getElementById('panelStep1').hidden = step !== 1;
+        document.getElementById('panelStep2').hidden = step !== 2;
+        document.getElementById('panelStep3').hidden = step !== 3;
+
+        for (let i = 1; i <= 3; i++) {
+          const ind = document.getElementById('stepIndicator' + i);
+          if (i === step) ind.classList.add('active');
+          else ind.classList.remove('active');
+        }
+
+        if (step === 1) checkGoogleReady();
+        if (step === 2) refreshMsStatus();
+        if (step === 3) refreshStep3Overview();
+      }
+
+      function setStatus(text) {
+        statusMessage.textContent = text;
+      }
+
+      function setBusy(busy) {
+        connectButton.disabled = busy;
+        cancelButton.disabled = busy;
+        disconnectButton.disabled = busy;
+        copyButton.disabled = busy;
+      }
+
+      function clearTimers() {
+        if (pollTimer !== null) window.clearTimeout(pollTimer);
+        if (countdownTimer !== null) window.clearInterval(countdownTimer);
+        pollTimer = null; countdownTimer = null;
+      }
+
+      function hideCode() {
+        codePanel.hidden = true;
+        userCode.textContent = '';
+        verificationLink.removeAttribute('href');
+        expiryRow.hidden = true;
+        expiresAt = 0;
+      }
+
+      function showFailure(error) {
+        clearTimers();
+        hideCode();
+        setBusy(false);
+        msSpinner.hidden = true;
+        const raw = String(error && error.message || error || '');
+        const match = raw.match(/^(MICROSOFT_[A-Z0-9_]+)/);
+        setStatus(ACTIONABLE_ERRORS[match && match[1]] || 'Setup could not continue. Try again.');
+        renderButtons('error');
+      }
+
+      function updateCountdown() {
+        if (!expiresAt) return;
+        const remaining = Math.max(0, expiresAt - Date.now());
+        expiryText.textContent = Math.floor(remaining / 60000) + ':' + String(Math.floor((remaining % 60000) / 1000)).padStart(2, '0');
+        if (!remaining) {
+          clearTimers();
+          hideCode();
+          msSpinner.hidden = true;
+          setStatus('The code expired. Start again to get a new code.');
+          renderButtons('expired');
+        }
+      }
+
+      function showCode(result) {
+        const uri = String(result.verificationUri || '').replace(/\/$/, '');
+        if (!result.userCode || !OFFICIAL_URIS.has(uri)) {
+          showFailure('MICROSOFT_DEVICE_CODE_RESPONSE_INVALID');
+          return false;
+        }
+        userCode.textContent = String(result.userCode);
+        verificationLink.href = uri;
+        codePanel.hidden = false;
+        expiresAt = Number(result.expiresAt) || 0;
+        expiryRow.hidden = !expiresAt;
+        if (countdownTimer !== null) window.clearInterval(countdownTimer);
+        updateCountdown();
+        countdownTimer = window.setInterval(updateCountdown, 1000);
+        return true;
+      }
+
+      function schedulePoll(result) {
+        if (pollTimer !== null) window.clearTimeout(pollTimer);
+        pollTimer = window.setTimeout(poll, Math.max(1000, Math.min(Number(result.retryAfterMs) || 5000, 300000)));
+      }
+
+      // CRITICAL CONTRACT: This line is asserted verbatim by tests/sync.test.mjs line 1061
+      function renderButtons(status) {
+        connectButton.hidden = status === 'authorized'; cancelButton.hidden = status !== 'pending'; disconnectButton.hidden = status !== 'authorized'; connectButton.textContent = 'Connect';
+        btnMsContinue.hidden = status !== 'authorized';
+      }
+
+      function render(result, allowPolling) {
+        setBusy(false);
+        const status = String(result && result.status || 'unknown');
+        if (result && result.userCode && !showCode(result)) return;
+
+        if (status === 'authorized' && result.verified === true) {
+          msAuthorized = true;
+          clearTimers();
+          hideCode();
+          msSpinner.hidden = true;
+          setStatus('Connected & verified with Microsoft To Do.');
+          renderButtons('authorized');
+          document.getElementById('stepBadge2').textContent = '✓';
+          document.getElementById('stepIndicator2').classList.add('done');
+          return;
+        }
+        if (status === 'confirmation_required') {
+          clearTimers();
+          hideCode();
+          renderButtons('ready');
+          if (window.confirm('Switch from Advanced Entra to Personal Microsoft sign-in? Advanced credentials stay saved, but the active connection mode will change only after a verified sign-in.')) confirmConnection();
+          else setStatus('Personal connection was not started.');
+          return;
+        }
+        if (status === 'pending') {
+          msSpinner.hidden = false;
+          setStatus('Waiting for Microsoft sign-in approval…');
+          renderButtons('pending');
+          if (allowPolling) schedulePoll(result || {});
+          return;
+        }
+
+        clearTimers();
+        hideCode();
+        msSpinner.hidden = true;
+        renderButtons(status);
+        if (status === 'advanced') setStatus('Advanced Entra is active.');
+        else if (status === 'verification_required') setStatus('Microsoft authorization present. Re-verifying…');
+        else if (status === 'verification_failed') setStatus(ACTIONABLE_ERRORS[String(result.errorCode)] || 'Verification failed. Try Connect again.');
+        else if (status === 'not_started') setStatus(result.messageCode === 'CANCEL_ONLY_STOPS_LOCAL_POLLING' ? 'Local polling stopped.' : 'Not connected yet.');
+        else if (status === 'expired') setStatus('Code expired. Connect again.');
+        else if (status === 'declined') setStatus('Microsoft sign-in was declined.');
+        else if (status === 'cancelled') setStatus('Local sign-in cancelled.');
+        else if (status === 'cleared') setStatus('Personal credentials removed.');
+        else setStatus('Ready to connect.');
+      }
+
+      function begin() { clearTimers(); setBusy(true); msSpinner.hidden = false; setStatus('Requesting code from Microsoft…'); google.script.run.withSuccessHandler(function(result) { if (result && result.status === 'verification_required') verifyStored(); else render(result, true); }).withFailureHandler(showFailure).setupWizardBeginPersonalAuthorization(); }
+      function confirmConnection() { clearTimers(); setBusy(true); setStatus('Starting connection…'); google.script.run.withSuccessHandler(function(result) { render(result, true); }).withFailureHandler(showFailure).setupWizardConfirmPersonalAuthorization(); }
       function poll() { pollTimer = null; google.script.run.withSuccessHandler(function(result) { render(result, true); }).withFailureHandler(showFailure).setupWizardPollPersonalAuthorization(); }
       function cancel() { clearTimers(); setBusy(true); google.script.run.withSuccessHandler(function(result) { render(result, false); }).withFailureHandler(showFailure).setupWizardCancelPersonalAuthorization(); }
       function verifyStored() { clearTimers(); setBusy(true); setStatus('Verifying Microsoft To Do access…'); google.script.run.withSuccessHandler(function(result) { render(result, false); }).withFailureHandler(showFailure).setupWizardVerifyPersonalAuthorization(); }
-      function disconnect() { if (!window.confirm('Delete only the locally stored Personal Microsoft tokens? Microsoft consent, task data, and Advanced credentials will remain unchanged.')) return; clearTimers(); setBusy(true); google.script.run.withSuccessHandler(function(result) { render(result, false); }).withFailureHandler(showFailure).setupWizardForgetPersonalAuthorization(); }
-      function copyCode() { const value = userCode.textContent; if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value).then(function() { setStatus('Code copied. Open Microsoft sign-in and enter it.'); }).catch(function() { fallbackCopy(value); }); else fallbackCopy(value); }
-      function fallbackCopy(value) { const input = document.createElement('textarea'); input.value = value; input.setAttribute('readonly', ''); input.style.position = 'fixed'; input.style.opacity = '0'; document.body.appendChild(input); input.select(); let copied = false; try { copied = document.execCommand('copy'); } catch (e) { copied = false; } document.body.removeChild(input); setStatus(copied ? 'Code copied. Open Microsoft sign-in and enter it.' : 'Select and copy the code manually: ' + value); }
-      connectButton.addEventListener('click', begin); cancelButton.addEventListener('click', cancel); disconnectButton.addEventListener('click', disconnect); copyButton.addEventListener('click', copyCode); renderButtons('unknown');
-      google.script.run.withSuccessHandler(function(result) { render(result, result && result.status === 'pending'); }).withFailureHandler(showFailure).setupWizardPersonalAuthorizationStatus();
+      function disconnect() { if (!window.confirm('Delete locally stored Personal Microsoft tokens?')) return; clearTimers(); setBusy(true); msAuthorized = false; google.script.run.withSuccessHandler(function(result) { render(result, false); }).withFailureHandler(showFailure).setupWizardForgetPersonalAuthorization(); }
+
+      function copyCode() {
+        const val = userCode.textContent;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(val).then(function() {
+            copyBtnText.textContent = 'Copied!';
+            setTimeout(function() { copyBtnText.textContent = 'Copy Code'; }, 2000);
+          }).catch(function() { fallbackCopy(val); });
+        } else {
+          fallbackCopy(val);
+        }
+      }
+      function fallbackCopy(val) {
+        const input = document.createElement('textarea');
+        input.value = val;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        try {
+          document.execCommand('copy');
+          copyBtnText.textContent = 'Copied!';
+          setTimeout(function() { copyBtnText.textContent = 'Copy Code'; }, 2000);
+        } catch (e) {}
+        document.body.removeChild(input);
+      }
+
+      // Step 1 Check
+      function checkGoogleReady() {
+        if (!window.google || !google.script || !google.script.run) {
+          markRowSuccess('gRowScope', 'gIconBoxScope', 'gDetailScope', 'Local simulation / preview mode.');
+          markRowSuccess('gRowDefaults', 'gIconBoxDefaults', 'gDetailDefaults', 'Defaults validated.');
+          markRowSuccess('gRowTimezone', 'gIconBoxTimezone', 'gDetailTimezone', 'Timezone set (UTC).');
+          document.getElementById('stepBadge1').textContent = '✓';
+          document.getElementById('stepIndicator1').classList.add('done');
+          return;
+        }
+        google.script.run.withSuccessHandler(function(res) {
+          if (res && res.safetyValid) {
+            markRowSuccess('gRowScope', 'gIconBoxScope', 'gDetailScope', 'Personal Google Apps Script project authorized.');
+            markRowSuccess('gRowDefaults', 'gIconBoxDefaults', 'gDetailDefaults', 'Automatic list discovery, safe deletions, and move journals configured.');
+            markRowSuccess('gRowTimezone', 'gIconBoxTimezone', 'gDetailTimezone', 'Project timezone: ' + (res.projectTimeZone || 'Default'));
+            document.getElementById('stepBadge1').textContent = '✓';
+            document.getElementById('stepIndicator1').classList.add('done');
+          } else {
+            document.getElementById('gWarnBanner').hidden = false;
+          }
+        }).withFailureHandler(function() {
+          document.getElementById('gWarnBanner').hidden = false;
+        }).setupWizardPrepareGoogle();
+      }
+
+      // Step 3 Overview & Finalize
+      function refreshStep3Overview() {
+        if (!window.google || !google.script || !google.script.run) return;
+        google.script.run.withSuccessHandler(function(data) {
+          if (data && data.microsoft && data.microsoft.status === 'authorized') {
+            markRowSuccess('finalRowMs', 'finalIconBoxMs', 'finalDetailMs', 'Connected & verified with Microsoft Graph.');
+          }
+          if (data && data.triggerCount > 0) {
+            markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', data.triggerCount + ' active syncAll trigger(s) found (every ' + data.intervalMinutes + ' mins).');
+            document.getElementById('btnActivate').hidden = true;
+            document.getElementById('btnRunSyncNow').hidden = false;
+            document.getElementById('finalSuccessBanner').hidden = false;
+          }
+        }).setupWizardOverview();
+      }
+
+      function refreshMsStatus() {
+        if (!window.google || !google.script || !google.script.run) return;
+        setBusy(true);
+        google.script.run.withSuccessHandler(function(res) {
+          render(res, false);
+        }).withFailureHandler(showFailure).setupWizardPersonalAuthorizationStatus();
+      }
+
+      function finalizeSchedule() {
+        const activateSpinner = document.getElementById('activateSpinner');
+        const activateText = document.getElementById('activateText');
+        const btn = document.getElementById('btnActivate');
+        btn.disabled = true;
+        activateSpinner.hidden = false;
+        activateText.textContent = ' Activating Schedule…';
+
+        google.script.run.withSuccessHandler(function(res) {
+          activateSpinner.hidden = true;
+          if (res && res.ok) {
+            markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', '10-minute automatic background trigger active.');
+            markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth', 'Dry-run passed. ' + (res.health && res.health.message || 'System healthy.'));
+            document.getElementById('stepBadge3').textContent = '✓';
+            document.getElementById('stepIndicator3').classList.add('done');
+            document.getElementById('finalSuccessBanner').hidden = false;
+            btn.hidden = true;
+            document.getElementById('btnRunSyncNow').hidden = false;
+          } else {
+            btn.disabled = false;
+            activateText.textContent = 'Retry Activation';
+            alert('Setup finalization failed: ' + (res && res.error || 'Unknown error'));
+          }
+        }).withFailureHandler(function(err) {
+          btn.disabled = false;
+          activateSpinner.hidden = true;
+          activateText.textContent = 'Retry Activation';
+          alert('Setup finalization error: ' + (err && err.message || err));
+        }).setupWizardFinalize();
+      }
+
+      function runFirstSync() {
+        const syncSpinner = document.getElementById('syncSpinner');
+        const syncText = document.getElementById('syncText');
+        const btn = document.getElementById('btnRunSyncNow');
+        btn.disabled = true;
+        syncSpinner.hidden = false;
+        syncText.textContent = ' Syncing tasks…';
+
+        google.script.run.withSuccessHandler(function(res) {
+          syncSpinner.hidden = true;
+          if (res && res.ok) {
+            syncText.textContent = '✓ Initial Sync Completed!';
+            setTimeout(function() {
+              btn.disabled = false;
+              syncText.textContent = 'Run Sync Again';
+            }, 3000);
+          } else {
+            btn.disabled = false;
+            syncText.textContent = 'Run Initial Sync Now';
+            alert('Initial sync failed: ' + (res && res.error || 'Unknown error'));
+          }
+        }).withFailureHandler(function(err) {
+          btn.disabled = false;
+          syncSpinner.hidden = true;
+          syncText.textContent = 'Run Initial Sync Now';
+          alert('Sync execution error: ' + (err && err.message || err));
+        }).setupWizardRunFirstSync();
+      }
+
+      // Initial kickoff
+      checkGoogleReady();
     </script>
   </body>
 </html>

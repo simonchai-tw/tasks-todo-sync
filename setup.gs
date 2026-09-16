@@ -100,3 +100,23 @@ function setupWizardPersonalAuthView_(result) {
   }
   return view;
 }
+
+// Wizard-facing health summaries must never carry task names, IDs, or tokens.
+function boundedWizardHealth_(report) {
+  if (!report || typeof report !== 'object') {
+    return { ok: false, issueCount: 1, issues: ['Health report was unavailable.'] };
+  }
+  const issues = Array.isArray(report.issues) ? report.issues : [];
+  return {
+    ok: report.ok === true && issues.length === 0,
+    issueCount: issues.length,
+    issues: issues.slice(0, 5).map(function(issue) {
+      return String(issue).slice(0, 200);
+    })
+  };
+}
+
+function boundedWizardErrorText_(error) {
+  const text = String((error && error.message) || error || 'Unknown error');
+  return text.slice(0, 200);
+}

@@ -38,11 +38,11 @@ function load() {
 test('managed resource block is stripped before notes fingerprint and merge', () => {
   const { c } = load();
   const block = [
-    '--- tasks-todo-sync related resources (v1) ---',
+    '--- tasks-todo-sync ---',
     'Microsoft To Do links',
     '- Example',
     '  https://example.invalid/file',
-    '--- end tasks-todo-sync related resources ---'
+    '--- tasks-todo-sync end ---'
   ].join('\n');
   const fp = c.managedBlockFingerprint_(block);
   const parsed = c.parseManagedResourceBlock_('User note\n\n' + block, fp, null);
@@ -76,7 +76,7 @@ test('native linkedResources create remains uninvoked while the flag is off or o
   assert.equal(plan.nativeCreate, false);
   assert.equal(creates, 0);
   assert.equal(plan.writeMicrosoft, true);
-  assert.equal(plan.microsoftBody.content.includes('tasks-todo-sync related resources'), true);
+  assert.equal(plan.microsoftBody.content.includes('--- tasks-todo-sync ---'), true);
 });
 
 test('MS linkedResources observation opens the M->G branch; unobserved stays closed', () => {
@@ -98,7 +98,7 @@ test('MS linkedResources observation opens the M->G branch; unobserved stays clo
     { kind: 'OBSERVED_COMPLETE', items: [{ id: 'lr-1', displayName: 'https://example.com/doc', webUrl: 'https://example.com/doc' }] });
   assert.equal(observed.diagnostic.indexOf('INCOMPLETE_MICROSOFT_RESOURCE_OBSERVATION'), -1);
   assert.equal(observed.writeGoogle, true);
-  assert.match(observed.googleNotes, /tasks-todo-sync related resources/);
+  assert.match(observed.googleNotes, /--- tasks-todo-sync ---/);
   assert.match(observed.googleNotes, /https:\/\/example\.com\/doc/);
   // Observed-but-empty: a real empty set, projects an empty (or unchanged) block, not the gate.
   const empty = c.planResourceProjection_(gTask, msTask, rec, {}, 'note', 'note',
@@ -109,12 +109,12 @@ test('MS linkedResources observation opens the M->G branch; unobserved stays clo
 test('malformed managed block fails closed and does not merge notes', () => {
   const { c } = load();
   const parsed = c.parseManagedResourceBlock_(
-    '--- tasks-todo-sync related resources (v1) ---\nbroken',
+    '--- tasks-todo-sync ---\nbroken',
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     null
   );
   assert.equal(parsed.status, 'RESOURCE_BLOCK_MALFORMED');
-  const notes = c.ordinaryUserNotesFromGoogle_({ notes: '--- tasks-todo-sync related resources (v1) ---\nbroken' }, {
+  const notes = c.ordinaryUserNotesFromGoogle_({ notes: '--- tasks-todo-sync ---\nbroken' }, {
     res: { gBlockFp: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }
   });
   assert.equal(notes.ok, false);

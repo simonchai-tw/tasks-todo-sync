@@ -1062,6 +1062,79 @@ test('setup page offers Connect, Cancel, and Disconnect only for their supported
   assert.equal(setup.includes('Reconnect'), false);
 });
 
+test('setupWizardPrepareGoogle initializes safe defaults and reports non-blocking status', () => {
+  const { context, scriptStore } = loadContext();
+  const res = context.setupWizardPrepareGoogle();
+  assert.equal(res.ok, true);
+  assert.equal(res.safetyValid, true);
+  assert.equal(typeof res.projectTimeZone, 'string');
+  assert.equal(Array.isArray(res.appliedDefaults), true);
+  assert.equal(res.blockingSteps.length, 0);
+  assert.equal(scriptStore.values.SYNC_LIST_DISCOVERY_MODE, 'auto');
+});
+
+test('setupWizardOverview returns bounded status snapshot', () => {
+  const { context } = loadContext();
+  const overview = context.setupWizardOverview();
+  assert.equal(typeof overview.microsoft, 'object');
+  assert.equal(typeof overview.triggerAvailable, 'boolean');
+  assert.equal(typeof overview.triggerCount, 'number');
+  assert.equal(overview.intervalMinutes, 10);
+});
+
+test('setupWizardFinalize and setupWizardRunFirstSync fail closed when Microsoft is unverified', () => {
+  const { context } = loadContext();
+  const finalRes = context.setupWizardFinalize();
+  assert.equal(finalRes.ok, false);
+  assert.equal(finalRes.checks[0].key, 'microsoft');
+  assert.equal(finalRes.checks[0].ok, false);
+
+  const syncRes = context.setupWizardRunFirstSync();
+  assert.equal(syncRes.ok, false);
+  assert.match(syncRes.detail, /Connect Microsoft/);
+});
+
+test('setupWizardFinalize runs full setup pipeline when Microsoft is authorized', () => {
+  const { context } = loadContext({
+    userValues: {
+      MS_PERSONAL_REFRESH_TOKEN: 'refresh-token',
+      MS_PERSONAL_ACCESS_TOKEN: 'access-token',
+      MS_PERSONAL_ACCESS_EXPIRES_AT: '9999999999999'
+    }
+  });
+  let triggers = [];
+  context.ScriptApp = {
+    getOAuthToken: () => 'test-token',
+    getProjectTriggers: () => triggers,
+    deleteTrigger: (t) => { triggers = triggers.filter(x => x !== t); },
+    newTrigger: () => ({
+      timeBased: () => ({
+        everyMinutes: () => ({
+          create: () => {
+            const t = { getHandlerFunction: () => 'syncAll' };
+            triggers.push(t);
+            return t;
+          }
+        })
+      })
+    })
+  };
+  context.UrlFetchApp = {
+    fetch: () => ({
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({ value: [{ id: 'ms-list-1', displayName: 'Tasks' }] })
+    })
+  };
+  context.fetchGoogle_ = () => ({ items: [{ id: 'g-list-1', title: 'Tasks' }] });
+  context.withGlobalLock_ = (fn) => fn();
+
+  const finalRes = context.setupWizardFinalize();
+  assert.equal(finalRes.ok, true);
+  assert.equal(finalRes.checks.length, 5);
+  assert.equal(finalRes.checks.every(c => c.ok), true);
+  assert.equal(finalRes.health.ok, true);
+});
+
 test('private setup web app serves only the bundled Setup file with a bounded title', () => {
   const calls = [];
   const { context } = loadContext();

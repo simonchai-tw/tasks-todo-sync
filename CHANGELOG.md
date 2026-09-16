@@ -2,7 +2,18 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.5.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, and resource projection enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.6.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, and resource projection enabled.
+
+## 0.6.0 — 2026-09-16
+
+### 3-step setup wizard, clean resource projection, and frictionless onboarding
+
+- Added a modernized 3-step setup wizard (`Setup.html` and companion backend functions in `setup.gs`/`Code.gs`) for guided Google Tasks permissions, secretless Microsoft Device Code authorization, and one-click 10-minute trigger activation under a strict zero-dynamic-HTML security contract.
+- Simplified managed resource projection delimiters from `--- tasks-todo-sync related resources (v1) ---` to clean, unversioned boundaries (`--- tasks-todo-sync ---` and `--- tasks-todo-sync end ---`). Delimiter parsing strips managed blocks before computing notes hash to preserve anti-ping-pong invariants. Legacy `(v1)` blocks are retained as ordinary user notes and are not automatically migrated or deleted.
+- Preserved Advanced Entra self-managed OAuth mode alongside Personal Device Code mode for complete private self-hosting without external identity dependencies.
+- Added visual `install-flow.svg` architecture diagram and concise onboarding guidance.
+- Added open-source community standards: `CONTRIBUTING.md` and `.github/pull_request_template.md`.
+- Expanded automated test coverage to 416 automated tests (100% PASS).
 
 ## 0.5.0 — 2026-09-16
 
@@ -14,7 +25,7 @@ Historical entries below describe each release at the time it shipped, including
 - Formalized and proved the 3 core scheduler invariants: R-completeness (fail-closed pagination), Two-round deletion with absence probe soundness, and Starvation-free rotating observation cursor (`docs/scheduler-invariants.md`).
 - Calibrated the runtime budget envelope on live real accounts across two disjoint execution rounds ($R_{\text{floor}} \approx 2.44\text{s}$, $C_{\text{reconcile}} \approx 0.37\text{s/pair}$, $V_{\text{inspect}} \approx 0.521\text{s/pair}$, $W_{\text{delete}} \approx 0.385\text{s/item}$ with S2 batching).
 - Added fail-closed `TIME_BUDGET_CREATE` batch entrypoint protection, `'(Untitled)'` placeholder contracts, and empty-title subtask creation guards.
-- Expanded automated test coverage to 412 automated tests (100% PASS).
+- Expanded automated test coverage to 416 automated tests (100% PASS).
 
 ## 0.4.0 — 2026-09-07
 

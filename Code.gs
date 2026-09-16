@@ -546,6 +546,136 @@ function setupWizardForgetPersonalAuthorization() {
   return setupWizardPersonalAuthView_(forgetPersonalMicrosoftAuthorization());
 }
 
+// Google-side readiness. Idempotent; safe to call on every wizard visit.
+function setupWizardPrepareGoogle() {
+  initializeExecutionBudget_();
+  const defaultsReport = initializeSafeDefaults();
+  const status = setupStatus();
+  // Informational notes stay visible in setupStatus() but never block the
+  // wizard: personal-mode Microsoft sign-in is the next wizard step, while the
+  // common-tenant and alert-recipient hints are optional by design.
+  const informationalCodes = {
+    SETUP_SUMMARY_READY: true,
+    MS_TENANT_DEFAULT_COMMON: true,
+    ALERT_RECIPIENT_UNAVAILABLE: true,
+    MICROSOFT_PERSONAL_AUTH_REQUIRED: true,
+    MICROSOFT_CREDENTIALS_MISSING: true,
+    SYNC_TRIGGER_STATUS_UNAVAILABLE: true,
+    SYNC_TRIGGER_MISSING: true
+  };
+  const blockingSteps = (status.nextSteps || [])
+    .filter(function(step) { return !informationalCodes[step.code]; })
+    .map(function(step) { return { code: String(step.code).slice(0, 80), message: String(step.message).slice(0, 300) }; });
+  return {
+    ok: status.allSafetySettingsValid === true && blockingSteps.length === 0,
+    projectTimeZone: String(status.projectTimeZone || '').slice(0, 100),
+    safetyValid: status.allSafetySettingsValid === true,
+    appliedDefaults: Object.keys(defaultsReport.updatedProperties || {}),
+    syncAllTriggerCount: Number(status.syncAllTriggerCount) || 0,
+    blockingSteps: blockingSteps
+  };
+}
+
+// Lightweight state for a returning visitor opening the private setup page.
+function setupWizardOverview() {
+  initializeExecutionBudget_();
+  const trigger = setupTriggerCount_();
+  return {
+    microsoft: setupWizardPersonalAuthorizationStatus(),
+    triggerAvailable: trigger.available,
+    triggerCount: trigger.count,
+    intervalMinutes: SYNC_TRIGGER_INTERVAL_MINUTES
+  };
+}
+
+// Step 3 of the wizard: after Microsoft is verified, validate, schedule, and
+// health-check in one server round trip. Every stage is idempotent.
+function setupWizardFinalize() {
+  initializeExecutionBudget_();
+  const checks = [];
+  function record(key, label, ok, detail) {
+    checks.push({
+      key: String(key).slice(0, 40),
+      label: String(label).slice(0, 120),
+      ok: ok === true,
+      detail: String(detail === undefined || detail === null ? '' : detail).slice(0, 300)
+    });
+  }
+
+  const microsoft = setupWizardPersonalAuthorizationStatus();
+  const microsoftReady = microsoft.status === 'authorized' && microsoft.verified === true;
+  record('microsoft', 'Microsoft To Do connected', microsoftReady,
+    microsoftReady ? 'Verified against Microsoft Graph.' : 'Finish the Microsoft sign-in step first.');
+  if (!microsoftReady) return { ok: false, checks: checks, health: null };
+
+  let status;
+  try {
+    initializeSafeDefaults();
+    status = setupStatus();
+    record('safeDefaults', 'Safe defaults applied', status.allSafetySettingsValid === true,
+      status.allSafetySettingsValid === true
+        ? 'List discovery and guarded-operation switches are valid.'
+        : 'At least one Script Property is invalid; open setupStatus() for details.');
+  } catch (error) {
+    record('safeDefaults', 'Safe defaults applied', false, error);
+    return { ok: false, checks: checks, health: null };
+  }
+
+  try {
+    const report = dryRunReport();
+    const warningCount = Array.isArray(report.warnings) ? report.warnings.length : 0;
+    const pendingMoveCount = Array.isArray(report.pendingMoves) ? report.pendingMoves.length : 0;
+    record('dryRun', 'Read-only sync preview', true,
+      warningCount === 0
+        ? 'The read-only inventory reported no warnings.'
+        : warningCount + ' warning(s)' + (pendingMoveCount ? ' and ' + pendingMoveCount + ' pending move(s)' : '') +
+          '. Scheduling continues; inspect dryRunReport() if this is unexpected.');
+  } catch (error) {
+    record('dryRun', 'Read-only sync preview', false, error);
+  }
+
+  try {
+    createTrigger();
+    const after = setupTriggerCount_();
+    record('trigger', 'Sync schedule created', after.count === 1,
+      after.available ? after.count + ' syncAll trigger(s) exist.' : 'Trigger status is unavailable.');
+  } catch (error) {
+    record('trigger', 'Sync schedule created', false, error);
+  }
+
+  let boundedHealth = null;
+  try {
+    boundedHealth = boundedWizardHealth_(healthCheck());
+    record('health', 'Health check passed', boundedHealth.ok,
+      boundedHealth.ok ? 'No open issues.' : boundedHealth.issues.join(' | '));
+  } catch (error) {
+    boundedHealth = { ok: false, issueCount: 1, issues: [boundedWizardErrorText_(error)] };
+    record('health', 'Health check passed', false, boundedWizardErrorText_(error));
+  }
+
+  return {
+    ok: checks.every(function(check) { return check.ok; }),
+    checks: checks,
+    health: boundedHealth
+  };
+}
+
+// Optional final action: run one sync round immediately instead of waiting for
+// the first scheduled trigger. Returned data is deliberately content-free.
+function setupWizardRunFirstSync() {
+  initializeExecutionBudget_();
+  const microsoft = setupWizardPersonalAuthorizationStatus();
+  if (!(microsoft.status === 'authorized' && microsoft.verified === true)) {
+    return { ok: false, detail: 'Connect Microsoft before running the first sync.' };
+  }
+  try {
+    syncAll();
+    return { ok: true, ranAt: new Date().toISOString() };
+  } catch (error) {
+    return { ok: false, detail: boundedWizardErrorText_(error) };
+  }
+}
+
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Setup')
     .setTitle('Tasks–To Do Sync — Easy Setup')

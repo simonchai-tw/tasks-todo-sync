@@ -24,6 +24,7 @@
   <a href="#what-stays-in-sync">Features</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="docs/quick-start.md">Quick start</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="https://github.com/simonchai-tw/tasks-todo-sync/graphs/contributors">Contributors</a>
 </p>
 
@@ -79,30 +80,30 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The synchronization engine is covered by 412 automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md).
+The synchronization engine is covered by 416 automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md).
 
 ## Get started
 
-Initial installation and source updates require a Windows, macOS, or Linux desktop/laptop with Node.js 22+, a terminal, and a modern browser. Chromebook Linux is best effort. npm installation is not supported on phones; the Microsoft connection wizard remains mobile-responsive for reauthorization.
+<p align="center">
+  <img src="docs/assets/install-flow.svg" width="100%" alt="Tasks–To Do Sync install flow: one command, two sign-ins, and automatic scheduling">
+</p>
 
-Create your private Apps Script project:
+Create and launch your private Google Apps Script project with one command:
 
 ```bash
 npx tasks-todo-sync init
 ```
 
-The installer deploys the sync code to a standalone Google Apps Script project in your account and gives you the editor link for the remaining setup.
+| Step | What you do | What happens |
+|---|---|---|
+| **1 · Deploy** | Run `npx tasks-todo-sync init` | Creates your private Apps Script project, pushes the release, and opens the setup wizard |
+| **2 · Google sign-in** | Click through the consent screen | Validates safe defaults and script timezone ("Unverified app" → Advanced → Allow) |
+| **3 · Microsoft sign-in** | Enter short code at `microsoft.com/link` | Connects personal Microsoft To Do via Device Code Flow — no Azure setup or secrets |
+| **4 · Finalize** | Click **Activate 10-Min Auto-Sync** | Sets up the background trigger, performs a health check, and starts synchronization |
 
-You will need:
+> **Self-Hosted & Advanced Entra:** For full self-hosted control without device codes, self-managed Entra OAuth (custom Client ID, Client Secret, and redirect URI) remains fully supported. See the [deployment guide](docs/deployment.md) for custom credentials and manual clasp workflows.
 
-- one Google account to own and run the Apps Script project;
-- one personal Microsoft account to connect Microsoft To Do.
-
-You authorize Google and Microsoft separately. Each provider may show more than one sign-in or consent page depending on your existing browser session, but the project connects one account from each ecosystem.
-
-The standard personal setup uses Microsoft Device Code Flow. It does not require you to register an Entra application, create a client secret, or configure a redirect URI. Advanced self-managed Entra credentials remain supported for existing and specialized deployments.
-
-Follow the **[quick start](docs/quick-start.md)** for the guided installation, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, cross-list moves, and the safe destination-first replacement order.
+Follow the **[quick start](docs/quick-start.md)** for the guided walkthrough, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, and cross-list moves.
 
 ## Documentation
 
@@ -118,8 +119,8 @@ Questions, ideas, or something not working? [Open an issue](https://github.com/s
 
 ## Roadmap
 
-- **Keep the foundation simple and maintainable.** Evolve the Apps Script codebase into a cleaner structure without changing the straightforward self-hosted experience.
-- **Make more of each task travel with you.** Expand synchronization beyond today’s core fields so richer task details and workflows can move more naturally between Google Tasks and Microsoft To Do.
+- **Frictionless setup for everyone.** Explore a streamlined onboarding path that removes terminal and Node.js prerequisites, making private self-hosting effortless for everyday users.
+- **Scalable and resilient architecture.** Continue refining background sync reliability, richer diagnostics, and future incremental delta processing beyond lightweight serverless runtimes.
 
 ## License
 

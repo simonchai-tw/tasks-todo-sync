@@ -148,11 +148,11 @@ test('unknown baseline plus divergence is a bootstrap conflict not LWW', () => {
 test('one-side notes change keeps the owned managed resource block on the PATCH payload', () => {
   const c = load();
   const block = [
-    '--- tasks-todo-sync related resources (v1) ---',
+    '--- tasks-todo-sync ---',
     'Microsoft To Do links',
     '- Example',
     '  https://example.invalid/file',
-    '--- end tasks-todo-sync related resources ---'
+    '--- tasks-todo-sync end ---'
   ].join('\n');
   const blockFp = c.managedBlockFingerprint_(block);
 
