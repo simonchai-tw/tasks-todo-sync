@@ -75,9 +75,9 @@ Related resources from Microsoft To Do (e.g. linked email messages from Outlook,
 
 The synchronization engine enforces three formal scheduler invariants:
 
-1. **R-Completeness (R 必須完整)**: The snapshot $R$ of both provider collections must be observed completely. If any pagination failure, timeout, page limit, or malformed page occurs during snapshot creation, the engine immediately fails closed: 0 state mutations, 0 deletion candidates promoted, and 0 remote writes executed.
-2. **Two-Round Deletion with Absence Probe Soundness (刪除確認跨兩輪)**: A missing task is never deleted on the counterpart in the same round. Round 1 records a candidate (`confirmations=1, lastRoundId=round1`). Round 2 requires `lastRoundId !== currentRoundId`, confirms absence, and executes `providerAbsenceProbe_` (direct GET by ID) to verify that the absence was not a list filter or search index artifact. If the probe confirms 404 Not Found, remote deletion proceeds; if the provider reports alive, the candidate is invalidated with `ABSENCE_WAS_FILTER_ARTIFACT`.
-3. **Starvation-Free Rotating Observation Cursor (V 每配對 X 輪內必被檢查)**: For $N$ mapped pairs and per-round observation budget $B = 10$, `state.resourceObservationCursor` advances deterministically, guaranteeing that every mapped pair is inspected in at most $\lceil N / B \rceil$ rounds.
+1. **R-Completeness**: The snapshot $R$ of both provider collections must be observed completely. If any pagination failure, timeout, page limit, or malformed page occurs during snapshot creation, the engine immediately fails closed: 0 state mutations, 0 deletion candidates promoted, and 0 remote writes executed.
+2. **Two-Round Deletion with Absence Probe Soundness**: A missing task is never deleted on the counterpart in the same round. Round 1 records a candidate (`confirmations=1, lastRoundId=round1`). Round 2 requires `lastRoundId !== currentRoundId`, confirms absence, and executes `providerAbsenceProbe_` (direct GET by ID) to verify that the absence was not a list filter or search index artifact. If the probe confirms 404 Not Found, remote deletion proceeds; if the provider reports alive, the candidate is invalidated with `ABSENCE_WAS_FILTER_ARTIFACT`.
+3. **Starvation-Free Rotating Observation Cursor**: For $N$ mapped pairs and per-round observation budget $B = 10$, `state.resourceObservationCursor` advances deterministically, guaranteeing that every mapped pair is inspected in at most $\lceil N / B \rceil$ rounds.
 
 ### Empirical runtime calibration (Benchmark Lab)
 
