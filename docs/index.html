@@ -14,6 +14,12 @@
 <link rel="alternate icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="favicon.png">
 
+<!-- Preload setup wizard slides for instantaneous mobile transitions -->
+<link rel="preload" as="image" href="assets/step-1-terminal.webp" type="image/webp">
+<link rel="preload" as="image" href="assets/step-2-google.webp" type="image/webp">
+<link rel="preload" as="image" href="assets/step-3-microsoft.webp" type="image/webp">
+<link rel="preload" as="image" href="assets/step-4-activate.webp" type="image/webp">
+
 <style>
 /* ==========================================================================
    DESIGN TOKENS & RESET
@@ -902,6 +908,7 @@ code {
   border: 1px solid var(--line);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
   background: #090d16;
+  margin-top: 18px;
 }
 .preview-slide {
   position: absolute;
@@ -910,13 +917,16 @@ code {
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transform: scale(0.985);
+  transform: translateZ(0) scale(0.985);
+  will-change: opacity, transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
 }
 .preview-slide.active {
   opacity: 1;
-  transform: scale(1);
+  transform: translateZ(0) scale(1);
   pointer-events: auto;
 }
 .preview-nav-btn {
@@ -1104,6 +1114,7 @@ code {
     border-bottom: 1px solid var(--card-border);
     padding: 18px 16px 14px 16px;
   }
+  .preview-slides-box { margin-top: 0; }
   .wizard-steps-col { padding: 20px 16px; gap: 8px; }
   .step-item-mini { padding: 10px 12px; }
   .step-text-wrap h4 { font-size: 14.5px; }
@@ -1793,10 +1804,10 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       <!-- Visual Screenshot Column (Interactive Slides) -->
       <div class="wizard-preview-col" id="wizardShowcaseBox">
         <div class="preview-slides-box" id="previewSlidesBox" title="Click to pause or play">
-          <img class="preview-slide active" id="slide0" src="assets/step-1-terminal.png" alt="Step 1: Run Setup Command" loading="lazy" onerror="this.src='docs/assets/step-1-terminal.png'">
-          <img class="preview-slide" id="slide1" src="assets/step-2-google.png" alt="Step 2: Google Tasks Authorization" loading="lazy" onerror="this.src='docs/assets/step-2-google.png'">
-          <img class="preview-slide" id="slide2" src="assets/step-3-microsoft.png" alt="Step 3: Connect Microsoft To Do" loading="lazy" onerror="this.src='docs/assets/step-3-microsoft.png'">
-          <img class="preview-slide" id="slide3" src="assets/step-4-activate.png" alt="Step 4: Activate 10-Minute Sync" loading="lazy" onerror="this.src='docs/assets/step-4-activate.png'">
+          <img class="preview-slide active" id="slide0" src="assets/step-1-terminal.webp" alt="Step 1: Run Setup Command" fetchpriority="high" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-1-terminal.png'">
+          <img class="preview-slide" id="slide1" src="assets/step-2-google.webp" alt="Step 2: Google Tasks Authorization" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-2-google.png'">
+          <img class="preview-slide" id="slide2" src="assets/step-3-microsoft.webp" alt="Step 3: Connect Microsoft To Do" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-3-microsoft.png'">
+          <img class="preview-slide" id="slide3" src="assets/step-4-activate.webp" alt="Step 4: Activate 10-Minute Sync" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-4-activate.png'">
 
           <!-- Navigation buttons -->
           <button class="preview-nav-btn prev" id="prevSlideBtn" type="button" aria-label="Previous step">‹</button>
