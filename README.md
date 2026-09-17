@@ -97,14 +97,11 @@ The synchronization engine is covered by 417 automated tests, GitHub CI, CodeQL,
   </a>
 </p>
 
-Choose between our browser-guided wizard or one-command terminal setup:
+Create and launch your private Google Apps Script project with one command:
 
-- **Option A: Web Setup Wizard (No terminal required, 3 min)**  
-  Visit the **[Official Web Setup Wizard](https://simonchai-tw.github.io/tasks-todo-sync/)** for a step-by-step visual onboarding guide.
-- **Option B: One-Command CLI (Fast for developers)**  
-  ```bash
-  npx tasks-todo-sync init
-  ```
+```bash
+npx tasks-todo-sync init
+```
 
 | Step | What you do | What happens |
 |---|---|---|
