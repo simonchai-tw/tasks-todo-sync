@@ -858,41 +858,17 @@ p.hero-desc {
 }
 
 /* ==========================================================================
-   INSTALLATION SECTION (HERO ON SETUP WIZARD)
+   INSTALLATION SECTION (UNIFIED 4-STEP ONBOARDING)
    ========================================================================== */
-.install-tabs {
-  display: flex;
-  gap: 10px;
-  margin-top: 32px;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 14px;
-  flex-wrap: wrap;
+code {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  color: var(--teal);
+  background: rgba(45, 212, 191, 0.08);
+  border: 1px solid rgba(45, 212, 191, 0.22);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
 }
-.tab-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  border-radius: var(--radius-md);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-dim);
-  background: rgba(148, 163, 214, 0.05);
-  border: 1px solid transparent;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-.tab-btn:hover { color: var(--text); background: rgba(148, 163, 214, 0.1); }
-.tab-btn.active { color: #fff; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); }
-.tab-btn.active.tab-teal { background: rgba(20, 184, 166, 0.15); border-color: rgba(20, 184, 166, 0.4); color: var(--teal); }
-
-@media (max-width: 640px) {
-  .tab-btn { width: 100%; justify-content: center; }
-}
-
-.tab-pane { display: none; animation: fadeIn 0.3s ease; }
-.tab-pane.active { display: block; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 /* Wizard Showcase Card */
 .wizard-showcase {
@@ -970,42 +946,7 @@ p.hero-desc {
 }
 
 /* CLI Pane */
-.terminal-card {
-  margin-top: 24px;
-  background: #060913;
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
-}
-.term-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
-  background: rgba(148, 163, 214, 0.04);
-}
-.term-dot { width: 12px; height: 12px; border-radius: 50%; display: block; }
-.term-dot.r { background: #ef4444; }
-.term-dot.y { background: #f59e0b; }
-.term-dot.g { background: #10b981; }
-.term-title { margin-left: 8px; font-size: 13px; color: var(--text-muted); }
-.term-content {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 22px 20px;
-  flex-wrap: wrap;
-}
-.term-code {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  font-size: clamp(15px, 2vw, 18px);
-  color: #86efac;
-  user-select: all;
-  letter-spacing: 0.02em;
-}
-.term-prompt { color: var(--g-blue); margin-right: 4px; }
+/* Terminal styles cleaned up */
 
 /* ==========================================================================
    CONCEPT VIDEO SECTION
@@ -1672,96 +1613,64 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 </section>
 
 <!-- ==========================================================================
-     INSTALLATION (HERO ON SETUP WIZARD)
+     INSTALLATION (UNIFIED 4-STEP ONBOARDING)
      ========================================================================== -->
 <section class="sec-padding" id="install">
   <div class="container">
     <div class="reveal">
       <span class="eyebrow" data-i18n="eyebrow_install">Get Started</span>
       <h2 class="sec-title" data-i18n="install_title">Get synced tonight <span class="grad-text">in under 5 minutes</span></h2>
-      <p class="lead-text" data-i18n="install_lead">Use our intuitive Setup Wizard directly in your browser, or deploy with one terminal command if you are a developer.</p>
+      <p class="lead-text" data-i18n="install_lead">Deploy in minutes: one command creates your private Google project, and the guided web wizard finishes setup in your browser.</p>
     </div>
 
-    <!-- Dual Tabs -->
-    <div class="install-tabs">
-      <button class="tab-btn active tab-teal" id="tabWebBtn" type="button">
-        <span>✨</span> <span data-i18n="tab_web">Browser Setup Wizard (Recommended)</span>
-      </button>
-      <button class="tab-btn" id="tabCliBtn" type="button">
-        <span>💻</span> <span data-i18n="tab_cli">Developer CLI (npx)</span>
-      </button>
-    </div>
-
-    <!-- TAB 1: SETUP WIZARD SHOWCASE -->
-    <div class="tab-pane active" id="paneWeb">
-      <div class="wizard-showcase reveal">
-        <!-- Visual Screenshot Column -->
-        <div class="wizard-preview-col">
-          <img class="wizard-preview-img" src="assets/setup-wizard.png" alt="Tasks-To Do Sync Easy Setup Wizard Interface" onerror="this.src='docs/assets/setup-wizard.png'">
-        </div>
-
-        <!-- 4 Step Guide Column -->
-        <div class="wizard-steps-col">
-          <div class="step-item-mini">
-            <div class="step-num-pill">1</div>
-            <div class="step-text-wrap">
-              <h4 data-i18n="wiz_s1_h">Deploy Apps Script Project</h4>
-              <p data-i18n="wiz_s1_p">Create a private Google Apps Script project and deploy it as a personal Web App with "Only myself" access.</p>
-            </div>
-          </div>
-
-          <div class="step-item-mini">
-            <div class="step-num-pill">2</div>
-            <div class="step-text-wrap">
-              <h4 data-i18n="wiz_s2_h">Open the Private Setup Page</h4>
-              <p data-i18n="wiz_s2_p">Open your deployed private Web App URL. The clean setup wizard loads securely inside your browser.</p>
-            </div>
-          </div>
-
-          <div class="step-item-mini">
-            <div class="step-num-pill">3</div>
-            <div class="step-text-wrap">
-              <h4 data-i18n="wiz_s3_h">Microsoft Device Login</h4>
-              <p data-i18n="wiz_s3_p">Click "Connect", open official <b>microsoft.com/link</b>, enter the short code to grant consent. No Azure app needed.</p>
-            </div>
-          </div>
-
-          <div class="step-item-mini">
-            <div class="step-num-pill">4</div>
-            <div class="step-text-wrap">
-              <h4 data-i18n="wiz_s4_h">Activate Auto-Sync</h4>
-              <p data-i18n="wiz_s4_p">Click "Activate" in the wizard. A 10-minute trigger is automatically scheduled and initial sync begins.</p>
-            </div>
-          </div>
-
-          <div style="margin-top: 10px;">
-            <button class="btn btn-teal" id="openWizardModalBtn" type="button">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              <span data-i18n="btn_view_steps">Open Setup Guide</span>
-            </button>
-          </div>
-        </div>
+    <!-- UNIFIED SETUP SHOWCASE -->
+    <div class="wizard-showcase reveal" style="margin-top: 36px;">
+      <!-- Visual Screenshot Column -->
+      <div class="wizard-preview-col">
+        <img class="wizard-preview-img" src="assets/setup-wizard.png" alt="Tasks-To Do Sync Easy Setup Wizard Interface" onerror="this.src='docs/assets/setup-wizard.png'">
       </div>
-    </div>
 
-    <!-- TAB 2: CLI MODE -->
-    <div class="tab-pane" id="paneCli">
-      <div class="terminal-card">
-        <div class="term-header">
-          <span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span>
-          <span class="term-title" data-i18n="term_title">terminal — deploy release to your private Apps Script</span>
+      <!-- 4 Step Guide Column -->
+      <div class="wizard-steps-col">
+        <div class="step-item-mini">
+          <div class="step-num-pill">1</div>
+          <div class="step-text-wrap">
+            <h4 data-i18n="wiz_s1_h">Run Setup Command</h4>
+            <p data-i18n="wiz_s1_p">Open terminal and run <code>npx tasks-todo-sync init</code> to create your private project.</p>
+          </div>
         </div>
-        <div class="term-content">
-          <div class="term-code"><span class="term-prompt">$</span> npx tasks-todo-sync init</div>
-          <button class="btn btn-teal btn-sm" id="cliCopyBtn" type="button">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-            <span id="cliCopyLabel" data-i18n="btn_copy_cmd">Copy command</span>
+
+        <div class="step-item-mini">
+          <div class="step-num-pill">2</div>
+          <div class="step-text-wrap">
+            <h4 data-i18n="wiz_s2_h">Deploy &amp; Open Wizard</h4>
+            <p data-i18n="wiz_s2_p">Open the printed URL, click <b>Deploy → Web app</b>, and open the generated link.</p>
+          </div>
+        </div>
+
+        <div class="step-item-mini">
+          <div class="step-num-pill">3</div>
+          <div class="step-text-wrap">
+            <h4 data-i18n="wiz_s3_h">Connect Microsoft Account</h4>
+            <p data-i18n="wiz_s3_p">In the wizard, click "Connect" and enter the code at <b>microsoft.com/link</b>.</p>
+          </div>
+        </div>
+
+        <div class="step-item-mini">
+          <div class="step-num-pill">4</div>
+          <div class="step-text-wrap">
+            <h4 data-i18n="wiz_s4_h">Activate 10-Minute Sync</h4>
+            <p data-i18n="wiz_s4_p">Click "Activate" in the wizard to start automatic background synchronization!</p>
+          </div>
+        </div>
+
+        <div style="margin-top: 6px;">
+          <button class="btn btn-teal" id="openWizardModalBtn" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span data-i18n="btn_view_steps">Open Setup Guide</span>
           </button>
         </div>
       </div>
-      <p class="hero-note" style="margin-top: 14px;">
-        <span data-i18n="cli_note">The CLI pushes release sources and outputs the Apps Script editor URL for initial authorization.</span>
-      </p>
     </div>
   </div>
 </section>
@@ -1910,16 +1819,16 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     <div class="modal-step-item">
       <div class="modal-step-badge">1</div>
       <div class="modal-step-body">
-        <h4 data-i18n="m_s1_h">Deploy Apps Script Web App</h4>
-        <p data-i18n="m_s1_p">In your private Apps Script project, click <b>Deploy → New deployment</b>, select <b>Web app</b>, set Execute as: <b>Me</b>, and access to <b>Only myself</b>.</p>
+        <h4 data-i18n="m_s1_h">Run Setup Command</h4>
+        <p data-i18n="m_s1_p">Open Terminal or PowerShell and run <code>npx tasks-todo-sync init</code>. It automatically logs into Google, creates your private project, and uploads all sources.</p>
       </div>
     </div>
 
     <div class="modal-step-item">
       <div class="modal-step-badge">2</div>
       <div class="modal-step-body">
-        <h4 data-i18n="m_s2_h">Open Setup Wizard Page</h4>
-        <p data-i18n="m_s2_p">Open the private Web App URL generated by Google. The friendly Setup Wizard interface (Setup.html) will guide you through the two authorizations.</p>
+        <h4 data-i18n="m_s2_h">Deploy &amp; Open Wizard</h4>
+        <p data-i18n="m_s2_p">Open the project URL printed in the terminal. Click <b>Deploy → New deployment → Web app</b> (Access: <b>Only myself</b>), then open the generated Web App URL.</p>
       </div>
     </div>
 
@@ -1927,7 +1836,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       <div class="modal-step-badge">3</div>
       <div class="modal-step-body">
         <h4 data-i18n="m_s3_h">Connect Microsoft Account</h4>
-        <p data-i18n="m_s3_p">Click "Connect", then visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.</p>
+        <p data-i18n="m_s3_p">In the wizard, click "Connect". Visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.</p>
       </div>
     </div>
 
@@ -1998,29 +1907,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   const heroCopyBtn = document.getElementById('heroCopyCliBtn');
   if (heroCopyBtn) heroCopyBtn.addEventListener('click', () => copyText(CMD));
 
-  const cliCopyBtn = document.getElementById('cliCopyBtn');
-  if (cliCopyBtn) cliCopyBtn.addEventListener('click', () => copyText(CMD));
-
-  // Tabs
-  const tabWeb = document.getElementById('tabWebBtn');
-  const tabCli = document.getElementById('tabCliBtn');
-  const paneWeb = document.getElementById('paneWeb');
-  const paneCli = document.getElementById('paneCli');
-
-  if (tabWeb && tabCli && paneWeb && paneCli) {
-    tabWeb.addEventListener('click', () => {
-      tabWeb.classList.add('active', 'tab-teal');
-      tabCli.classList.remove('active', 'tab-teal');
-      paneWeb.classList.add('active');
-      paneCli.classList.remove('active');
-    });
-    tabCli.addEventListener('click', () => {
-      tabCli.classList.add('active');
-      tabWeb.classList.remove('active', 'tab-teal');
-      paneCli.classList.add('active');
-      paneWeb.classList.remove('active');
-    });
-  }
+  // Unified onboarding flow (tabs removed)
 
   // Video in-place YouTube embed
   const videoPoster = document.getElementById('videoPoster');
@@ -2128,7 +2015,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   const langBtn = document.getElementById('langBtn');
   const langText = document.getElementById('langText');
 
-  const dictZh = {
+    const dictZh = {
     'nav_features': '功能特色',
     'nav_engine': '同步架構',
     'nav_install': '安裝設定',
@@ -2140,45 +2027,45 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'hero_h1_and': '與',
     'hero_h1_2': '完美無縫同步',
     'hero_desc': '專為雙向串聯打造的私有自託管同步橋梁。隨處記錄，隨處勾選完成。零第三方伺服器、無需訂閱月費，完全運行在您自己的 <strong>Google Apps Script</strong> 專案內。',
-    'btn_web_setup': '網頁安裝精靈 (3分鐘)',
-    'hero_note': '一次設定 · 兩端官方授權 · 每 10 分鐘背景靜默同步',
-    'demo_live_sync': '即時同步動態模擬',
-    'demo_interval': '自動排程：每 10 分鐘',
-    'task_g1': '審查週五發布報告',
-    'task_g2': '回覆主管確認郵件',
-    'task_g3': '購買咖啡豆 & 牛奶',
+    'btn_web_setup': '快速安裝精靈 (3 分鐘)',
+    'hero_note': '一次性快速部署 · 官方標準 OAuth 授權 · 10 分鐘背景靜默同步',
+    'demo_live_sync': '即時雙向模擬',
+    'demo_interval': '排程：每 10 分鐘',
+    'task_g1': '審查 Q3 專案發布報告',
+    'task_g2': '回覆主管工作進度確認',
+    'task_g3': '採買辦公室咖啡豆與牛奶',
     'tag_work': '工作',
     'tag_synced': '已同步',
     'tag_completed': '已完成',
     'tag_personal': '個人',
-    'chip_create': '+ 建立任務',
-    'chip_done': '✓ 勾選完成',
-    'chip_note': '✎ 同步備註',
-    'chip_due': '⏰ 到期日變更',
-    'foot_sync1': '雙向生命週期閉環',
-    'foot_sync2': '狀態防迴圈保護',
-    'foot_sync3': '自動化清單探索',
-    'foot_sync4': '安全刪除判定機制',
-    'eyebrow_pains': '現實痛點',
-    'pains_title': '您的待辦事項，從不會只出現在 <span class="grad-text">同一個應用裡</span>',
-    'pains_lead': '現代人的工作與生活被不同平台切割。我們總是想用最順手的工具記下一筆待辦，但最終卻散落各處被遺忘。',
-    'pain1_h': '隨手呼叫 Gemini 語音輸入',
-    'pain1_p': '「Hey Google，幫我新增明天買咖啡豆。」語音建立在 Google Tasks，工作電腦 Microsoft To Do 卻看不到？現在兩端自動同步。',
-    'pain2_h': 'Outlook 郵件一鍵標記待辦',
-    'pain2_p': '工作郵件在微軟 Outlook 隨手插上小紅旗加入 To Do，立刻自動呈現在手機 Google 日曆側欄 Tasks 中，外出行程一目了然。',
-    'pain3_h': 'Copilot 摘要檔案生成行動清單',
-    'pain3_p': 'Office 365 Copilot 產生的專案待辦，自動同步進個人習慣的 Google 任務系統，不必跨視窗手動重複複製貼上。',
-    'pain4_h': 'Apple 提醒事項 & Siri 串聯',
-    'pain4_p': '透過微軟帳號連接 iOS 提醒事項，實現 iPhone / Mac、Android 手機與 Windows 電腦的全生態待辦閉環。',
-    'eyebrow_feat': '同步能力',
-    'feat_title': '涵蓋完整生命週期，<span class="grad-text">八大維度雙向同步</span>',
-    'feat_lead': '不是只有建立一瞬間！從編輯內容、附註、改期、跨清單移動到刪除，皆具備嚴格的資料對照與衝突自癒能力。',
-    'feat1_h': '建立與標題編輯',
-    'feat1_p': '在任何一端新增任務或修改文字，Counterpart 映射機制會精準更新另一端，絕不重複建立副本。',
-    'feat2_h': '完成標記與重啟',
-    'feat2_p': '打勾結案或重新啟用未完成任務，狀態即時同步。避免傳統單向工具「死灰復燃」重複出現的問題。',
-    'feat3_h': '詳細附註與備註',
-    'feat3_p': '支援 Google Tasks Notes 與 To Do Body 雙向對應，維持清晰的純文字格式與換行。',
+    'chip_create': '+ 新增任務',
+    'chip_done': '✓ 標記完成',
+    'chip_note': '✎ 編輯備忘備註',
+    'chip_due': '⏰ 調整到期日',
+    'foot_sync1': '雙向閉環同步',
+    'foot_sync2': '防迴圈判定',
+    'foot_sync3': '清單自動對應',
+    'foot_sync4': '兩階段防誤刪',
+    'eyebrow_pains': '現實困境',
+    'pains_title': '你的任務，從來就不只發生在 <span class="grad-text">同一個應用裡</span>',
+    'pains_lead': '現代人在跨生態工作中切換。靈感在哪浮現就在哪記下，但沒有即時同步，代辦事項只會被遺忘在不同的角落。',
+    'pain1_h': 'Gemini 語音隨手記錄',
+    'pain1_p': '「Hey Google，提醒我明天買咖啡。」語音進了 Google Tasks，但在 Windows 工作電腦前需要 Microsoft To Do 提醒？已完美搞定。',
+    'pain2_h': 'Outlook 郵件隨手旗標',
+    'pain2_p': '微軟 Outlook 標記旗標郵件自動匯入 To Do，立刻同步至手機 Google 日曆側邊欄 Tasks，下班通勤路上不再漏接。',
+    'pain3_h': 'Copilot 會議摘要待辦',
+    'pain3_p': 'Microsoft 365 Copilot 提取的行動清單，自動無縫映射至個人 Google 工作流程，完全不需要人工手動搬運貼上。',
+    'pain4_h': 'Apple 提醒事項與 Siri 串聯',
+    'pain4_p': '透過微軟 Exchange 帳戶無縫橋接至 iOS「提醒事項」，實現 iPhone、Mac、Android、Windows 四平臺全面無縫對齊。',
+    'eyebrow_feat': '核心能力',
+    'feat_title': '任務完整生命週期，<span class="grad-text">8 大維度全面守護</span>',
+    'feat_lead': '不只是單次觸發建立。標題更新、長篇備忘、到期日、跨清單移動到防誤刪，皆具備嚴密的狀態持久化保護。',
+    'feat1_h': '新增與標題雙向同步',
+    'feat1_p': '任一端新增或重新命名任務，精準同步至另一端，絕不重複建立幽靈副本。',
+    'feat2_h': '完成與重新開啟判定',
+    'feat2_p': '勾選完成或隨時重啟未完成事項，狀態平穩同步沉澱，絕不讓已完成項目詐屍還原。',
+    'feat3_h': '詳細備忘與內文保留',
+    'feat3_p': '完整雙向同步多行備忘筆記，保留換行排版與格式，文字內容完整無損。',
     'feat4_h': '到期日智慧換算',
     'feat4_p': '精準計算時區偏移（IANA Timezone），確保跨國或日曆檢視時不會發生日期提早一天的落差。',
     'feat5_h': '跨清單移動轉移',
@@ -2221,22 +2108,17 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'privacy_h': '您的私人待辦事項，絕不流經任何第三方伺服器',
     'privacy_p': '無外部後台託管、無中央資料庫、無任何廣告與追蹤代碼——同步全數在您個人的 Google Apps Script 私人環境內運算。開源採用 MIT 授權，受 GitHub CI 與 CodeQL 靜態分析嚴格檢查。',
     'eyebrow_install': '快速開始',
-    'install_title': '兩種安裝路徑，<span class="grad-text">今晚立即搞定同步</span>',
-    'install_lead': '首推圖形化安裝精靈，在瀏覽器 3 分鐘完成；亦支援開發者終端機單行指令。',
-    'tab_web': '✨ 瀏覽器安裝精靈 (推薦)',
-    'tab_cli': '💻 開發者終端機 (npx)',
-    'wiz_s1_h': '部署 Apps Script 專案',
-    'wiz_s1_p': '在個人 Google 雲端建立私有 Apps Script 專案，並部署為僅限自己存取的 Web 應用程式。',
-    'wiz_s2_h': '開啟私有設定網頁',
-    'wiz_s2_p': '點開部署產生的專屬網址，乾淨現代的安裝精靈 (Setup.html) 直接在瀏覽器中引導兩端授權。',
-    'wiz_s3_h': '微軟 Device Code 登入',
-    'wiz_s3_p': '點擊「Connect」，至微軟官方 <b>microsoft.com/link</b> 輸入驗證碼完成授權，免註冊複雜 Azure 憑證。',
-    'wiz_s4_h': '一鍵啟動自動排程',
-    'wiz_s4_p': '在精靈按下「Activate」，系統自動建立 10 分鐘定時觸發器，開始背景靜默同步。',
+    'install_title': '數分鐘內，<span class="grad-text">今晚立即搞定同步</span>',
+    'install_lead': '數分鐘輕鬆搞定：一行指令在雲端建立私有專案，接著在瀏覽器安裝精靈中完成授權與啟動。',
+    'wiz_s1_h': '一行指令建立專案',
+    'wiz_s1_p': '打開終端機執行 <code>npx tasks-todo-sync init</code>，自動在雲端建立私有專案。',
+    'wiz_s2_h': '部署並開啟安裝精靈',
+    'wiz_s2_p': '點開專案網址，點擊 <b>Deploy → Web app</b>，打開 Google 產生的私有精靈網址。',
+    'wiz_s3_h': '安全授權微軟帳號',
+    'wiz_s3_p': '在精靈點擊 Connect，前往 <b>microsoft.com/link</b> 輸入短碼授權。',
+    'wiz_s4_h': '啟動背景自動同步',
+    'wiz_s4_p': '在精靈點擊 Activate，立即建立排程，每 10 分鐘自動背景靜默同步！',
     'btn_view_steps': '開啟安裝步驟指引',
-    'term_title': 'terminal — 推送發布代碼至個人私有 Apps Script',
-    'btn_copy_cmd': '複製指令',
-    'cli_note': '終端機指令會使用 clasp 自動建立專案並輸出 Apps Script 編輯器網址。',
     'eyebrow_video': '概念影片',
     'video_title': '觀看專案 <span class="grad-text">官方概念宣傳片</span>',
     'video_lead': '官方概念宣傳短片，呈現跨越 Google 與 Microsoft 雙待辦生態、保持單一任務循環的核心精神。',
@@ -2269,20 +2151,20 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'cta_title': '兩個生態，<span class="grad-text">同一個流暢閉環</span>',
     'cta_desc': '隨處記錄，隨處勾選完成。跨越 Google 與微軟兩大陣營的私有自託管雙向同步橋梁。',
     'btn_star': '給專案一顆 Star ⭐',
-    'modal_title': '✨ 網頁安裝精靈步驟指引',
-    'm_s1_h': '部署 Apps Script 網頁應用程式',
-    'm_s1_p': '在您的私有 Apps Script 專案中，點選<b>「部署」→「新增部署作業」</b>，類型選<b>「網頁應用程式 (Web App)」</b>，存取權限設為<b>「僅限自己」</b>。',
-    'm_s2_h': '開啟私有 Setup 網頁精靈',
-    'm_s2_p': '點開 Google 部署給您的專屬網址，視覺化安裝精靈 (Setup.html) 將引導您完成兩邊授權。',
-    'm_s3_h': '微軟帳號 Device Code 授權',
-    'm_s3_p': '在精靈中點擊「Connect」，依提示前往微軟官方 <b>microsoft.com/link</b> 輸入畫面上的短碼完成授權（官方安全通道，免 Azure App）。',
-    'm_s4_h': '點擊 Activate 啟動 10 分鐘排程',
-    'm_s4_p': '完成兩端認證後，在精靈點擊「Activate」按鈕，每 10 分鐘自動雙向同步排程立即生效！',
+    'modal_title': '✨ 快速安裝步驟指引',
+    'm_s1_h': '終端機執行一行指令',
+    'm_s1_p': '打開電腦終端機或 PowerShell 執行 <code>npx tasks-todo-sync init</code>，系統將自動引導 Google 登入，在您的雲端硬碟建立私有專案並上傳代碼。',
+    'm_s2_h': '部署並開啟安裝精靈',
+    'm_s2_p': '點開終端機輸出的專案網址，點擊右上角 <b>Deploy（部署）→ New deployment → Web app</b>（存取權限設為 <b>Only myself</b>），點開 Google 生出的私有網址。',
+    'm_s3_h': '安全綁定微軟帳號',
+    'm_s3_p': '在精靈介面點擊「Connect」，前往微軟官方網址 <b>microsoft.com/link</b> 輸入畫面上顯示的 8 位英數代碼，完成安全授權。',
+    'm_s4_h': '啟動每 10 分鐘自動同步',
+    'm_s4_p': '在精靈介面點擊「Activate」，系統即自動排程每 10 分鐘背景觸發器，雙向同步正式上線運作！',
     'btn_manual_doc': 'GitHub 部署手冊 ↗',
     'btn_got_it': '我知道了！'
   };
 
-  const dictEn = {
+    const dictEn = {
     'nav_features': 'Features',
     'nav_engine': 'Engine',
     'nav_install': 'Install',
@@ -2376,21 +2258,16 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'privacy_p': 'No external database, no SaaS middleware, no tracking cookies. Everything executes inside your private Google Apps Script. Open source under MIT, audited by GitHub CI and CodeQL static analysis.',
     'eyebrow_install': 'Get Started',
     'install_title': 'Get synced tonight <span class="grad-text">in under 5 minutes</span>',
-    'install_lead': 'Use our intuitive Setup Wizard directly in your browser, or deploy with one terminal command if you are a developer.',
-    'tab_web': '✨ Browser Setup Wizard (Recommended)',
-    'tab_cli': '💻 Developer CLI (npx)',
-    'wiz_s1_h': 'Deploy Apps Script Project',
-    'wiz_s1_p': 'Create a private Google Apps Script project and deploy it as a personal Web App with "Only myself" access.',
-    'wiz_s2_h': 'Open the Private Setup Page',
-    'wiz_s2_p': 'Open your deployed private Web App URL. The clean setup wizard loads securely inside your browser.',
-    'wiz_s3_h': 'Microsoft Device Login',
-    'wiz_s3_p': 'Click "Connect", open official <b>microsoft.com/link</b>, enter the short code to grant consent. No Azure app needed.',
-    'wiz_s4_h': 'Activate Auto-Sync',
-    'wiz_s4_p': 'Click "Activate" in the wizard. A 10-minute trigger is automatically scheduled and initial sync begins.',
+    'install_lead': 'Deploy in minutes: one command creates your private Google project, and the guided web wizard finishes setup in your browser.',
+    'wiz_s1_h': 'Run Setup Command',
+    'wiz_s1_p': 'Open terminal and run <code>npx tasks-todo-sync init</code> to create your private project.',
+    'wiz_s2_h': 'Deploy & Open Wizard',
+    'wiz_s2_p': 'Open the printed URL, click <b>Deploy → Web app</b>, and open the generated link.',
+    'wiz_s3_h': 'Connect Microsoft Account',
+    'wiz_s3_p': 'In the wizard, click "Connect" and enter the code at <b>microsoft.com/link</b>.',
+    'wiz_s4_h': 'Activate 10-Minute Sync',
+    'wiz_s4_p': 'Click "Activate" in the wizard to start automatic background synchronization!',
     'btn_view_steps': 'Open Setup Guide',
-    'term_title': 'terminal — deploy release to your private Apps Script',
-    'btn_copy_cmd': 'Copy command',
-    'cli_note': 'The CLI pushes release sources and outputs the Apps Script editor URL for initial authorization.',
     'eyebrow_video': 'Concept Video',
     'video_title': 'See the vision behind <span class="grad-text">Tasks–To Do Sync</span>',
     'video_lead': 'A concept video illustrating the philosophy of keeping Google Tasks and Microsoft To Do seamlessly connected in one loop.',
@@ -2424,12 +2301,12 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'cta_desc': 'Capture anywhere, check off anywhere. A private, self-hosted bridge connecting Google Tasks and Microsoft To Do.',
     'btn_star': 'Star on GitHub ⭐',
     'modal_title': '✨ Easy Setup Wizard Guide',
-    'm_s1_h': 'Deploy Apps Script Web App',
-    'm_s1_p': 'In your private Apps Script project, click <b>Deploy → New deployment</b>, select <b>Web app</b>, set Execute as: <b>Me</b>, and access to <b>Only myself</b>.',
-    'm_s2_h': 'Open Setup Wizard Page',
-    'm_s2_p': 'Open the private Web App URL generated by Google. The friendly Setup Wizard interface (Setup.html) will guide you through the two authorizations.',
+    'm_s1_h': 'Run Setup Command',
+    'm_s1_p': 'Open Terminal or PowerShell and run <code>npx tasks-todo-sync init</code>. It automatically logs into Google, creates your private project, and uploads all sources.',
+    'm_s2_h': 'Deploy & Open Wizard',
+    'm_s2_p': 'Open the project URL printed in the terminal. Click <b>Deploy → New deployment → Web app</b> (Access: <b>Only myself</b>), then open the generated Web App URL.',
     'm_s3_h': 'Connect Microsoft Account',
-    'm_s3_p': 'Click "Connect", then visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.',
+    'm_s3_p': 'In the wizard, click "Connect". Visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.',
     'm_s4_h': 'Activate 10-Minute Sync',
     'm_s4_p': 'Click "Activate" in the wizard. A reliable 10-minute trigger is created and your tasks start syncing automatically in the background!',
     'btn_manual_doc': 'Deployment Guide ↗',
