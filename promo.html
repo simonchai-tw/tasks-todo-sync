@@ -1199,7 +1199,7 @@ p.hero-desc {
 .cta-banner-box p { color: var(--text-dim); margin: 16px auto 28px; max-width: 540px; font-size: 15.5px; }
 .cta-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; position: relative; }
 
-footer { border-top: 1px solid var(--line); padding: 36px 0 48px; font-size: 13.5px; color: var(--text-muted); }
+footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.5px; color: var(--text-muted); }
 .author-mail {
   color: inherit !important;
   text-decoration: none !important;
@@ -1866,29 +1866,21 @@ footer { border-top: 1px solid var(--line); padding: 36px 0 48px; font-size: 13.
   </div>
 </section>
 
-<!-- ==========================================================================
-     FINAL CTA
-     ========================================================================== -->
-<section class="cta-section">
-  <div class="container">
-    <div class="cta-banner-box reveal">
-      <h2 data-i18n="cta_title">Two ecosystems, <span class="grad-text">one seamless loop</span></h2>
-      <p data-i18n="cta_desc">Capture anywhere, check off anywhere. A private, self-hosted bridge connecting Google Tasks and Microsoft To Do.</p>
-      <div class="cta-actions">
-        <a class="btn btn-teal" href="https://github.com/simonchai-tw/tasks-todo-sync" target="_blank" rel="noopener">
-          <span data-i18n="btn_star">Star on GitHub ⭐</span>
-        </a>
-      </div>
-    </div>
-  </div>
-</section>
+
 
 <!-- ==========================================================================
      FOOTER
      ========================================================================== -->
 <footer>
-  <div class="container footer-inner" style="justify-content: center; text-align: center;">
-    <div>© 2026 <a href="mailto:simonchai@outlook.com" class="author-mail">Simon Chai</a> · MIT License</div>
+  <div class="container footer-inner" style="flex-direction: column; align-items: center; justify-content: center; gap: 16px; text-align: center;">
+    <div>
+      <a class="btn btn-teal" href="https://github.com/simonchai-tw/tasks-todo-sync" target="_blank" rel="noopener" style="padding: 10px 22px; font-size: 14.5px;">
+        <span data-i18n="btn_star">Star on GitHub ⭐</span>
+      </a>
+    </div>
+    <div style="font-size: 13.5px; color: var(--text-muted);">
+      © 2026 <a href="mailto:simonchai@outlook.com" class="author-mail">Simon Chai</a> · MIT License
+    </div>
   </div>
 </footer>
 
