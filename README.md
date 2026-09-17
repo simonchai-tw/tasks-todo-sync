@@ -133,6 +133,7 @@ Questions, ideas, or something not working? [Open an issue](https://github.com/s
 
 - **Frictionless setup for everyone.** Explore a streamlined onboarding path that removes terminal and Node.js prerequisites, making private self-hosting effortless for everyday users.
 - **Scalable and resilient architecture.** Richer diagnostics and future incremental delta processing beyond lightweight serverless runtimes.
+- **Cross-cloud attachment vault.** Save Microsoft To Do attachments to Google Drive and link them directly in Google Tasks.
 
 ## License
 

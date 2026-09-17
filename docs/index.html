@@ -1126,7 +1126,7 @@ p.hero-desc {
   grid-template-columns: 1fr 1fr;
   gap: 20px;
   margin-top: 36px;
-  align-items: start;
+  align-items: stretch;
 }
 .doc-list-group { display: flex; flex-direction: column; gap: 12px; }
 .doc-card {
@@ -1160,8 +1160,18 @@ p.hero-desc {
   border: 1px solid rgba(139, 124, 246, 0.3);
   border-radius: var(--radius-xl);
   padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
 }
 .roadmap-card h3 { font-size: 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+.roadmap-card ul {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+}
 .roadmap-card li {
   list-style: none;
   padding: 12px 0 12px 28px;
@@ -1860,8 +1870,9 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       <div class="roadmap-card reveal">
         <h3 data-i18n="road_h3">🗺 Roadmap</h3>
         <ul>
-          <li><b data-i18n="road1_b">Frictionless setup for everyone</b> — a streamlined onboarding path that removes terminal prerequisites, making private self-hosting effortless for everyday users.</li>
-          <li><b data-i18n="road2_b">Scalable &amp; resilient self-healing</b> — richer diagnostic tools and incremental delta processing beyond lightweight serverless runtimes.</li>
+          <li><b data-i18n="road1_b">Frictionless setup for everyone</b> — <span data-i18n="road1_d">a streamlined onboarding path that removes terminal prerequisites, making private self-hosting effortless for everyday users.</span></li>
+          <li><b data-i18n="road2_b">Scalable &amp; resilient self-healing</b> — <span data-i18n="road2_d">richer diagnostic tools and incremental delta processing beyond lightweight serverless runtimes.</span></li>
+          <li><b data-i18n="road3_b">Cross-cloud attachment vault</b> — <span data-i18n="road3_d">save Microsoft To Do attachments to Google Drive and link them directly in Google Tasks.</span></li>
         </ul>
       </div>
     </div>
@@ -2246,10 +2257,13 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'doc3_t': '工程審查報告 (Engineering Audit)',
     'doc3_d': '417 項測試邊界、容量極限與狀態證明',
     'doc4_t': 'GitHub Issue 回饋',
-    'doc4_d': '提出功能建議、回報問題或交流',
     'road_h3': '🗺 未來藍圖 (Roadmap)',
     'road1_b': '零終端機大眾安裝普及化',
-    'road2_b': '彈性擴展與狀態自癒強化',
+    'road1_d': '探索徹底免除終端機與 Node.js 依賴的網頁安裝路徑，讓非技術用戶也能無痛自託管。',
+    'road2_b': '彈性擴展與狀態自癒架構',
+    'road2_d': '提供更豐富的診斷工具與增量 Delta 處理，突破輕量無伺服器運行環境限制。',
+    'road3_b': '跨雲端檔案保險庫',
+    'road3_d': '將微軟 To Do 附件照片與文件轉存至 Google Drive，並在 Google Tasks 內直接連結存取。',
     'ver_status': '目前狀態：v0.6.1 · GitHub ⭐ 20 · MIT 授權 · 歡迎社群貢獻',
     'cta_title': '兩個生態，<span class="grad-text">同一個流暢閉環</span>',
     'cta_desc': '隨處記錄，隨處勾選完成。跨越 Google 與微軟兩大陣營的私有自託管雙向同步橋梁。',
@@ -2399,7 +2413,11 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'doc4_d': 'Questions, feature ideas, and support',
     'road_h3': '🗺 Roadmap',
     'road1_b': 'Frictionless setup for everyone',
-    'road2_b': 'Scalable & resilient self-healing',
+    'road1_d': 'a streamlined onboarding path that removes terminal prerequisites, making private self-hosting effortless for everyday users.',
+    'road2_b': 'Scalable & resilient architecture',
+    'road2_d': 'richer diagnostic tools and incremental delta processing beyond lightweight serverless runtimes.',
+    'road3_b': 'Cross-cloud attachment vault',
+    'road3_d': 'save Microsoft To Do attachments to Google Drive and link them directly in Google Tasks.',
     'ver_status': 'Current status: v0.6.1 · GitHub ⭐ 20 · MIT licensed · Contributors welcome',
     'cta_title': 'Two ecosystems, <span class="grad-text">one seamless loop</span>',
     'cta_desc': 'Capture anywhere, check off anywhere. A private, self-hosted bridge connecting Google Tasks and Microsoft To Do.',
