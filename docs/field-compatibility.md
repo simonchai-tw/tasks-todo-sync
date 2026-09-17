@@ -15,18 +15,18 @@ These fields and operations are covered by the current implementation and automa
 | Personal lists | Google ↔ Microsoft | Eligible paired lists; list names are projected |
 | Create, edit, and delete | Google ↔ Microsoft | Deletion is guarded by confirmation and recovery records |
 | Move between lists | Google ↔ Microsoft | Destination-first replacement; counterpart provider IDs can change |
+| Subtasks / Checklists | Google ↔ Microsoft | Google subtasks ↔ Microsoft checklist items; 3-way merge, conflict isolation, empty-title guard (`'(Untitled)'`) |
+| Related resources & links | Microsoft / Google → Notes | Clean unversioned projection (`--- tasks-todo-sync ---`) with source tags (`[Gmail]`, `[Outlook]`, `[Google Docs]`); anti-ping-pong strip before compare |
 
 ## Provider-specific or unverified
 
 The following may exist in a provider UI or payload but are not part of the verified cross-provider projection. They must not be treated as supported-field failures, and this list does not assert that either provider's API makes them impossible:
 
 - Microsoft reminders and reminder times;
-- recurrence;
-- importance, categories, and other Microsoft-only metadata;
-- attachments and attachment details;
-- checklist items;
-- linked resources and unrelated extension relationships;
-- formatting beyond the plain-text notes projection.
+- recurrence (guarded by fail-closed contract gate `RECURRING_TASK_UNSUPPORTED` / `sendBothRecurrenceAlert_`);
+- categories, color tags, and other Microsoft-only metadata;
+- binary file attachments and raw attachment payloads;
+- rich text styling and HTML formatting beyond plain text and managed resource blocks.
 
 When these fields are encountered, the engine's preview and diagnostics may identify metadata loss or uninspected relationships. They are not silently promoted to a compatibility guarantee.
 
