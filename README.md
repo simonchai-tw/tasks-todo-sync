@@ -23,7 +23,6 @@
 </p>
 
 <p align="center">
-  <a href="https://simonchai-tw.github.io/tasks-todo-sync/">Official Website</a> ·
   <a href="#why-it-matters">Why it matters</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#what-stays-in-sync">Features</a> ·
