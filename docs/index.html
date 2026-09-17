@@ -936,18 +936,26 @@ code {
   display: grid;
   place-items: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s ease, background 0.2s ease;
   z-index: 10;
   opacity: 0;
+  pointer-events: none;
 }
-.wizard-preview-col:hover .preview-nav-btn {
+.preview-slides-box.show-nav .preview-nav-btn {
   opacity: 0.85;
+  pointer-events: auto;
 }
-.preview-nav-btn:hover {
-  opacity: 1 !important;
-  background: var(--grad-primary);
-  color: #070b14;
-  transform: translateY(-50%) scale(1.1);
+@media (hover: hover) and (pointer: fine) {
+  .wizard-preview-col:hover .preview-nav-btn {
+    opacity: 0.85;
+    pointer-events: auto;
+  }
+  .preview-nav-btn:hover {
+    opacity: 1 !important;
+    background: var(--grad-primary);
+    color: #070b14;
+    transform: translateY(-50%) scale(1.1);
+  }
 }
 .preview-nav-btn.prev { left: 12px; }
 .preview-nav-btn.next { right: 12px; }
@@ -996,60 +1004,6 @@ code {
   background: rgba(245, 158, 11, 0.12);
   border-color: rgba(245, 158, 11, 0.4);
   color: #fbbf24;
-}
-.preview-center-badge {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(0.9);
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  color: #ffffff;
-  display: grid;
-  place-items: center;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.22s ease, transform 0.22s ease, background 0.2s ease;
-  z-index: 9;
-}
-.preview-center-badge svg {
-  width: 15px;
-  height: 15px;
-}
-/* When paused: show 36px Play button (matches 36px arrows) so mobile and desktop can tap to play */
-.wizard-preview-col.is-paused .preview-center-badge {
-  opacity: 0.88;
-  transform: translate(-50%, -50%) scale(1);
-  pointer-events: auto;
-}
-/* Desktop hover: gently reveal 36px icon on hover, 0% opacity when leaving */
-@media (hover: hover) and (pointer: fine) {
-  .preview-slides-box:hover .preview-center-badge {
-    opacity: 0.85;
-    transform: translate(-50%, -50%) scale(1);
-    pointer-events: auto;
-  }
-  .preview-center-badge:hover {
-    opacity: 1 !important;
-    background: var(--grad-primary);
-    color: #070b14;
-    transform: translate(-50%, -50%) scale(1.1);
-  }
-}
-.preview-center-badge.pulse-anim {
-  animation: centerBadgePulse 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-@keyframes centerBadgePulse {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
-  25% { opacity: 0.95; transform: translate(-50%, -50%) scale(1.08); }
-  60% { opacity: 0.85; transform: translate(-50%, -50%) scale(1); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); }
 }
 .preview-dots {
   display: flex;
@@ -1150,7 +1104,6 @@ code {
     border-bottom: 1px solid var(--card-border);
     padding: 18px 16px 14px 16px;
   }
-  .preview-nav-btn { opacity: 0.85; }
   .wizard-steps-col { padding: 20px 16px; gap: 8px; }
   .step-item-mini { padding: 10px 12px; }
   .step-text-wrap h4 { font-size: 14.5px; }
@@ -1845,12 +1798,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
           <img class="preview-slide" id="slide2" src="assets/step-3-microsoft.png" alt="Step 3: Connect Microsoft To Do" loading="lazy" onerror="this.src='docs/assets/step-3-microsoft.png'">
           <img class="preview-slide" id="slide3" src="assets/step-4-activate.png" alt="Step 4: Activate 10-Minute Sync" loading="lazy" onerror="this.src='docs/assets/step-4-activate.png'">
 
-          <!-- Center Play/Pause transient feedback (36px, matches nav arrows) -->
-          <div class="preview-center-badge" id="previewCenterBadge" aria-hidden="true">
-            <svg class="center-icon-play" id="centerIconPlay" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>
-            <svg class="center-icon-pause" id="centerIconPause" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="4" width="4" height="16" rx="1.5"/><rect x="14" y="4" width="4" height="16" rx="1.5"/></svg>
-          </div>
-
           <!-- Navigation buttons -->
           <button class="preview-nav-btn prev" id="prevSlideBtn" type="button" aria-label="Previous step">‹</button>
           <button class="preview-nav-btn next" id="nextSlideBtn" type="button" aria-label="Next step">›</button>
@@ -2167,9 +2114,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     const prevBtn = document.getElementById('prevSlideBtn');
     const nextBtn = document.getElementById('nextSlideBtn');
     const slidesBox = document.getElementById('previewSlidesBox');
-    const centerBadge = document.getElementById('previewCenterBadge');
-    const centerIconPlay = document.getElementById('centerIconPlay');
-    const centerIconPause = document.getElementById('centerIconPause');
     const togglePlayBtn = document.getElementById('togglePlayBtn');
     const barIconPlay = document.getElementById('barIconPlay');
     const barIconPause = document.getElementById('barIconPause');
@@ -2196,8 +2140,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
         if (togglePlayBtn) togglePlayBtn.classList.add('paused');
         if (barIconPlay) barIconPlay.style.display = 'inline-block';
         if (barIconPause) barIconPause.style.display = 'none';
-        if (centerIconPlay) centerIconPlay.style.display = 'inline-block';
-        if (centerIconPause) centerIconPause.style.display = 'none';
         if (playBtnText) {
           playBtnText.textContent = currentLang === 'zh-TW' ? '播放' : 'Play';
           playBtnText.setAttribute('data-i18n', 'wiz_play');
@@ -2208,8 +2150,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
         if (togglePlayBtn) togglePlayBtn.classList.remove('paused');
         if (barIconPlay) barIconPlay.style.display = 'none';
         if (barIconPause) barIconPause.style.display = 'inline-block';
-        if (centerIconPlay) centerIconPlay.style.display = 'none';
-        if (centerIconPause) centerIconPause.style.display = 'inline-block';
         if (playBtnText) {
           playBtnText.textContent = currentLang === 'zh-TW' ? '暫停' : 'Pause';
           playBtnText.setAttribute('data-i18n', 'wiz_pause');
@@ -2220,28 +2160,19 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     function setManualPaused(paused) {
       isManualPaused = paused;
+      if (!isManualPaused) {
+        isHoverPaused = false; // Always clear hover lock when user hits Play!
+      }
       updatePlayUi(isManualPaused);
       if (isManualPaused) {
         stopAutoPlay();
       } else {
-        if (isVisible && !isHoverPaused) startAutoPlay();
+        startAutoPlay();
       }
     }
 
-    function togglePlayState(showCenterRipple = true) {
+    function togglePlayState() {
       setManualPaused(!isManualPaused);
-      if (showCenterRipple && centerBadge) {
-        if (isManualPaused) {
-          if (centerIconPlay) centerIconPlay.style.display = 'none';
-          if (centerIconPause) centerIconPause.style.display = 'inline-block';
-        } else {
-          if (centerIconPlay) centerIconPlay.style.display = 'inline-block';
-          if (centerIconPause) centerIconPause.style.display = 'none';
-        }
-        centerBadge.classList.remove('pulse-anim');
-        void centerBadge.offsetWidth; // trigger reflow
-        centerBadge.classList.add('pulse-anim');
-      }
     }
 
     function setActiveStep(idx, manual = false) {
@@ -2276,7 +2207,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       progressPercent = 0;
 
       if (manual) {
-        // User explicitly clicked step/prev/next - freeze so they can inspect comfortably
         setManualPaused(true);
       }
     }
@@ -2295,7 +2225,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     function startAutoPlay() {
       stopAutoPlay();
-      if (!isManualPaused) {
+      if (!isManualPaused && isVisible) {
         progressTimer = setInterval(stepTick, 60);
       }
     }
@@ -2305,19 +2235,31 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       progressTimer = null;
     }
 
-    // Toggle button in bottom bar (no center ripple needed)
+    // Toggle button in bottom bar
     if (togglePlayBtn) {
       togglePlayBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        togglePlayState(false);
+        togglePlayState();
       });
     }
 
-    // Click anywhere on slides box to toggle play/pause (transient 36px ripple)
+    // Auto-fading navigation buttons on mobile / touch
+    let navFadeTimer = null;
+    function flashMobileNav() {
+      if (!slidesBox) return;
+      slidesBox.classList.add('show-nav');
+      clearTimeout(navFadeTimer);
+      navFadeTimer = setTimeout(() => {
+        slidesBox.classList.remove('show-nav');
+      }, 2200);
+    }
+
+    // Click anywhere on slides box: flash nav controls & toggle play/pause
     if (slidesBox) {
       slidesBox.addEventListener('click', (e) => {
         if (e.target.closest('.preview-nav-btn')) return;
-        togglePlayState(true);
+        flashMobileNav();
+        togglePlayState();
       });
     }
 
@@ -2340,24 +2282,29 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     // Prev / Next buttons
     if (prevBtn) prevBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      flashMobileNav();
       setActiveStep(currentIndex - 1, true);
     });
     if (nextBtn) nextBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      flashMobileNav();
       setActiveStep(currentIndex + 1, true);
     });
 
-    // Hover pauses (temporary pause if playing)
-    const showcaseRoot = document.querySelector('.wizard-showcase');
-    if (showcaseRoot) {
-      showcaseRoot.addEventListener('mouseenter', () => {
-        isHoverPaused = true;
-        stopAutoPlay();
-      });
-      showcaseRoot.addEventListener('mouseleave', () => {
-        isHoverPaused = false;
-        if (isVisible && !isManualPaused) startAutoPlay();
-      });
+    // Desktop hover: only active on actual hover-capable pointer devices
+    const isDesktopPointer = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    if (isDesktopPointer) {
+      const showcaseRoot = document.querySelector('.wizard-showcase');
+      if (showcaseRoot) {
+        showcaseRoot.addEventListener('mouseenter', () => {
+          isHoverPaused = true;
+          stopAutoPlay();
+        });
+        showcaseRoot.addEventListener('mouseleave', () => {
+          isHoverPaused = false;
+          if (isVisible && !isManualPaused) startAutoPlay();
+        });
+      }
     }
 
     // Mobile touch swipe gestures
@@ -2366,6 +2313,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     showcaseBox.addEventListener('touchstart', (e) => {
       touchStartX = e.changedTouches[0].screenX;
       touchStartY = e.changedTouches[0].screenY;
+      flashMobileNav();
     }, { passive: true });
 
     showcaseBox.addEventListener('touchend', (e) => {
@@ -2373,7 +2321,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       const touchEndY = e.changedTouches[0].screenY;
       const dx = touchEndX - touchStartX;
       const dy = touchEndY - touchStartY;
-      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+      if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy)) {
         if (dx < 0) setActiveStep(currentIndex + 1, true);
         else setActiveStep(currentIndex - 1, true);
       }
@@ -2388,7 +2336,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
           else stopAutoPlay();
         });
       }, { threshold: 0.2 });
-      if (showcaseRoot) obs.observe(showcaseRoot);
+      if (showcaseBox) obs.observe(showcaseBox);
     } else {
       isVisible = true;
       startAutoPlay();
