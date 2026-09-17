@@ -5,8 +5,13 @@
 <h1 align="center">Tasks–To Do Sync</h1>
 
 <p align="center">
-  <strong>Keep Google Tasks and Microsoft To Do in the same task loop.</strong><br>
-  A private, self-hosted bridge for people who capture tasks in Google and continue them in Microsoft.
+  <strong>Keep Google Tasks and Microsoft To Do in one seamless loop.</strong><br>
+  A private, self-hosted bridge that keeps your daily tasks effortlessly in sync across both ecosystems.<br>
+  <em>Google on your phone. Microsoft at your desk. Always in sync.</em>
+</p>
+
+<p align="center">
+  <a href="https://simonchai-tw.github.io/tasks-todo-sync/"><img src="https://img.shields.io/badge/🌐_Official_Website-Interactive_Demo_%26_Wizard-00b4d8?style=for-the-badge" alt="Official Website & Setup Wizard"></a>
 </p>
 
 <p align="center">
@@ -19,6 +24,7 @@
 </p>
 
 <p align="center">
+  <a href="https://simonchai-tw.github.io/tasks-todo-sync/">Official Website</a> ·
   <a href="#why-it-matters">Why it matters</a> ·
   <a href="#how-it-works">How it works</a> ·
   <a href="#what-stays-in-sync">Features</a> ·
@@ -93,11 +99,14 @@ The synchronization engine is covered by 417 automated tests, GitHub CI, CodeQL,
   </a>
 </p>
 
-Create and launch your private Google Apps Script project with one command:
+Choose between our browser-guided wizard or one-command terminal setup:
 
-```bash
-npx tasks-todo-sync init
-```
+- **Option A: Web Setup Wizard (No terminal required, 3 min)**  
+  Visit the **[Official Web Setup Wizard](https://simonchai-tw.github.io/tasks-todo-sync/)** for a step-by-step visual onboarding guide.
+- **Option B: One-Command CLI (Fast for developers)**  
+  ```bash
+  npx tasks-todo-sync init
+  ```
 
 | Step | What you do | What happens |
 |---|---|---|
