@@ -909,6 +909,7 @@ code {
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
   background: #090d16;
   margin-top: 10px;
+  touch-action: pan-y manipulation;
 }
 .preview-slide {
   position: absolute;
@@ -950,6 +951,7 @@ code {
   z-index: 10;
   opacity: 0;
   pointer-events: none;
+  touch-action: manipulation;
 }
 .preview-slides-box.show-nav .preview-nav-btn {
   opacity: 0.85;
@@ -1005,6 +1007,7 @@ code {
   transition: all 0.2s ease;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .preview-play-btn:active {
   transform: scale(0.94);
@@ -1038,6 +1041,7 @@ code {
   background: rgba(148, 163, 214, 0.25);
   cursor: pointer;
   transition: all 0.25s ease;
+  touch-action: manipulation;
 }
 .preview-dot.active {
   width: 22px;
@@ -1066,6 +1070,7 @@ code {
   background: transparent;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 @media (hover: hover) and (pointer: fine) {
   .step-item-mini:hover {
@@ -1817,7 +1822,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     <div class="wizard-showcase reveal" style="margin-top: 36px;">
       <!-- Visual Screenshot Column (Interactive Slides) -->
       <div class="wizard-preview-col" id="wizardShowcaseBox">
-        <div class="preview-slides-box" id="previewSlidesBox" title="Click to pause or play">
+        <div class="preview-slides-box" id="previewSlidesBox">
           <img class="preview-slide active" id="slide0" src="assets/step-1-terminal.webp" alt="Step 1: Run Setup Command" fetchpriority="high" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-1-terminal.png'">
           <img class="preview-slide" id="slide1" src="assets/step-2-google.webp" alt="Step 2: Google Tasks Authorization" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-2-google.png'">
           <img class="preview-slide" id="slide2" src="assets/step-3-microsoft.webp" alt="Step 3: Connect Microsoft To Do" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-3-microsoft.png'">
@@ -1831,7 +1836,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
         <div class="preview-bottom-bar">
           <div class="preview-status-wrap">
             <span class="preview-step-badge" id="previewStepBadge">Step 1 of 4</span>
-            <button class="preview-play-btn" id="togglePlayBtn" type="button" aria-label="Pause slideshow" title="Toggle slideshow auto-play">
+            <button class="preview-play-btn" id="togglePlayBtn" type="button" aria-label="Pause slideshow">
               <svg class="icon-pause" id="barIconPause" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1.5"/><rect x="14" y="4" width="4" height="16" rx="1.5"/></svg>
               <svg class="icon-play" id="barIconPlay" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><polygon points="6 4 20 12 6 20 6 4"/></svg>
               <span id="playBtnText" data-i18n="wiz_pause">Pause</span>
@@ -2260,12 +2265,18 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       progressTimer = null;
     }
 
-    // Toggle button in bottom bar
+    // Toggle button in bottom bar: instant pointerup + click debounced
     if (togglePlayBtn) {
-      togglePlayBtn.addEventListener('click', (e) => {
+      let lastToggleTime = 0;
+      const handleToggle = (e) => {
         e.stopPropagation();
+        const now = Date.now();
+        if (now - lastToggleTime < 350) return;
+        lastToggleTime = now;
         togglePlayState();
-      });
+      };
+      togglePlayBtn.addEventListener('pointerup', handleToggle);
+      togglePlayBtn.addEventListener('click', handleToggle);
     }
 
     // Auto-fading navigation buttons on mobile / touch
@@ -2281,11 +2292,16 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     // Click anywhere on slides box: flash nav controls & toggle play/pause
     if (slidesBox) {
-      slidesBox.addEventListener('click', (e) => {
+      let lastBoxToggle = 0;
+      const handleBoxTap = (e) => {
         if (e.target.closest('.preview-nav-btn')) return;
+        const now = Date.now();
+        if (now - lastBoxToggle < 350) return;
+        lastBoxToggle = now;
         flashMobileNav();
         togglePlayState();
-      });
+      };
+      slidesBox.addEventListener('click', handleBoxTap);
     }
 
     // Step item clicks
@@ -2332,25 +2348,27 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       }
     }
 
-    // Mobile touch swipe gestures
+    // Mobile touch swipe gestures on the slideshow image
     let touchStartX = 0;
     let touchStartY = 0;
-    showcaseBox.addEventListener('touchstart', (e) => {
-      touchStartX = e.changedTouches[0].screenX;
-      touchStartY = e.changedTouches[0].screenY;
-      flashMobileNav();
-    }, { passive: true });
+    if (slidesBox) {
+      slidesBox.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+      }, { passive: true });
 
-    showcaseBox.addEventListener('touchend', (e) => {
-      const touchEndX = e.changedTouches[0].screenX;
-      const touchEndY = e.changedTouches[0].screenY;
-      const dx = touchEndX - touchStartX;
-      const dy = touchEndY - touchStartY;
-      if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy)) {
-        if (dx < 0) setActiveStep(currentIndex + 1, true);
-        else setActiveStep(currentIndex - 1, true);
-      }
-    }, { passive: true });
+      slidesBox.addEventListener('touchend', (e) => {
+        const touchEndX = e.changedTouches[0].screenX;
+        const touchEndY = e.changedTouches[0].screenY;
+        const dx = touchEndX - touchStartX;
+        const dy = touchEndY - touchStartY;
+        if (Math.abs(dx) > 35 && Math.abs(dx) > Math.abs(dy)) {
+          flashMobileNav();
+          if (dx < 0) setActiveStep(currentIndex + 1, true);
+          else setActiveStep(currentIndex - 1, true);
+        }
+      }, { passive: true });
+    }
 
     // IntersectionObserver - only run when visible in viewport
     if ('IntersectionObserver' in window) {
