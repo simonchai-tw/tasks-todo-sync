@@ -1963,7 +1963,7 @@ footer {
       <div style="margin-top: 24px; text-align: center;">
         <button class="btn btn-teal" id="openWizardModalBtn" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          <span data-i18n="btn_view_steps">查看圖文安裝詳細指引</span>
+          <span data-i18n="btn_view_steps">開啟免終端機步驟指引</span>
         </button>
       </div>
     </div>
@@ -2016,9 +2016,9 @@ footer {
 <section class="sec-padding" id="video">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_video">實機展示</span>
-      <h2 class="sec-title" data-i18n="video_title">觀看專案 <span class="grad-text">實機雙向同步演示</span></h2>
-      <p class="lead-text" data-i18n="video_lead">作者親自錄製實機操作，展示任務在 Google Tasks 與 Microsoft To Do 之間毫秒級即時傳遞的真實過程。</p>
+      <span class="eyebrow" data-i18n="eyebrow_video">專案影片</span>
+      <h2 class="sec-title" data-i18n="video_title">觀看專案 <span class="grad-text">官方概念宣傳片</span></h2>
+      <p class="lead-text" data-i18n="video_lead">作者親自製作的官方概念宣傳短片，呈現跨越 Google 與 Microsoft 雙待辦生態、保持單一任務循環的核心精神。</p>
     </div>
 
     <div class="video-card-container reveal">
@@ -2029,7 +2029,7 @@ footer {
           <div class="play-button-glow"></div>
           <div class="video-poster-tag">
             <span class="live-red"></span>
-            <span data-i18n="video_badge_live">Official Demo · 1080p HD</span>
+            <span data-i18n="video_badge_live">Official Promo · 1080p HD</span>
           </div>
         </div>
 
@@ -2038,7 +2038,7 @@ footer {
           class="video-iframe-slot" 
           id="ytIframe"
           data-src="https://www.youtube-nocookie.com/embed/nhni7xPxgg0?autoplay=1&rel=0&modestbranding=1&playsinline=1"
-          title="Tasks–To Do Sync 專案實機雙向同步演示"
+          title="Tasks–To Do Sync 官方概念宣傳短片"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
           allowfullscreen>
         </iframe>
@@ -2046,19 +2046,19 @@ footer {
 
       <!-- Video Description & Links -->
       <div class="video-desc-panel">
-        <h3 data-i18n="video_h3">Tasks–To Do Sync 實機操作錄影</h3>
+        <h3 data-i18n="video_h3">Tasks–To Do Sync 專案概念形象片</h3>
         <p data-i18n="video_p">
-          本影片完整示範從雙向新增任務、修改內容、完成勾選到到期日校準的完整同步過程。點擊左側封面即可原地流暢播放 YouTube 串流。
+          本影片為作者親自剪輯的專案形象短片，呈現打破兩大任務生態壁壘的核心理念。點擊左側封面即可原地流暢觀看 YouTube 串流。
         </p>
         <div class="video-meta-tags">
-          <span data-i18n="tag_author">原作者錄製</span>
+          <span data-i18n="tag_author">原作者製作</span>
           <span data-i18n="tag_youtube">YouTube 串流</span>
           <span data-i18n="tag_sound">建議開啟聲音 🔊</span>
         </div>
         <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
           <button class="btn btn-primary btn-sm" id="playTriggerBtn" type="button">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            <span data-i18n="btn_play_video">原地播放影片</span>
+            <span data-i18n="btn_play_video">觀看形象宣傳片</span>
           </button>
           <a class="btn btn-ghost btn-sm" href="https://youtu.be/nhni7xPxgg0" target="_blank" rel="noopener">
             <span data-i18n="btn_yt_open">在 YouTube 開新視窗 ↗</span>
@@ -2212,7 +2212,7 @@ footer {
 
     <div style="margin-top: 24px; display: flex; gap: 10px; justify-content: flex-end;">
       <a class="btn btn-ghost btn-sm" href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/docs/quick-start.md" target="_blank" rel="noopener">
-        查看完整圖文文檔 ↗
+        GitHub 部署技術手冊 (英文 Markdown) ↗
       </a>
       <button class="btn btn-primary btn-sm" id="closeModalConfirmBtn" type="button">
         我知道了！
@@ -2502,7 +2502,7 @@ footer {
       'web_s3_p': 'Open your private setup wizard and enter the code at microsoft.com/link.',
       'web_s4_h': 'Activate Auto-Sync',
       'web_s4_p': 'Click "Activate" to schedule the 10-minute automatic background trigger.',
-      'btn_view_steps': 'View Step-by-Step Setup Guide',
+      'btn_view_steps': 'Open No-Terminal Setup Wizard Guide',
       'cli_s1_h': 'Run init command',
       'cli_s1_p': 'Run the command in your terminal to initialize and push the release code.',
       'cli_s2_h': 'Google Consent',
@@ -2512,16 +2512,16 @@ footer {
       'cli_s4_h': 'Schedule Trigger',
       'cli_s4_p': 'Run createTrigger to start 10-minute autonomous background sync.',
       'btn_copy_cmd': 'Copy Command',
-      'eyebrow_video': 'Live Demo',
-      'video_title': 'See the bridge <span class="grad-text">in real action</span>',
-      'video_lead': 'Watch the author demonstrate live tasks flowing seamlessly both ways between Google and Microsoft.',
-      'video_badge_live': 'Official Demo · 1080p HD',
-      'video_h3': 'Tasks–To Do Sync Official Walkthrough',
-      'video_p': 'This video demonstrates bidirectional task creation, status checkmarks, due date alignment, and zero-loss updates in real time.',
+      'eyebrow_video': 'Official Video',
+      'video_title': 'Watch the Official <span class="grad-text">Promo Video</span>',
+      'video_lead': 'Watch the author's concept promo showcasing the vision of keeping Google and Microsoft task loops seamlessly united.',
+      'video_badge_live': 'Official Promo · 1080p HD',
+      'video_h3': 'Tasks–To Do Sync Official Concept Promo',
+      'video_p': 'This video introduces the project's core philosophy and experience in bridging Google Tasks and Microsoft To Do. Click the poster to play in-place via YouTube.',
       'tag_author': 'By Author',
       'tag_youtube': 'YouTube Stream',
       'tag_sound': 'Sound Recommended 🔊',
-      'btn_play_video': 'Play Video Here',
+      'btn_play_video': 'Watch Promo Video',
       'btn_yt_open': 'Open on YouTube ↗',
       'eyebrow_docs': 'Documentation',
       'docs_title': 'Fully documented, <span class="grad-text">open source and auditable</span>',
