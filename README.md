@@ -10,10 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://simonchai-tw.github.io/tasks-todo-sync/"><img src="https://img.shields.io/badge/🌐_Official_Website-Setup_Wizard-00b4d8?style=for-the-badge" alt="Official Website & Setup Wizard"></a>
-</p>
-
-<p align="center">
+  <a href="https://simonchai-tw.github.io/tasks-todo-sync/"><img src="https://img.shields.io/badge/website-online-2dd4bf?style=flat-square" alt="Website"></a>
   <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/simonchai-tw/tasks-todo-sync/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL"></a>
   <a href="https://www.npmjs.com/package/tasks-todo-sync"><img src="https://img.shields.io/npm/v/tasks-todo-sync?style=flat-square" alt="npm version"></a>
