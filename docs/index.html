@@ -878,71 +878,283 @@ code {
   border-radius: var(--radius-xl);
   overflow: hidden;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1.15fr 1fr;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
 }
 .wizard-preview-col {
   position: relative;
-  background: #090e1a;
+  background: #070b14;
   border-right: 1px solid var(--card-border);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: 24px 20px;
   overflow: hidden;
+  user-select: none;
 }
-.wizard-preview-img {
+.preview-slides-box {
+  position: relative;
   width: 100%;
-  max-height: 480px;
-  object-fit: cover;
-  object-position: top;
+  aspect-ratio: 864 / 546;
   border-radius: var(--radius-md);
+  overflow: hidden;
   border: 1px solid var(--line);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
-  transition: transform 0.3s ease;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
+  background: #090d16;
 }
-.wizard-preview-col:hover .wizard-preview-img {
-  transform: scale(1.02);
+.preview-slide {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transform: scale(0.985);
+  transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
 }
+.preview-slide.active {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+.preview-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 20px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  z-index: 10;
+  opacity: 0;
+}
+.wizard-preview-col:hover .preview-nav-btn {
+  opacity: 0.85;
+}
+.preview-nav-btn:hover {
+  opacity: 1 !important;
+  background: var(--grad-primary);
+  color: #070b14;
+  transform: translateY(-50%) scale(1.1);
+}
+.preview-nav-btn.prev { left: 12px; }
+.preview-nav-btn.next { right: 12px; }
+
+.preview-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 14px;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.preview-status-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.preview-step-badge {
+  font-weight: 600;
+  color: var(--teal);
+  letter-spacing: 0.02em;
+}
+.preview-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(148, 163, 214, 0.08);
+  border: 1px solid rgba(148, 163, 214, 0.2);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.preview-play-btn:hover {
+  background: rgba(45, 212, 191, 0.15);
+  border-color: rgba(45, 212, 191, 0.4);
+  color: var(--teal);
+}
+.preview-play-btn.paused {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+.preview-center-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.9);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s ease, background 0.2s ease;
+  z-index: 9;
+}
+.preview-center-badge svg {
+  width: 15px;
+  height: 15px;
+}
+/* When paused: show 36px Play button (matches 36px arrows) so mobile and desktop can tap to play */
+.wizard-preview-col.is-paused .preview-center-badge {
+  opacity: 0.88;
+  transform: translate(-50%, -50%) scale(1);
+  pointer-events: auto;
+}
+/* Desktop hover: gently reveal 36px icon on hover, 0% opacity when leaving */
+@media (hover: hover) and (pointer: fine) {
+  .preview-slides-box:hover .preview-center-badge {
+    opacity: 0.85;
+    transform: translate(-50%, -50%) scale(1);
+    pointer-events: auto;
+  }
+  .preview-center-badge:hover {
+    opacity: 1 !important;
+    background: var(--grad-primary);
+    color: #070b14;
+    transform: translate(-50%, -50%) scale(1.1);
+  }
+}
+.preview-center-badge.pulse-anim {
+  animation: centerBadgePulse 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes centerBadgePulse {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.7); }
+  25% { opacity: 0.95; transform: translate(-50%, -50%) scale(1.08); }
+  60% { opacity: 0.85; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.2); }
+}
+.preview-dots {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.preview-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(148, 163, 214, 0.25);
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+.preview-dot.active {
+  width: 22px;
+  border-radius: 999px;
+  background: var(--teal);
+}
+
 .wizard-steps-col {
-  padding: clamp(24px, 4vw, 40px);
+  padding: clamp(20px, 3.5vw, 36px);
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 20px;
+  gap: 12px;
 }
 .step-item-mini {
   display: flex;
   gap: 14px;
   align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.22s ease;
+  position: relative;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+}
+.step-item-mini:hover {
+  background: rgba(148, 163, 214, 0.05);
+  border-color: rgba(148, 163, 214, 0.15);
+}
+.step-item-mini.active {
+  background: rgba(45, 212, 191, 0.08);
+  border-color: rgba(45, 212, 191, 0.35);
+  box-shadow: 0 4px 18px rgba(45, 212, 191, 0.08);
 }
 .step-num-pill {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: var(--grad-primary);
-  color: #070b14;
+  background: rgba(148, 163, 214, 0.15);
+  color: var(--text-dim);
   font-weight: 900;
   font-size: 13.5px;
   display: grid;
   place-items: center;
   flex: none;
+  transition: all 0.22s ease;
+}
+.step-item-mini.active .step-num-pill {
+  background: var(--grad-primary);
+  color: #070b14;
+  box-shadow: 0 2px 10px rgba(66, 133, 244, 0.35);
 }
 .step-text-wrap h4 {
-  font-size: 15.5px;
+  font-size: 15px;
   font-weight: 700;
   margin-bottom: 3px;
+  color: var(--text);
+  transition: color 0.22s ease;
+}
+.step-item-mini.active .step-text-wrap h4 {
+  color: var(--teal);
 }
 .step-text-wrap p {
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text-dim);
-  line-height: 1.55;
+  line-height: 1.5;
+}
+.step-progress-line {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2.5px;
+  width: 0%;
+  background: var(--teal);
+  transition: width 0.08s linear;
 }
 
 @media (max-width: 960px) {
   .wizard-showcase { grid-template-columns: 1fr; }
-  .wizard-preview-col { border-right: none; border-bottom: 1px solid var(--card-border); }
-  .wizard-preview-img { max-height: 320px; }
+  .wizard-preview-col {
+    border-right: none;
+    border-bottom: 1px solid var(--card-border);
+    padding: 18px 16px 14px 16px;
+  }
+  .preview-nav-btn { opacity: 0.85; }
+  .wizard-steps-col { padding: 20px 16px; gap: 8px; }
+  .step-item-mini { padding: 10px 12px; }
+  .step-text-wrap h4 { font-size: 14.5px; }
+  .step-text-wrap p { font-size: 12.5px; }
 }
 
 /* CLI Pane */
@@ -1583,19 +1795,19 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     <div class="stat-strip">
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="417">0</div>
+        <div class="stat-num" data-count="417">417</div>
         <div class="stat-label" data-i18n="stat_1">Automated tests covering sync engine</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="8" data-suffix="">0</div>
+        <div class="stat-num" data-count="8" data-suffix="">8</div>
         <div class="stat-label" data-i18n="stat_2">Two-way synced data categories</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="10" data-suffix=" min">0</div>
+        <div class="stat-num" data-count="10" data-suffix=" min">10 min</div>
         <div class="stat-label" data-i18n="stat_3">Background sync trigger cadence</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="0" data-suffix="$">0</div>
+        <div class="stat-num" data-count="0" data-prefix="$">$0</div>
         <div class="stat-label" data-i18n="stat_4">Subscription fees · Free forever</div>
       </div>
     </div>
@@ -1625,50 +1837,79 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     <!-- UNIFIED SETUP SHOWCASE -->
     <div class="wizard-showcase reveal" style="margin-top: 36px;">
-      <!-- Visual Screenshot Column -->
-      <div class="wizard-preview-col">
-        <img class="wizard-preview-img" src="assets/setup-wizard.png" alt="Tasks-To Do Sync Easy Setup Wizard Interface" onerror="this.src='docs/assets/setup-wizard.png'">
+      <!-- Visual Screenshot Column (Interactive Slides) -->
+      <div class="wizard-preview-col" id="wizardShowcaseBox">
+        <div class="preview-slides-box" id="previewSlidesBox" title="Click to pause or play">
+          <img class="preview-slide active" id="slide0" src="assets/step-1-terminal.png" alt="Step 1: Run Setup Command" loading="lazy" onerror="this.src='docs/assets/step-1-terminal.png'">
+          <img class="preview-slide" id="slide1" src="assets/step-2-google.png" alt="Step 2: Google Tasks Authorization" loading="lazy" onerror="this.src='docs/assets/step-2-google.png'">
+          <img class="preview-slide" id="slide2" src="assets/step-3-microsoft.png" alt="Step 3: Connect Microsoft To Do" loading="lazy" onerror="this.src='docs/assets/step-3-microsoft.png'">
+          <img class="preview-slide" id="slide3" src="assets/step-4-activate.png" alt="Step 4: Activate 10-Minute Sync" loading="lazy" onerror="this.src='docs/assets/step-4-activate.png'">
+
+          <!-- Center Play/Pause transient feedback (36px, matches nav arrows) -->
+          <div class="preview-center-badge" id="previewCenterBadge" aria-hidden="true">
+            <svg class="center-icon-play" id="centerIconPlay" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+            <svg class="center-icon-pause" id="centerIconPause" width="15" height="15" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><rect x="6" y="4" width="4" height="16" rx="1.5"/><rect x="14" y="4" width="4" height="16" rx="1.5"/></svg>
+          </div>
+
+          <!-- Navigation buttons -->
+          <button class="preview-nav-btn prev" id="prevSlideBtn" type="button" aria-label="Previous step">‹</button>
+          <button class="preview-nav-btn next" id="nextSlideBtn" type="button" aria-label="Next step">›</button>
+        </div>
+
+        <div class="preview-bottom-bar">
+          <div class="preview-status-wrap">
+            <span class="preview-step-badge" id="previewStepBadge">Step 1 of 4</span>
+            <button class="preview-play-btn" id="togglePlayBtn" type="button" aria-label="Pause slideshow" title="Toggle slideshow auto-play">
+              <svg class="icon-pause" id="barIconPause" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1.5"/><rect x="14" y="4" width="4" height="16" rx="1.5"/></svg>
+              <svg class="icon-play" id="barIconPlay" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+              <span id="playBtnText" data-i18n="wiz_pause">Pause</span>
+            </button>
+          </div>
+          <div class="preview-dots" id="previewDots">
+            <span class="preview-dot active" data-step="0"></span>
+            <span class="preview-dot" data-step="1"></span>
+            <span class="preview-dot" data-step="2"></span>
+            <span class="preview-dot" data-step="3"></span>
+          </div>
+        </div>
       </div>
 
-      <!-- 4 Step Guide Column -->
-      <div class="wizard-steps-col">
-        <div class="step-item-mini">
+      <!-- 4 Step Guide Column (Interactive Tabs) -->
+      <div class="wizard-steps-col" id="wizardStepsCol">
+        <div class="step-item-mini active" data-step="0" role="button" tabindex="0">
           <div class="step-num-pill">1</div>
           <div class="step-text-wrap">
             <h4 data-i18n="wiz_s1_h">Run Setup Command</h4>
             <p data-i18n="wiz_s1_p">Open terminal and run <code>npx tasks-todo-sync init</code> to create your private project.</p>
           </div>
+          <div class="step-progress-line"></div>
         </div>
 
-        <div class="step-item-mini">
+        <div class="step-item-mini" data-step="1" role="button" tabindex="0">
           <div class="step-num-pill">2</div>
           <div class="step-text-wrap">
             <h4 data-i18n="wiz_s2_h">Deploy &amp; Open Wizard</h4>
             <p data-i18n="wiz_s2_p">Open the printed URL, click <b>Deploy → Web app</b>, and open the generated link.</p>
           </div>
+          <div class="step-progress-line"></div>
         </div>
 
-        <div class="step-item-mini">
+        <div class="step-item-mini" data-step="2" role="button" tabindex="0">
           <div class="step-num-pill">3</div>
           <div class="step-text-wrap">
             <h4 data-i18n="wiz_s3_h">Connect Microsoft Account</h4>
             <p data-i18n="wiz_s3_p">In the wizard, click "Connect" and enter the code at <b>microsoft.com/link</b>.</p>
           </div>
+          <div class="step-progress-line"></div>
         </div>
 
-        <div class="step-item-mini">
+        <div class="step-item-mini" data-step="3" role="button" tabindex="0">
           <div class="step-num-pill">4</div>
           <div class="step-text-wrap">
             <h4 data-i18n="wiz_s4_h">Activate 10-Minute Sync</h4>
             <p data-i18n="wiz_s4_p">Click "Activate" in the wizard to start automatic background synchronization!</p>
           </div>
-        </div>
-
-        <div style="margin-top: 6px;">
-          <button class="btn btn-teal" id="openWizardModalBtn" type="button">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-            <span data-i18n="btn_view_steps">Open Setup Guide</span>
-          </button>
+          <div class="step-progress-line"></div>
         </div>
       </div>
     </div>
@@ -1868,6 +2109,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 (function() {
   'use strict';
 
+  let currentLang = 'en';
   const CMD = 'npx tasks-todo-sync init';
   const toast = document.getElementById('toastNotice');
 
@@ -1907,7 +2149,260 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   const heroCopyBtn = document.getElementById('heroCopyCliBtn');
   if (heroCopyBtn) heroCopyBtn.addEventListener('click', () => copyText(CMD));
 
-  // Unified onboarding flow (tabs removed)
+  // Interactive Onboarding Showcase Controller
+  (function initWizardShowcase() {
+    const showcaseBox = document.getElementById('wizardShowcaseBox');
+    const stepsCol = document.getElementById('wizardStepsCol');
+    if (!showcaseBox || !stepsCol) return;
+
+    const slides = [
+      document.getElementById('slide0'),
+      document.getElementById('slide1'),
+      document.getElementById('slide2'),
+      document.getElementById('slide3')
+    ];
+    const stepItems = stepsCol.querySelectorAll('.step-item-mini');
+    const dots = document.querySelectorAll('.preview-dot');
+    const badge = document.getElementById('previewStepBadge');
+    const prevBtn = document.getElementById('prevSlideBtn');
+    const nextBtn = document.getElementById('nextSlideBtn');
+    const slidesBox = document.getElementById('previewSlidesBox');
+    const centerBadge = document.getElementById('previewCenterBadge');
+    const centerIconPlay = document.getElementById('centerIconPlay');
+    const centerIconPause = document.getElementById('centerIconPause');
+    const togglePlayBtn = document.getElementById('togglePlayBtn');
+    const barIconPlay = document.getElementById('barIconPlay');
+    const barIconPause = document.getElementById('barIconPause');
+    const playBtnText = document.getElementById('playBtnText');
+
+    let currentIndex = 0;
+    let progressTimer = null;
+    let progressPercent = 0;
+    let isManualPaused = false;
+    let isHoverPaused = false;
+    let isVisible = false;
+    const STEP_DURATION = 4200; // 4.2s per step
+
+    function updateBadge(idx) {
+      if (!badge) return;
+      badge.textContent = currentLang === 'zh-TW' 
+        ? `步驟 ${idx + 1} / 4` 
+        : `Step ${idx + 1} of 4`;
+    }
+
+    function updatePlayUi(paused) {
+      if (paused) {
+        showcaseBox.classList.add('is-paused');
+        if (togglePlayBtn) togglePlayBtn.classList.add('paused');
+        if (barIconPlay) barIconPlay.style.display = 'inline-block';
+        if (barIconPause) barIconPause.style.display = 'none';
+        if (centerIconPlay) centerIconPlay.style.display = 'inline-block';
+        if (centerIconPause) centerIconPause.style.display = 'none';
+        if (playBtnText) {
+          playBtnText.textContent = currentLang === 'zh-TW' ? '播放' : 'Play';
+          playBtnText.setAttribute('data-i18n', 'wiz_play');
+        }
+        if (togglePlayBtn) togglePlayBtn.setAttribute('aria-label', currentLang === 'zh-TW' ? '播放輪播' : 'Play slideshow');
+      } else {
+        showcaseBox.classList.remove('is-paused');
+        if (togglePlayBtn) togglePlayBtn.classList.remove('paused');
+        if (barIconPlay) barIconPlay.style.display = 'none';
+        if (barIconPause) barIconPause.style.display = 'inline-block';
+        if (centerIconPlay) centerIconPlay.style.display = 'none';
+        if (centerIconPause) centerIconPause.style.display = 'inline-block';
+        if (playBtnText) {
+          playBtnText.textContent = currentLang === 'zh-TW' ? '暫停' : 'Pause';
+          playBtnText.setAttribute('data-i18n', 'wiz_pause');
+        }
+        if (togglePlayBtn) togglePlayBtn.setAttribute('aria-label', currentLang === 'zh-TW' ? '暫停輪播' : 'Pause slideshow');
+      }
+    }
+
+    function setManualPaused(paused) {
+      isManualPaused = paused;
+      updatePlayUi(isManualPaused);
+      if (isManualPaused) {
+        stopAutoPlay();
+      } else {
+        if (isVisible && !isHoverPaused) startAutoPlay();
+      }
+    }
+
+    function togglePlayState(showCenterRipple = true) {
+      setManualPaused(!isManualPaused);
+      if (showCenterRipple && centerBadge) {
+        if (isManualPaused) {
+          if (centerIconPlay) centerIconPlay.style.display = 'none';
+          if (centerIconPause) centerIconPause.style.display = 'inline-block';
+        } else {
+          if (centerIconPlay) centerIconPlay.style.display = 'inline-block';
+          if (centerIconPause) centerIconPause.style.display = 'none';
+        }
+        centerBadge.classList.remove('pulse-anim');
+        void centerBadge.offsetWidth; // trigger reflow
+        centerBadge.classList.add('pulse-anim');
+      }
+    }
+
+    function setActiveStep(idx, manual = false) {
+      currentIndex = (idx + 4) % 4;
+
+      // Update slides
+      slides.forEach((sl, i) => {
+        if (!sl) return;
+        if (i === currentIndex) sl.classList.add('active');
+        else sl.classList.remove('active');
+      });
+
+      // Update step items
+      stepItems.forEach((item, i) => {
+        const line = item.querySelector('.step-progress-line');
+        if (i === currentIndex) {
+          item.classList.add('active');
+          if (line) line.style.width = '0%';
+        } else {
+          item.classList.remove('active');
+          if (line) line.style.width = '0%';
+        }
+      });
+
+      // Update dots
+      dots.forEach((dot, i) => {
+        if (i === currentIndex) dot.classList.add('active');
+        else dot.classList.remove('active');
+      });
+
+      updateBadge(currentIndex);
+      progressPercent = 0;
+
+      if (manual) {
+        // User explicitly clicked step/prev/next - freeze so they can inspect comfortably
+        setManualPaused(true);
+      }
+    }
+
+    function stepTick() {
+      if (isManualPaused || isHoverPaused || !isVisible) return;
+      progressPercent += (100 / (STEP_DURATION / 60));
+      const activeLine = stepItems[currentIndex]?.querySelector('.step-progress-line');
+      if (activeLine) activeLine.style.width = Math.min(progressPercent, 100) + '%';
+
+      if (progressPercent >= 100) {
+        progressPercent = 0;
+        setActiveStep(currentIndex + 1);
+      }
+    }
+
+    function startAutoPlay() {
+      stopAutoPlay();
+      if (!isManualPaused) {
+        progressTimer = setInterval(stepTick, 60);
+      }
+    }
+
+    function stopAutoPlay() {
+      if (progressTimer) clearInterval(progressTimer);
+      progressTimer = null;
+    }
+
+    // Toggle button in bottom bar (no center ripple needed)
+    if (togglePlayBtn) {
+      togglePlayBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePlayState(false);
+      });
+    }
+
+    // Click anywhere on slides box to toggle play/pause (transient 36px ripple)
+    if (slidesBox) {
+      slidesBox.addEventListener('click', (e) => {
+        if (e.target.closest('.preview-nav-btn')) return;
+        togglePlayState(true);
+      });
+    }
+
+    // Step item clicks
+    stepItems.forEach((item, idx) => {
+      item.addEventListener('click', () => setActiveStep(idx, true));
+      item.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setActiveStep(idx, true);
+        }
+      });
+    });
+
+    // Dots clicks
+    dots.forEach((dot, idx) => {
+      dot.addEventListener('click', () => setActiveStep(idx, true));
+    });
+
+    // Prev / Next buttons
+    if (prevBtn) prevBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setActiveStep(currentIndex - 1, true);
+    });
+    if (nextBtn) nextBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setActiveStep(currentIndex + 1, true);
+    });
+
+    // Hover pauses (temporary pause if playing)
+    const showcaseRoot = document.querySelector('.wizard-showcase');
+    if (showcaseRoot) {
+      showcaseRoot.addEventListener('mouseenter', () => {
+        isHoverPaused = true;
+        stopAutoPlay();
+      });
+      showcaseRoot.addEventListener('mouseleave', () => {
+        isHoverPaused = false;
+        if (isVisible && !isManualPaused) startAutoPlay();
+      });
+    }
+
+    // Mobile touch swipe gestures
+    let touchStartX = 0;
+    let touchStartY = 0;
+    showcaseBox.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+      touchStartY = e.changedTouches[0].screenY;
+    }, { passive: true });
+
+    showcaseBox.addEventListener('touchend', (e) => {
+      const touchEndX = e.changedTouches[0].screenX;
+      const touchEndY = e.changedTouches[0].screenY;
+      const dx = touchEndX - touchStartX;
+      const dy = touchEndY - touchStartY;
+      if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+        if (dx < 0) setActiveStep(currentIndex + 1, true);
+        else setActiveStep(currentIndex - 1, true);
+      }
+    }, { passive: true });
+
+    // IntersectionObserver - only run when visible in viewport
+    if ('IntersectionObserver' in window) {
+      const obs = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          isVisible = entry.isIntersecting;
+          if (isVisible && !isManualPaused && !isHoverPaused) startAutoPlay();
+          else stopAutoPlay();
+        });
+      }, { threshold: 0.2 });
+      if (showcaseRoot) obs.observe(showcaseRoot);
+    } else {
+      isVisible = true;
+      startAutoPlay();
+    }
+
+    // Tab visibility change
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) stopAutoPlay();
+      else if (isVisible && !isManualPaused && !isHoverPaused) startAutoPlay();
+    });
+
+    // Initial state
+    updatePlayUi(false);
+  })();
 
   // Video in-place YouTube embed
   const videoPoster = document.getElementById('videoPoster');
@@ -1992,6 +2487,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
         counterIo.unobserve(entry.target);
         const el = entry.target;
         const target = parseInt(el.getAttribute('data-count'), 10) || 0;
+        const prefix = el.getAttribute('data-prefix') || '';
         const suffix = el.getAttribute('data-suffix') || '';
         let start = null;
 
@@ -1999,19 +2495,18 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
           if (!start) start = timestamp;
           const progress = Math.min((timestamp - start) / 1000, 1);
           const eased = 1 - Math.pow(1 - progress, 3);
-          el.textContent = Math.round(target * eased) + suffix;
+          el.textContent = prefix + Math.round(target * eased) + suffix;
           if (progress < 1) requestAnimationFrame(step);
         }
         requestAnimationFrame(step);
       });
-    }, { threshold: 0.5 });
+    }, { threshold: 0.15 });
     counters.forEach(c => counterIo.observe(c));
   }
 
   // ==========================================================================
   // I18N (ENGLISH IS DEFAULT, MANUAL TOGGLE TO TRADITIONAL CHINESE)
   // ==========================================================================
-  let currentLang = 'en';
   const langBtn = document.getElementById('langBtn');
   const langText = document.getElementById('langText');
 
@@ -2118,6 +2613,8 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'wiz_s3_p': '在精靈點擊 Connect，前往 <b>microsoft.com/link</b> 輸入短碼授權。',
     'wiz_s4_h': '啟動背景自動同步',
     'wiz_s4_p': '在精靈點擊 Activate，立即建立排程，每 10 分鐘自動背景靜默同步！',
+    'wiz_pause': '暫停',
+    'wiz_play': '播放',
     'btn_view_steps': '開啟安裝步驟指引',
     'eyebrow_video': '概念影片',
     'video_title': '觀看專案 <span class="grad-text">官方概念宣傳片</span>',
@@ -2267,6 +2764,8 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'wiz_s3_p': 'In the wizard, click "Connect" and enter the code at <b>microsoft.com/link</b>.',
     'wiz_s4_h': 'Activate 10-Minute Sync',
     'wiz_s4_p': 'Click "Activate" in the wizard to start automatic background synchronization!',
+    'wiz_pause': 'Pause',
+    'wiz_play': 'Play',
     'btn_view_steps': 'Open Setup Guide',
     'eyebrow_video': 'Concept Video',
     'video_title': 'See the vision behind <span class="grad-text">Tasks–To Do Sync</span>',
