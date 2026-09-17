@@ -6,12 +6,11 @@
 
 <p align="center">
   <strong>Keep Google Tasks and Microsoft To Do in one seamless loop.</strong><br>
-  A private, self-hosted bridge that keeps your daily tasks effortlessly in sync across both ecosystems.<br>
-  <em>Google on your phone. Microsoft at your desk. Always in sync.</em>
+  A private, self-hosted bridge that keeps your daily tasks effortlessly in sync across both ecosystems.
 </p>
 
 <p align="center">
-  <a href="https://simonchai-tw.github.io/tasks-todo-sync/"><img src="https://img.shields.io/badge/🌐_Official_Website-Interactive_Demo_%26_Wizard-00b4d8?style=for-the-badge" alt="Official Website & Setup Wizard"></a>
+  <a href="https://simonchai-tw.github.io/tasks-todo-sync/"><img src="https://img.shields.io/badge/🌐_Official_Website-Setup_Wizard-00b4d8?style=for-the-badge" alt="Official Website & Setup Wizard"></a>
 </p>
 
 <p align="center">
