@@ -1,20 +1,20 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Tasks–To Do Sync · 專案推廣與雙向同步展示</title>
-<meta name="description" content="全自託管、完全開源的 Google Tasks 與 Microsoft To Do 雙向即時同步引擎。運行於您自己的 Google Apps Script，保護資料隱私，零伺服器維護與月費。">
-<meta name="keywords" content="Google Tasks, Microsoft To Do, 雙向同步, Google Apps Script, 自託管, tasks-todo-sync">
-<meta property="og:title" content="Tasks–To Do Sync · 雙向任務同步專案">
-<meta property="og:description" content="讓 Google Tasks 與 Microsoft To Do 保持雙向一致。無第三方雲端、免訂閱月費，私有安全。">
+<title>Tasks–To Do Sync · Bidirectional Sync Engine</title>
+<meta name="description" content="Self-hosted, open-source bidirectional synchronization engine between Google Tasks and Microsoft To Do. Powered entirely by your own Google Apps Script project.">
+<meta name="keywords" content="Google Tasks, Microsoft To Do, bidirectional sync, Google Apps Script, self-hosted, tasks-todo-sync">
+<meta property="og:title" content="Tasks–To Do Sync · Keep Tasks &amp; To Do in One Loop">
+<meta property="og:description" content="A private, self-hosted sync bridge between Google Tasks and Microsoft To Do. No intermediate cloud servers, zero subscription fees.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="https://i.ytimg.com/vi/nhni7xPxgg0/hqdefault.jpg">
 <link rel="icon" href="https://img.alicdn.com/imgextra/i4/O1CN01uar8u91DHWktnF2fl_!!6000000000191-2-tps-110-110.png">
 
 <style>
 /* ==========================================================================
-   DESIGN TOKENS & CSS RESET
+   DESIGN TOKENS & RESET
    ========================================================================== */
 :root {
   --bg: #070b14;
@@ -39,7 +39,6 @@
 
   --grad-primary: linear-gradient(135deg, #4285F4 0%, #8b7cf6 55%, #2dd4bf 100%);
   --grad-text: linear-gradient(90deg, #60a5fa, #a78bfa, #2dd4bf);
-  --grad-glow: radial-gradient(circle at 50% 50%, rgba(66, 133, 244, 0.15), transparent 70%);
 
   --radius-sm: 8px;
   --radius-md: 14px;
@@ -58,6 +57,12 @@
   box-sizing: border-box;
 }
 
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
+}
+
 html {
   scroll-behavior: smooth;
   color-scheme: dark;
@@ -67,9 +72,8 @@ html {
 body {
   background-color: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Microsoft JhengHei", "Helvetica Neue", Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "PingFang TC", "Microsoft JhengHei";
   line-height: 1.65;
-  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   padding-bottom: env(safe-area-inset-bottom);
@@ -93,7 +97,6 @@ button {
   background: none;
 }
 
-/* Container */
 .container {
   max-width: var(--max-w);
   margin: 0 auto;
@@ -101,12 +104,9 @@ button {
 }
 
 @media (max-width: 640px) {
-  .container {
-    padding: 0 16px;
-  }
+  .container { padding: 0 16px; }
 }
 
-/* Typographic Accents */
 .grad-text {
   background: var(--grad-text);
   -webkit-background-clip: text;
@@ -144,13 +144,13 @@ h2.sec-title {
 
 p.lead-text {
   color: var(--text-dim);
-  max-width: 640px;
+  max-width: 660px;
   margin-top: 14px;
   font-size: clamp(15px, 1.6vw, 17px);
   line-height: 1.7;
 }
 
-/* Scroll Animations */
+/* Animations */
 .reveal {
   opacity: 0;
   transform: translateY(28px);
@@ -169,7 +169,7 @@ p.lead-text {
 }
 
 /* ==========================================================================
-   BUTTONS & CONTROLS
+   BUTTONS
    ========================================================================== */
 .btn {
   display: inline-flex;
@@ -234,21 +234,21 @@ p.lead-text {
 }
 
 /* ==========================================================================
-   NAVIGATION BAR
+   NAVIGATION
    ========================================================================== */
 .nav-wrap {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(7, 11, 20, 0.82);
+  background: rgba(7, 11, 20, 0.85);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid transparent;
-  transition: border-color 0.3s var(--ease-smooth), background 0.3s var(--ease-smooth);
+  transition: border-color 0.3s, background 0.3s;
 }
 .nav-wrap.scrolled {
   border-bottom-color: var(--line);
-  background: rgba(7, 11, 20, 0.94);
+  background: rgba(7, 11, 20, 0.95);
 }
 .nav-inner {
   max-width: var(--max-w);
@@ -309,19 +309,19 @@ p.lead-text {
 .lang-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   background: rgba(148, 163, 214, 0.08);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-sm);
-  padding: 5px 10px;
-  font-size: 12.5px;
+  padding: 6px 12px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-dim);
+  color: var(--text);
   transition: all 0.2s;
 }
 .lang-toggle:hover {
-  color: var(--text);
-  border-color: rgba(148, 163, 214, 0.3);
+  border-color: rgba(148, 163, 214, 0.35);
+  background: rgba(148, 163, 214, 0.14);
 }
 
 @media (max-width: 860px) {
@@ -335,7 +335,7 @@ p.lead-text {
   .nav-actions { margin-left: auto; gap: 6px; }
   .nav-actions .btn-ghost span { display: none; }
   .nav-actions .btn-ghost { padding: 0 10px; min-height: 34px; }
-  .lang-toggle { padding: 4px 8px; font-size: 11.5px; }
+  .lang-toggle { padding: 4px 8px; font-size: 12px; }
 }
 
 /* ==========================================================================
@@ -403,7 +403,7 @@ h1.hero-title {
 }
 h1.hero-title .en-sub {
   display: block;
-  font-size: clamp(15px, 2vw, 20px);
+  font-size: clamp(14px, 2vw, 19px);
   font-weight: 700;
   letter-spacing: 0.12em;
   margin-bottom: 10px;
@@ -443,7 +443,7 @@ p.hero-desc {
 }
 
 /* ==========================================================================
-   LIVE SYNC DEMO STAGE (PC + MOBILE RESPONSIVE POLISH)
+   LIVE SYNC DEMO
    ========================================================================== */
 .sync-stage {
   position: relative;
@@ -495,15 +495,12 @@ p.hero-desc {
   background: rgba(45, 212, 191, 0.08);
 }
 
-/* Panes Grid */
 .sync-panes {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 40px;
   position: relative;
 }
-
-/* Connecting line in desktop */
 .sync-panes::before {
   content: "";
   position: absolute;
@@ -563,7 +560,6 @@ p.hero-desc {
   min-height: 40px;
   white-space: nowrap;
   overflow: hidden;
-  transition: all 0.2s;
 }
 .task-chk {
   width: 16px;
@@ -602,7 +598,7 @@ p.hero-desc {
   flex: none;
 }
 
-/* Floating Chips Animation */
+/* Floating Chips */
 .sync-chip {
   position: absolute;
   top: 50%;
@@ -663,36 +659,19 @@ p.hero-desc {
   padding: 4px 10px;
 }
 
-/* MOBILE ADAPTATION FOR LIVE SYNC DEMO */
 @media (max-width: 768px) {
-  .hero-grid {
-    grid-template-columns: 1fr;
-    gap: 36px;
-  }
-  .sync-panes {
-    grid-template-columns: 1fr;
-    gap: 50px;
-  }
+  .hero-grid { grid-template-columns: 1fr; gap: 36px; }
+  .sync-panes { grid-template-columns: 1fr; gap: 50px; }
   .sync-panes::before {
-    left: 8%;
-    right: 8%;
-    top: 50%;
-    bottom: auto;
-    width: auto;
-    height: 2px;
+    left: 8%; right: 8%; top: 50%; bottom: auto; width: auto; height: 2px;
     transform: translateY(-50%);
     background: repeating-linear-gradient(90deg, rgba(148, 163, 214, 0.3) 0 6px, transparent 6px 12px);
   }
-  /* Mobile Vertical animation */
-  .sync-chip {
-    left: 50%;
-    top: 50%;
-  }
+  .sync-chip { left: 50%; top: 50%; }
   .sync-chip.c1 { animation: flyMobileDown 6.5s ease-in-out infinite; }
   .sync-chip.c2 { animation: flyMobileUp 6.5s ease-in-out 1.8s infinite; }
   .sync-chip.c3 { animation: flyMobileUp 6.5s ease-in-out 3.6s infinite; }
   .sync-chip.c4 { animation: flyMobileDown 6.5s ease-in-out 5s infinite; }
-  
   @keyframes flyMobileDown {
     0% { transform: translate(-50%, -180%); opacity: 0; }
     15% { transform: translate(-50%, -100%); opacity: 1; }
@@ -710,75 +689,31 @@ p.hero-desc {
 }
 
 /* ==========================================================================
-   PAIN POINTS & USE CASES SECTION
+   PAIN POINTS & FEATURES
    ========================================================================== */
-.sec-padding {
-  padding: clamp(56px, 8vw, 84px) 0;
-}
-.pain-grid {
+.sec-padding { padding: clamp(56px, 8vw, 84px) 0; }
+
+.pain-grid, .feat-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-top: 36px;
 }
-.pain-card {
+.pain-card, .feat-card {
   background: var(--card);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   padding: 24px 20px;
   transition: transform 0.25s var(--ease-spring), border-color 0.25s var(--ease-smooth);
 }
-.pain-card:hover {
+.pain-card:hover, .feat-card:hover {
   transform: translateY(-4px);
   border-color: var(--card-border-hover);
 }
-.pain-icon {
-  font-size: 28px;
-  line-height: 1;
-  margin-bottom: 14px;
-}
-.pain-card h3 {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-.pain-card p {
-  font-size: 13.5px;
-  color: var(--text-dim);
-  line-height: 1.6;
-}
+.pain-icon { font-size: 28px; line-height: 1; margin-bottom: 14px; }
+.pain-card h3, .feat-card h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.pain-card p, .feat-card p { font-size: 13.5px; color: var(--text-dim); line-height: 1.6; }
 
-@media (max-width: 1024px) {
-  .pain-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 540px) {
-  .pain-grid { grid-template-columns: 1fr; }
-}
-
-/* ==========================================================================
-   FEATURES GRID (8 CATEGORIES)
-   ========================================================================== */
-.feat-section {
-  background: linear-gradient(180deg, transparent, rgba(66, 133, 244, 0.04) 40%, transparent);
-}
-.feat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-top: 38px;
-}
-.feat-card {
-  background: linear-gradient(180deg, rgba(21, 32, 56, 0.7), rgba(16, 24, 43, 0.9));
-  border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  padding: 24px 20px;
-  transition: transform 0.25s var(--ease-spring), border-color 0.25s var(--ease-smooth), box-shadow 0.25s;
-}
-.feat-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(66, 133, 244, 0.5);
-  box-shadow: 0 14px 34px rgba(66, 133, 244, 0.12);
-}
 .feat-icon-box {
   width: 44px;
   height: 44px;
@@ -792,16 +727,6 @@ p.hero-desc {
 .feat-card:nth-child(4n+3) .feat-icon-box { background: rgba(139, 124, 246, 0.14); }
 .feat-card:nth-child(4n) .feat-icon-box { background: rgba(251, 191, 36, 0.14); }
 
-.feat-card h3 {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-.feat-card p {
-  font-size: 13px;
-  color: var(--text-dim);
-  line-height: 1.6;
-}
 .feat-dir-tag {
   display: inline-block;
   margin-top: 12px;
@@ -814,14 +739,14 @@ p.hero-desc {
 }
 
 @media (max-width: 1024px) {
-  .feat-grid { grid-template-columns: repeat(2, 1fr); }
+  .pain-grid, .feat-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 540px) {
-  .feat-grid { grid-template-columns: 1fr; }
+  .pain-grid, .feat-grid { grid-template-columns: 1fr; }
 }
 
 /* ==========================================================================
-   ENGINE VS RECIPE SECTION
+   ENGINE VS RECIPES
    ========================================================================== */
 .vs-grid {
   display: grid;
@@ -834,9 +759,7 @@ p.hero-desc {
   padding: 28px 24px;
   border: 1px solid var(--card-border);
 }
-.vs-col.bad {
-  background: rgba(16, 24, 43, 0.5);
-}
+.vs-col.bad { background: rgba(16, 24, 43, 0.5); }
 .vs-col.good {
   background: linear-gradient(160deg, rgba(66, 133, 244, 0.12), rgba(45, 212, 191, 0.08));
   border-color: rgba(66, 133, 244, 0.4);
@@ -858,19 +781,9 @@ p.hero-desc {
   font-weight: 900;
   flex: none;
 }
-.vs-col.bad .vs-mark {
-  background: rgba(244, 63, 94, 0.15);
-  color: var(--rose);
-  border: 1px solid rgba(244, 63, 94, 0.4);
-}
-.vs-col.good .vs-mark {
-  background: rgba(45, 212, 191, 0.16);
-  color: var(--teal);
-  border: 1px solid rgba(45, 212, 191, 0.45);
-}
-.vs-col ul {
-  list-style: none;
-}
+.vs-col.bad .vs-mark { background: rgba(244, 63, 94, 0.15); color: var(--rose); border: 1px solid rgba(244, 63, 94, 0.4); }
+.vs-col.good .vs-mark { background: rgba(45, 212, 191, 0.16); color: var(--teal); border: 1px solid rgba(45, 212, 191, 0.45); }
+.vs-col ul { list-style: none; }
 .vs-col li {
   padding: 10px 0 10px 28px;
   position: relative;
@@ -878,15 +791,8 @@ p.hero-desc {
   color: #cbd5e1;
   border-bottom: 1px dashed rgba(148, 163, 214, 0.12);
 }
-.vs-col li:last-child {
-  border-bottom: none;
-}
-.vs-col li::before {
-  position: absolute;
-  left: 2px;
-  top: 10px;
-  font-size: 14px;
-}
+.vs-col li:last-child { border-bottom: none; }
+.vs-col li::before { position: absolute; left: 2px; top: 10px; font-size: 14px; }
 .vs-col.bad li::before { content: "✕"; color: var(--rose); }
 .vs-col.good li::before { content: "✓"; color: var(--teal); }
 
@@ -919,11 +825,7 @@ p.hero-desc {
   background-clip: text;
   -webkit-text-fill-color: transparent;
 }
-.stat-label {
-  font-size: 13.5px;
-  color: var(--text-dim);
-  margin-top: 6px;
-}
+.stat-label { font-size: 13.5px; color: var(--text-dim); margin-top: 6px; }
 
 .privacy-banner {
   margin-top: 20px;
@@ -944,27 +846,17 @@ p.hero-desc {
   display: grid;
   place-items: center;
 }
-.privacy-content h3 {
-  font-size: 16.5px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-.privacy-content p {
-  font-size: 14px;
-  color: var(--text-dim);
-  line-height: 1.65;
-}
+.privacy-content h3 { font-size: 16.5px; font-weight: 700; margin-bottom: 4px; }
+.privacy-content p { font-size: 14px; color: var(--text-dim); line-height: 1.65; }
 
-@media (max-width: 900px) {
-  .stat-strip { grid-template-columns: repeat(2, 1fr); }
-}
+@media (max-width: 900px) { .stat-strip { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 480px) {
   .stat-strip { grid-template-columns: 1fr 1fr; }
   .privacy-banner { flex-direction: column; }
 }
 
 /* ==========================================================================
-   INSTALLATION SECTION (DUAL TRACK: WEB SETUP & CLI)
+   INSTALLATION SECTION (HERO ON SETUP WIZARD)
    ========================================================================== */
 .install-tabs {
   display: flex;
@@ -973,12 +865,6 @@ p.hero-desc {
   border-bottom: 1px solid var(--line);
   padding-bottom: 14px;
   flex-wrap: wrap;
-}
-@media (max-width: 640px) {
-  .tab-btn {
-    width: 100%;
-    justify-content: center;
-  }
 }
 .tab-btn {
   display: inline-flex;
@@ -994,74 +880,94 @@ p.hero-desc {
   transition: all 0.2s;
   white-space: nowrap;
 }
-.tab-btn:hover {
-  color: var(--text);
-  background: rgba(148, 163, 214, 0.1);
-}
-.tab-btn.active {
-  color: #fff;
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.4);
-}
-.tab-btn.active.tab-teal {
-  background: rgba(20, 184, 166, 0.15);
-  border-color: rgba(20, 184, 166, 0.4);
-  color: var(--teal);
+.tab-btn:hover { color: var(--text); background: rgba(148, 163, 214, 0.1); }
+.tab-btn.active { color: #fff; background: rgba(59, 130, 246, 0.15); border-color: rgba(59, 130, 246, 0.4); }
+.tab-btn.active.tab-teal { background: rgba(20, 184, 166, 0.15); border-color: rgba(20, 184, 166, 0.4); color: var(--teal); }
+
+@media (max-width: 640px) {
+  .tab-btn { width: 100%; justify-content: center; }
 }
 
-.tab-pane {
-  display: none;
-  animation: fadeIn 0.3s ease;
-}
-.tab-pane.active {
-  display: block;
-}
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+.tab-pane { display: none; animation: fadeIn 0.3s ease; }
+.tab-pane.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
-/* Steps Grid */
-.steps-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-top: 24px;
-}
-.step-card {
+/* Wizard Showcase Card */
+.wizard-showcase {
+  margin-top: 28px;
   background: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: var(--radius-lg);
-  padding: 24px 20px;
-  position: relative;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
 }
-.step-num {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
+.wizard-preview-col {
+  position: relative;
+  background: #090e1a;
+  border-right: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: hidden;
+}
+.wizard-preview-img {
+  width: 100%;
+  max-height: 480px;
+  object-fit: cover;
+  object-position: top;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+  transition: transform 0.3s ease;
+}
+.wizard-preview-col:hover .wizard-preview-img {
+  transform: scale(1.02);
+}
+.wizard-steps-col {
+  padding: clamp(24px, 4vw, 40px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+}
+.step-item-mini {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.step-num-pill {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
   background: var(--grad-primary);
   color: #070b14;
+  font-weight: 900;
+  font-size: 13.5px;
   display: grid;
   place-items: center;
-  font-weight: 900;
-  font-size: 15px;
-  margin-bottom: 14px;
+  flex: none;
 }
-.step-card h3 {
-  font-size: 16px;
+.step-text-wrap h4 {
+  font-size: 15.5px;
   font-weight: 700;
-  margin-bottom: 6px;
+  margin-bottom: 3px;
 }
-.step-card p {
+.step-text-wrap p {
   font-size: 13.5px;
   color: var(--text-dim);
-  line-height: 1.6;
-}
-.step-card b {
-  color: var(--text);
+  line-height: 1.55;
 }
 
-/* Terminal Card */
+@media (max-width: 960px) {
+  .wizard-showcase { grid-template-columns: 1fr; }
+  .wizard-preview-col { border-right: none; border-bottom: 1px solid var(--card-border); }
+  .wizard-preview-img { max-height: 320px; }
+}
+
+/* CLI Pane */
 .terminal-card {
   margin-top: 24px;
   background: #060913;
@@ -1078,20 +984,11 @@ p.hero-desc {
   border-bottom: 1px solid var(--line);
   background: rgba(148, 163, 214, 0.04);
 }
-.term-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  display: block;
-}
+.term-dot { width: 12px; height: 12px; border-radius: 50%; display: block; }
 .term-dot.r { background: #ef4444; }
 .term-dot.y { background: #f59e0b; }
 .term-dot.g { background: #10b981; }
-.term-title {
-  margin-left: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
+.term-title { margin-left: 8px; font-size: 13px; color: var(--text-muted); }
 .term-content {
   display: flex;
   align-items: center;
@@ -1106,22 +1003,10 @@ p.hero-desc {
   user-select: all;
   letter-spacing: 0.02em;
 }
-.term-prompt {
-  color: var(--g-blue);
-  margin-right: 4px;
-}
-
-@media (max-width: 1024px) {
-  .steps-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 580px) {
-  .steps-grid { grid-template-columns: 1fr; }
-  .term-content { flex-direction: column; align-items: flex-start; }
-  .term-content .btn { width: 100%; }
-}
+.term-prompt { color: var(--g-blue); margin-right: 4px; }
 
 /* ==========================================================================
-   YOUTUBE IN-PLACE VIDEO SECTION (MODERN EMBED & SMOOTH TRANSITION)
+   CONCEPT VIDEO SECTION
    ========================================================================== */
 .video-card-container {
   margin-top: 34px;
@@ -1133,8 +1018,6 @@ p.hero-desc {
   grid-template-columns: 1.25fr 0.85fr;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
 }
-
-/* Left: Video Player Box */
 .video-player-wrap {
   position: relative;
   width: 100%;
@@ -1144,8 +1027,6 @@ p.hero-desc {
   place-items: center;
   overflow: hidden;
 }
-
-/* Custom Cover when idle */
 .video-poster-box {
   position: absolute;
   inset: 0;
@@ -1157,7 +1038,7 @@ p.hero-desc {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: transform 0.3s var(--ease-smooth), opacity 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.3s ease;
 }
 .video-poster-box::before {
   content: "";
@@ -1189,10 +1070,7 @@ p.hero-desc {
   border-top: 13px solid transparent;
   border-bottom: 13px solid transparent;
 }
-.video-poster-box:hover .play-button-glow {
-  transform: scale(1.1);
-  background: #ffffff;
-}
+.video-poster-box:hover .play-button-glow { transform: scale(1.1); background: #ffffff; }
 
 .video-poster-tag {
   position: absolute;
@@ -1215,21 +1093,10 @@ p.hero-desc {
   box-shadow: 0 0 8px #ef4444;
 }
 
-/* Video Iframe */
-.video-iframe-slot {
-  width: 100%;
-  height: 100%;
-  border: none;
-  display: none;
-}
-.video-player-wrap.playing .video-poster-box {
-  display: none;
-}
-.video-player-wrap.playing .video-iframe-slot {
-  display: block;
-}
+.video-iframe-slot { width: 100%; height: 100%; border: none; display: none; }
+.video-player-wrap.playing .video-poster-box { display: none; }
+.video-player-wrap.playing .video-iframe-slot { display: block; }
 
-/* Right: Video Info Panel */
 .video-desc-panel {
   padding: clamp(24px, 3.5vw, 40px);
   display: flex;
@@ -1237,22 +1104,9 @@ p.hero-desc {
   justify-content: center;
   gap: 14px;
 }
-.video-desc-panel h3 {
-  font-size: clamp(20px, 2.2vw, 24px);
-  font-weight: 800;
-}
-.video-desc-panel p {
-  color: var(--text-dim);
-  font-size: 14.5px;
-  line-height: 1.65;
-}
-.video-meta-tags {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--text-dim);
-}
+.video-desc-panel h3 { font-size: clamp(20px, 2.2vw, 24px); font-weight: 800; }
+.video-desc-panel p { color: var(--text-dim); font-size: 14.5px; line-height: 1.65; }
+.video-meta-tags { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); }
 .video-meta-tags span {
   border: 1px solid var(--card-border);
   border-radius: 999px;
@@ -1260,11 +1114,7 @@ p.hero-desc {
   background: rgba(148, 163, 214, 0.05);
 }
 
-@media (max-width: 900px) {
-  .video-card-container {
-    grid-template-columns: 1fr;
-  }
-}
+@media (max-width: 900px) { .video-card-container { grid-template-columns: 1fr; } }
 
 /* ==========================================================================
    DOCS & ROADMAP
@@ -1276,11 +1126,7 @@ p.hero-desc {
   margin-top: 36px;
   align-items: start;
 }
-.doc-list-group {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+.doc-list-group { display: flex; flex-direction: column; gap: 12px; }
 .doc-card {
   display: flex;
   align-items: center;
@@ -1292,10 +1138,7 @@ p.hero-desc {
   min-height: 52px;
   transition: border-color 0.2s, transform 0.2s;
 }
-.doc-card:hover {
-  border-color: rgba(66, 133, 244, 0.5);
-  transform: translateX(4px);
-}
+.doc-card:hover { border-color: rgba(66, 133, 244, 0.5); transform: translateX(4px); }
 .doc-icon {
   width: 38px;
   height: 38px;
@@ -1305,23 +1148,10 @@ p.hero-desc {
   place-items: center;
   flex: none;
 }
-.doc-card b {
-  font-size: 15px;
-  display: block;
-}
-.doc-card small {
-  color: var(--text-dim);
-  font-size: 12.8px;
-}
-.doc-card .arrow-ic {
-  margin-left: auto;
-  color: var(--text-muted);
-  transition: transform 0.2s;
-}
-.doc-card:hover .arrow-ic {
-  transform: translateX(3px);
-  color: var(--text);
-}
+.doc-card b { font-size: 15px; display: block; }
+.doc-card small { color: var(--text-dim); font-size: 12.8px; }
+.doc-card .arrow-ic { margin-left: auto; color: var(--text-muted); transition: transform 0.2s; }
+.doc-card:hover .arrow-ic { transform: translateX(3px); color: var(--text); }
 
 .roadmap-card {
   background: linear-gradient(165deg, rgba(139, 124, 246, 0.12), var(--card));
@@ -1329,13 +1159,7 @@ p.hero-desc {
   border-radius: var(--radius-xl);
   padding: 28px 24px;
 }
-.roadmap-card h3 {
-  font-size: 18px;
-  margin-bottom: 16px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+.roadmap-card h3 { font-size: 18px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
 .roadmap-card li {
   list-style: none;
   padding: 12px 0 12px 28px;
@@ -1344,33 +1168,16 @@ p.hero-desc {
   color: #cbd5e1;
   border-bottom: 1px dashed rgba(148, 163, 214, 0.12);
 }
-.roadmap-card li:last-child {
-  border: none;
-}
-.roadmap-card li::before {
-  content: "◆";
-  position: absolute;
-  left: 2px;
-  top: 13px;
-  font-size: 11px;
-  color: var(--violet);
-}
-.roadmap-card p.ver-status {
-  margin-top: 14px;
-  font-size: 12.8px;
-  color: var(--text-muted);
-}
+.roadmap-card li:last-child { border: none; }
+.roadmap-card li::before { content: "◆"; position: absolute; left: 2px; top: 13px; font-size: 11px; color: var(--violet); }
+.roadmap-card p.ver-status { margin-top: 14px; font-size: 12.8px; color: var(--text-muted); }
 
-@media (max-width: 768px) {
-  .doc-grid { grid-template-columns: 1fr; }
-}
+@media (max-width: 768px) { .doc-grid { grid-template-columns: 1fr; } }
 
 /* ==========================================================================
    FINAL CTA & FOOTER
    ========================================================================== */
-.cta-section {
-  padding: 80px 0 90px;
-}
+.cta-section { padding: 80px 0 90px; }
 .cta-banner-box {
   text-align: center;
   border-radius: var(--radius-xl);
@@ -1388,48 +1195,17 @@ p.hero-desc {
   background: radial-gradient(50% 90% at 50% 100%, rgba(66, 133, 244, 0.35), transparent 70%);
   pointer-events: none;
 }
-.cta-banner-box h2 {
-  font-size: clamp(26px, 4.2vw, 38px);
-  letter-spacing: -0.01em;
-}
-.cta-banner-box p {
-  color: var(--text-dim);
-  margin: 16px auto 28px;
-  max-width: 540px;
-  font-size: 15.5px;
-}
-.cta-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  flex-wrap: wrap;
-  position: relative;
-}
+.cta-banner-box h2 { font-size: clamp(26px, 4.2vw, 38px); letter-spacing: -0.01em; }
+.cta-banner-box p { color: var(--text-dim); margin: 16px auto 28px; max-width: 540px; font-size: 15.5px; }
+.cta-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; position: relative; }
 
-footer {
-  border-top: 1px solid var(--line);
-  padding: 36px 0 48px;
-  font-size: 13.5px;
-  color: var(--text-muted);
-}
-.footer-inner {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 18px;
-  align-items: center;
-  justify-content: space-between;
-}
-.footer-links {
-  display: flex;
-  gap: 18px;
-  flex-wrap: wrap;
-}
-.footer-links a:hover {
-  color: var(--text);
-}
+footer { border-top: 1px solid var(--line); padding: 36px 0 48px; font-size: 13.5px; color: var(--text-muted); }
+.footer-inner { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
+.footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
+.footer-links a:hover { color: var(--text); }
 
 /* ==========================================================================
-   MODAL DIALOG (WEB SETUP STEP-BY-STEP WIZARD)
+   SETUP WIZARD MODAL
    ========================================================================== */
 .modal-overlay {
   position: fixed;
@@ -1445,10 +1221,7 @@ footer {
   pointer-events: none;
   transition: opacity 0.25s var(--ease-smooth);
 }
-.modal-overlay.open {
-  opacity: 1;
-  pointer-events: auto;
-}
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
 .modal-box {
   width: 100%;
   max-width: 680px;
@@ -1462,19 +1235,9 @@ footer {
   max-height: 90vh;
   overflow-y: auto;
 }
-.modal-overlay.open .modal-box {
-  transform: translateY(0) scale(1);
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 20px;
-}
-.modal-title {
-  font-size: 22px;
-  font-weight: 800;
-}
+.modal-overlay.open .modal-box { transform: translateY(0) scale(1); }
+.modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.modal-title { font-size: 22px; font-weight: 800; }
 .modal-close {
   width: 34px;
   height: 34px;
@@ -1484,12 +1247,8 @@ footer {
   place-items: center;
   font-size: 18px;
   color: var(--text-dim);
-  cursor: pointer;
 }
-.modal-close:hover {
-  background: rgba(148, 163, 214, 0.2);
-  color: var(--text);
-}
+.modal-close:hover { background: rgba(148, 163, 214, 0.2); color: var(--text); }
 .modal-step-item {
   display: flex;
   gap: 16px;
@@ -1497,11 +1256,7 @@ footer {
   padding-bottom: 20px;
   border-bottom: 1px solid var(--line);
 }
-.modal-step-item:last-child {
-  border-bottom: none;
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
+.modal-step-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
 .modal-step-badge {
   width: 32px;
   height: 32px;
@@ -1513,18 +1268,9 @@ footer {
   font-weight: 900;
   flex: none;
 }
-.modal-step-body h4 {
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-.modal-step-body p {
-  font-size: 13.8px;
-  color: var(--text-dim);
-  line-height: 1.6;
-}
+.modal-step-body h4 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.modal-step-body p { font-size: 13.8px; color: var(--text-dim); line-height: 1.6; }
 
-/* Copied toast notification */
 .toast-notice {
   position: fixed;
   bottom: 28px;
@@ -1542,10 +1288,7 @@ footer {
   transition: all 0.3s var(--ease-spring);
   font-size: 14px;
 }
-.toast-notice.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
+.toast-notice.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
@@ -1555,22 +1298,22 @@ footer {
      ========================================================================== -->
 <header class="nav-wrap" id="top">
   <div class="nav-inner">
-    <a class="brand-logo" href="#top" aria-label="回到頁首">
+    <a class="brand-logo" href="#top" aria-label="Back to top">
       <span class="logo-badge">⇄</span>
       <span>Tasks–To&nbsp;Do&nbsp;Sync</span>
     </a>
 
-    <nav class="nav-links" aria-label="主導航">
-      <a class="nav-link" href="#features" data-i18n="nav_features">功能特色</a>
-      <a class="nav-link" href="#engine" data-i18n="nav_engine">同步架構</a>
-      <a class="nav-link" href="#install" data-i18n="nav_install">安裝設定</a>
-      <a class="nav-link" href="#video" data-i18n="nav_video">實機影片</a>
-      <a class="nav-link" href="#docs" data-i18n="nav_docs">技術文檔</a>
+    <nav class="nav-links" aria-label="Page Navigation">
+      <a class="nav-link" href="#features" data-i18n="nav_features">Features</a>
+      <a class="nav-link" href="#engine" data-i18n="nav_engine">Engine</a>
+      <a class="nav-link" href="#install" data-i18n="nav_install">Install</a>
+      <a class="nav-link" href="#video" data-i18n="nav_video">Video</a>
+      <a class="nav-link" href="#docs" data-i18n="nav_docs">Docs</a>
     </nav>
 
     <div class="nav-actions">
-      <button class="lang-toggle" id="langBtn" type="button" aria-label="切換語系">
-        🌐 <span id="langText">EN</span>
+      <button class="lang-toggle" id="langBtn" type="button" aria-label="Switch language">
+        🌐 <span id="langText">繁中</span>
       </button>
       <a class="btn btn-ghost btn-sm" href="https://github.com/simonchai-tw/tasks-todo-sync" target="_blank" rel="noopener">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5A11.5 11.5 0 0 0 .5 12a11.5 11.5 0 0 0 7.86 10.92c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.54-3.88-1.54-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.7 5.38-5.26 5.66.41.36.78 1.06.78 2.14v3.17c0 .31.2.67.8.56A11.5 11.5 0 0 0 23.5 12 11.5 11.5 0 0 0 12 .5z"/></svg>
@@ -1587,32 +1330,30 @@ footer {
   <div class="container hero-grid">
     <div>
       <div class="badges">
-        <span class="badge"><i class="badge-dot"></i><span data-i18n="badge_selfhosted">Self-Hosted 私有自託管</span></span>
+        <span class="badge"><i class="badge-dot"></i><span data-i18n="badge_selfhosted">Self-Hosted</span></span>
         <span class="badge mit"><i class="badge-dot"></i>MIT License</span>
-        <span class="badge test"><i class="badge-dot"></i><span data-i18n="badge_tests">417+ 自動化測試</span></span>
+        <span class="badge test"><i class="badge-dot"></i><span data-i18n="badge_tests">417+ Automated Tests</span></span>
         <span class="badge ver"><i class="badge-dot"></i>v0.6.1</span>
       </div>
 
       <h1 class="hero-title">
         <span class="en-sub">Tasks–To Do Sync</span>
-        <span data-i18n="hero_h1_1">跨平台串聯</span><br>
-        <span class="grad-text">Google Tasks</span> <span data-i18n="hero_h1_and">與</span><br>
-        <span class="grad-text">Microsoft To Do</span>
+        <span data-i18n="hero_h1_1">Keep</span> <span class="grad-text">Google Tasks</span><br>
+        <span data-i18n="hero_h1_and">and</span> <span class="grad-text">Microsoft To Do</span><br>
+        <span data-i18n="hero_h1_2">in one continuous loop</span>
       </h1>
 
       <p class="hero-desc" data-i18n="hero_desc">
-        在 Google 上建立的待辦事項，立即出現在微軟生態；在 To Do 上勾選完成，Google Tasks 同步結案。無第三方中繼伺服器、零訂閱月費，全套同步邏輯私有運行在您自己的 <strong>Google Apps Script</strong> 專案內。
+        Every task you capture on Google instantly flows to Microsoft — and checking it off in To Do completes it on Google Tasks. No third-party sync server, no subscriptions. The entire bridge runs privately inside <strong>your own Google Apps Script</strong> project.
       </p>
 
       <div class="hero-actions">
-        <!-- Primary Action: Web Setup Wizard -->
         <button class="btn btn-teal" id="openWebSetupBtn" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-          <span data-i18n="btn_web_setup">免終端機網頁安裝 (3分鐘)</span>
+          <span data-i18n="btn_web_setup">Easy Setup Wizard (3 min)</span>
         </button>
 
-        <!-- Secondary Action: Copy CLI command -->
-        <button class="btn btn-ghost" id="heroCopyCliBtn" type="button" title="點擊複製 npx 指令">
+        <button class="btn btn-ghost" id="heroCopyCliBtn" type="button" title="Click to copy npx command">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
           <span id="heroCopyLabel">npx tasks-todo-sync init</span>
         </button>
@@ -1620,17 +1361,15 @@ footer {
 
       <p class="hero-note">
         <span>✨</span>
-        <span data-i18n="hero_note">一次設定 · 兩端官方授權 · 每 10 分鐘背景靜默同步</span>
+        <span data-i18n="hero_note">One-time setup · Official OAuth sign-ins · Automatic background sync every 10 min</span>
       </p>
     </div>
 
-    <!-- ======================================================================
-         LIVE SYNC DEMO STAGE (RESPONSIVE PC/MOBILE BIDIRECTIONAL FLOW)
-         ====================================================================== -->
+    <!-- Live Sync Simulation -->
     <div class="sync-stage reveal">
       <div class="sync-head">
-        <span class="sync-title-tag" data-i18n="demo_live_sync">即時同步動態演示</span>
-        <span class="sync-badge-pill" data-i18n="demo_interval">自動排程：每 10 分鐘</span>
+        <span class="sync-title-tag" data-i18n="demo_live_sync">Live Sync Simulation</span>
+        <span class="sync-badge-pill" data-i18n="demo_interval">Trigger: Every 10 min</span>
       </div>
 
       <div class="sync-panes">
@@ -1644,18 +1383,18 @@ footer {
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g1">審查週五發布報告</span>
-            <span class="task-tag" data-i18n="tag_work">工作</span>
+            <span data-i18n="task_g1">Review Q3 Launch Report</span>
+            <span class="task-tag" data-i18n="tag_work">Work</span>
           </div>
           <div class="task-item done">
             <div class="task-chk"></div>
-            <span data-i18n="task_g2">回覆主管確認郵件</span>
-            <span class="task-tag" data-i18n="tag_synced">已同步</span>
+            <span data-i18n="task_g2">Reply to Manager Confirmation</span>
+            <span class="task-tag" data-i18n="tag_synced">Synced</span>
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g3">購買咖啡豆 &amp; 牛奶</span>
-            <span class="task-tag" data-i18n="tag_personal">個人</span>
+            <span data-i18n="task_g3">Buy Coffee Beans &amp; Milk</span>
+            <span class="task-tag" data-i18n="tag_personal">Personal</span>
           </div>
         </div>
 
@@ -1669,45 +1408,45 @@ footer {
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g1">審查週五發布報告</span>
-            <span class="task-tag" data-i18n="tag_work">工作</span>
+            <span data-i18n="task_g1">Review Q3 Launch Report</span>
+            <span class="task-tag" data-i18n="tag_work">Work</span>
           </div>
           <div class="task-item done">
             <div class="task-chk"></div>
-            <span data-i18n="task_g2">回覆主管確認郵件</span>
-            <span class="task-tag" data-i18n="tag_completed">已完成</span>
+            <span data-i18n="task_g2">Reply to Manager Confirmation</span>
+            <span class="task-tag" data-i18n="tag_completed">Done</span>
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g3">購買咖啡豆 &amp; 牛奶</span>
-            <span class="task-tag" data-i18n="tag_personal">個人</span>
+            <span data-i18n="task_g3">Buy Coffee Beans &amp; Milk</span>
+            <span class="task-tag" data-i18n="tag_personal">Personal</span>
           </div>
         </div>
 
-        <!-- Dynamic Bidirectional Transfer Chips -->
+        <!-- Bidirectional Transfer Chips -->
         <div class="sync-chip c1">
-          <span>+ 建立任務</span>
+          <span data-i18n="chip_create">+ New Task</span>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
         <div class="sync-chip rev c2">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          <span>✓ 勾選完成</span>
+          <span data-i18n="chip_done">✓ Completed</span>
         </div>
         <div class="sync-chip c3">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-          <span>✎ 同步備註</span>
+          <span data-i18n="chip_note">✎ Update Notes</span>
         </div>
         <div class="sync-chip rev c4">
-          <span>⏰ 到期日變更</span>
+          <span data-i18n="chip_due">⏰ Due Date Change</span>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
       </div>
 
       <div class="sync-foot">
-        <span class="sync-foot-item" data-i18n="foot_sync1">雙向生命週期閉環</span>
-        <span class="sync-foot-item" data-i18n="foot_sync2">狀態防迴圈保護</span>
-        <span class="sync-foot-item" data-i18n="foot_sync3">自動化配對探索</span>
-        <span class="sync-foot-item" data-i18n="foot_sync4">安全刪除判定機制</span>
+        <span class="sync-foot-item" data-i18n="foot_sync1">Bidirectional Loop</span>
+        <span class="sync-foot-item" data-i18n="foot_sync2">Anti-Loop Guard</span>
+        <span class="sync-foot-item" data-i18n="foot_sync3">Auto List Discovery</span>
+        <span class="sync-foot-item" data-i18n="foot_sync4">Safe Deletion Protocol</span>
       </div>
     </div>
   </div>
@@ -1719,31 +1458,31 @@ footer {
 <section class="sec-padding" id="usecases">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_pains">現實痛點</span>
-      <h2 class="sec-title" data-i18n="pains_title">您的待辦事項，從不會只出現在 <span class="grad-text">同一個應用裡</span></h2>
-      <p class="lead-text" data-i18n="pains_lead">現代人的工作與生活被不同平台切割。我們總是想用最順手的工具記下一筆待辦，但最終卻散落各處被遺忘。</p>
+      <span class="eyebrow" data-i18n="eyebrow_pains">Everyday Reality</span>
+      <h2 class="sec-title" data-i18n="pains_title">Your tasks don't always begin in <span class="grad-text">the same app</span></h2>
+      <p class="lead-text" data-i18n="pains_lead">Modern work is divided across ecosystems. We capture action items wherever inspiration hits, but without synchronization, to-dos get scattered and forgotten.</p>
     </div>
 
     <div class="pain-grid">
       <div class="pain-card reveal">
         <div class="pain-icon">🎙️</div>
-        <h3 data-i18n="pain1_h">隨手呼叫 Gemini 語音輸入</h3>
-        <p data-i18n="pain1_p">「Hey Google，幫我新增明天買咖啡豆。」語音建立在 Google Tasks，工作電腦 Microsoft To Do 卻看不到？現在兩端自動同步。</p>
+        <h3 data-i18n="pain1_h">Voice Capture via Gemini</h3>
+        <p data-i18n="pain1_p">"Hey Google, remind me to buy coffee tomorrow." Captured into Google Tasks, but needed in Microsoft To Do on your work PC? Now fully synced.</p>
       </div>
       <div class="pain-card reveal">
         <div class="pain-icon">✉️</div>
-        <h3 data-i18n="pain1_2_h">Outlook 郵件一鍵標記待辦</h3>
-        <p data-i18n="pain1_2_p">工作郵件在微軟 Outlook 隨手插上小紅旗加入 To Do，立刻自動呈現在手機 Google 日曆側欄 Tasks 中，外出行程一目了然。</p>
+        <h3 data-i18n="pain2_h">Flag Emails in Outlook</h3>
+        <p data-i18n="pain2_p">Flag an email in Microsoft Outlook to add it to To Do, and it automatically appears in your mobile Google Calendar sidebar Tasks.</p>
       </div>
       <div class="pain-card reveal">
         <div class="pain-icon">🤖</div>
-        <h3 data-i18n="pain1_3_h">Copilot 摘要檔案生成行動清單</h3>
-        <p data-i18n="pain1_3_p">Office 365 Copilot 產生的專案待辦，自動同步進個人習慣的 Google 任務系統，不必跨視窗手動重複複製貼上。</p>
+        <h3 data-i18n="pain3_h">Copilot Document Summaries</h3>
+        <p data-i18n="pain3_p">Microsoft 365 Copilot generates project to-dos that seamlessly mirror into your personal Google workflow without manual copy-pasting.</p>
       </div>
       <div class="pain-card reveal">
         <div class="pain-icon">🍎</div>
-        <h3 data-i18n="pain1_4_h">Apple 提醒事項 &amp; Siri 串聯</h3>
-        <p data-i18n="pain1_4_p">透過微軟帳號連接 iOS 提醒事項，實現 iPhone / Mac、Android 手機與 Windows 電腦的全生態待辦閉環。</p>
+        <h3 data-i18n="pain4_h">Apple Reminders &amp; Siri Bridge</h3>
+        <p data-i18n="pain4_p">Connect through your Microsoft account to iOS Reminders, closing the loop across iPhone, Mac, Android, and Windows PCs.</p>
       </div>
     </div>
   </div>
@@ -1755,9 +1494,9 @@ footer {
 <section class="sec-padding feat-section" id="features">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_feat">同步能力</span>
-      <h2 class="sec-title" data-i18n="feat_title">涵蓋完整生命週期，<span class="grad-text">八大維度雙向同步</span></h2>
-      <p class="lead-text" data-i18n="feat_lead">不是只有建立一瞬間！從編輯內容、附註、改期、跨清單移動到刪除，皆具備嚴格的資料對照與衝突自癒能力。</p>
+      <span class="eyebrow" data-i18n="eyebrow_feat">Engine Capabilities</span>
+      <h2 class="sec-title" data-i18n="feat_title">Full task lifecycle, <span class="grad-text">synced across 8 dimensions</span></h2>
+      <p class="lead-text" data-i18n="feat_lead">Not just a one-time create trigger. Title edits, detailed notes, due dates, cross-list moves, and deletions are handled with durable state recovery.</p>
     </div>
 
     <div class="feat-grid">
@@ -1765,72 +1504,72 @@ footer {
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
         </div>
-        <h3 data-i18n="feat1_h">建立與標題編輯</h3>
-        <p data-i18n="feat1_p">在任何一端新增任務或修改文字，Counterpart 映射機制會精準更新另一端，絕不重複建立副本。</p>
-        <span class="feat-dir-tag">雙向即時 ⇄</span>
+        <h3 data-i18n="feat1_h">Create &amp; Edit Tasks</h3>
+        <p data-i18n="feat1_p">Creating or renaming a task on either platform precisely updates its counterpart without duplicate ghost entries.</p>
+        <span class="feat-dir-tag" data-i18n="tag_twoway">Two-way ⇄</span>
       </div>
 
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
         </div>
-        <h3 data-i18n="feat2_h">完成標記與重啟</h3>
-        <p data-i18n="feat2_p">打勾結案或重新啟用未完成任務，狀態即時同步。避免傳統單向工具「死灰復燃」重複出現的問題。</p>
-        <span class="feat-dir-tag">狀態閉環 ⇄</span>
+        <h3 data-i18n="feat2_h">Complete &amp; Reopen</h3>
+        <p data-i18n="feat2_p">Check items off or reopen uncompleted work anytime. Statuses settle cleanly without reviving finished tasks.</p>
+        <span class="feat-dir-tag" data-i18n="tag_status">State Loop ⇄</span>
       </div>
 
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8b7cf6" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
         </div>
-        <h3 data-i18n="feat3_h">詳細附註與備註</h3>
-        <p data-i18n="feat3_p">支援 Google Tasks Notes 與 To Do Body 雙向對應，維持清晰的純文字格式與換行。</p>
-        <span class="feat-dir-tag">內文同步 ⇄</span>
+        <h3 data-i18n="feat3_h">Notes &amp; Body Text</h3>
+        <p data-i18n="feat3_p">Bi-directional notes sync with clean line breaks and text formatting integrity preserved across both platforms.</p>
+        <span class="feat-dir-tag" data-i18n="tag_content">Body Sync ⇄</span>
       </div>
 
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         </div>
-        <h3 data-i18n="feat4_h">到期日智慧換算</h3>
-        <p data-i18n="feat4_p">精準計算時區偏移（IANA Timezone），確保跨國或日曆檢視時不會發生日期提早一天的落差。</p>
-        <span class="feat-dir-tag">時區校準 ⇄</span>
+        <h3 data-i18n="feat4_h">Due Date &amp; Timezone</h3>
+        <p data-i18n="feat4_p">Accurate IANA timezone conversion ensures due dates do not shift by a day due to UTC boundary differences.</p>
+        <span class="feat-dir-tag" data-i18n="tag_tz">Timezone Aware ⇄</span>
       </div>
 
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
         </div>
-        <h3 data-i18n="feat5_h">跨清單移動轉移</h3>
-        <p data-i18n="feat5_p">具備 Destination-first 搬移恢復日誌。當您把任務拖到不同分類清單時，自動遷移對應端項目。</p>
-        <span class="feat-dir-tag">跨清單保護 ⇄</span>
+        <h3 data-i18n="feat5_h">Cross-List Moves</h3>
+        <p data-i18n="feat5_p">Destination-first move journals safely relocate tasks between categorized lists with state preservation.</p>
+        <span class="feat-dir-tag" data-i18n="tag_move">List Moves ⇄</span>
       </div>
 
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
         </div>
-        <h3 data-i18n="feat6_h">刪除防護與二次校驗</h3>
-        <p data-i18n="feat6_p">兩階段確認刪除保護（Two-round Safeguard），避免因網路暫時斷線造成誤刪整個清單的悲劇。</p>
-        <span class="feat-dir-tag">安全刪除 🛡️</span>
+        <h3 data-i18n="feat6_h">Deletion Safeguards</h3>
+        <p data-i18n="feat6_p">Two-round confirmation safeguards protect your lists from accidental network-drop wipeouts.</p>
+        <span class="feat-dir-tag" data-i18n="tag_deletion">Protected 🛡️</span>
       </div>
 
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8b7cf6" stroke-width="2.2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
         </div>
-        <h3 data-i18n="feat7_h">墓碑紀錄（Tombstone）</h3>
-        <p data-i18n="feat7_p">透過持久化墓碑標記，杜絕任何重複復原舊資料的幽靈任務現象，確保狀態絕對真實。</p>
-        <span class="feat-dir-tag">幽靈防護 👻</span>
+        <h3 data-i18n="feat7_h">Tombstone Tracking</h3>
+        <p data-i18n="feat7_p">Durable tombstones prevent deleted items from resurrecting on subsequent runs as zombie tasks.</p>
+        <span class="feat-dir-tag" data-i18n="tag_tombstone">No Zombies 👻</span>
       </div>
 
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
         </div>
-        <h3 data-i18n="feat8_h">批次故障自癒機制</h3>
-        <p data-i18n="feat8_p">執行時間保護（Apps Script 6分鐘上限），逾時自動持久化進度，下次觸發無縫接軌繼續。</p>
-        <span class="feat-dir-tag">自癒容錯 ⚙️</span>
+        <h3 data-i18n="feat8_h">Batch Self-Healing</h3>
+        <p data-i18n="feat8_p">6-minute Apps Script execution limit guard; auto-saves progress and seamlessly resumes on the next trigger.</p>
+        <span class="feat-dir-tag" data-i18n="tag_heal">Self-Healing ⚙️</span>
       </div>
     </div>
   </div>
@@ -1842,31 +1581,31 @@ footer {
 <section class="sec-padding" id="engine">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_engine">架構差異</span>
-      <h2 class="sec-title" data-i18n="engine_title">為什麼你需要的是 <span class="grad-text">專用狀態引擎</span>，而非 Zapier 拼裝觸發器？</h2>
-      <p class="lead-text" data-i18n="engine_lead">Zapier、Make 或 IFTTT 能靠「當這件事發生時就做那件事」串接 API，但維持兩套任務庫一致是嚴格的「分散式狀態問題」。</p>
+      <span class="eyebrow" data-i18n="eyebrow_engine">Architecture</span>
+      <h2 class="sec-title" data-i18n="engine_title">Why you need a <span class="grad-text">stateful sync engine</span>, not Zapier recipes</h2>
+      <p class="lead-text" data-i18n="engine_lead">Trigger-action tools lack state memory. Maintaining two live task databases is a distributed state consistency challenge, not a naive "when this, do that" recipe.</p>
     </div>
 
     <div class="vs-grid">
       <div class="vs-col bad reveal">
-        <h3><span class="vs-mark">✕</span><span data-i18n="vs_bad_title">通用型自動化平台 (Zapier / Make)</span></h3>
+        <h3><span class="vs-mark">✕</span><span data-i18n="vs_bad_title">Generic Automation Tools (Zapier / Make)</span></h3>
         <ul>
-          <li data-i18n="vs_bad_1">彼此孤立的單向觸發，極易互相打架或引發死循環</li>
-          <li data-i18n="vs_bad_2">修改一個字元可能被判定為新任務，不斷複製重複項目</li>
-          <li data-i18n="vs_bad_3">完成、重新開啟、移動分類與刪除邏輯必須手動拼湊</li>
-          <li data-i18n="vs_bad_4">所有私人任務資料皆需流經第三方商用主機</li>
-          <li data-i18n="vs_bad_5">隨任務量計費，常常超出免費用量產生每月份額帳單</li>
+          <li data-i18n="vs_bad_1">Independent triggers easily fight each other in endless loops</li>
+          <li data-i18n="vs_bad_2">A typo edit can trigger duplicate creations</li>
+          <li data-i18n="vs_bad_3">Completion, deletion, and move logic must be manually stitched together</li>
+          <li data-i18n="vs_bad_4">Your private to-do data passes through commercial third-party servers</li>
+          <li data-i18n="vs_bad_5">Monthly per-task pricing quickly escalates with active use</li>
         </ul>
       </div>
 
       <div class="vs-col good reveal">
-        <h3><span class="vs-mark">✓</span><span>Tasks–To Do Sync 專用同步引擎</span></h3>
+        <h3><span class="vs-mark">✓</span><span data-i18n="vs_good_title">Tasks–To Do Sync Engine</span></h3>
         <ul>
-          <li data-i18n="vs_good_1"><b>單一閉環狀態機</b>：雙邊清單與任務維持持久穩定的 UUID 映射表</li>
-          <li data-i18n="vs_good_2"><b>完整生命週期</b>：新增、編輯、完成、時區、移動、刪除統一生態處理</li>
-          <li data-i18n="vs_good_3"><b>專為雙平台量身打造</b>：衝突比對、復原日誌、更名追蹤、墓碑紀錄</li>
-          <li data-i18n="vs_good_4"><b>100% 個人私有掌握</b>：所有代碼、金鑰、狀態都在您自己的 Google 帳號</li>
-          <li data-i18n="vs_good_5"><b>完全免費與開源</b>：MIT 授權，永久不收取任何訂閱月費</li>
+          <li data-i18n="vs_good_1"><b>Single-loop state machine</b>: stable UUID mappings across lists and tasks</li>
+          <li data-i18n="vs_good_2"><b>Full task lifecycle</b>: create, edit, complete, due date, move, and delete handled together</li>
+          <li data-i18n="vs_good_3"><b>Built specifically for these 2 apps</b>: conflict checks, move journals, tombstones</li>
+          <li data-i18n="vs_good_4"><b>100% Private ownership</b>: code, credentials, and state live solely in your Google account</li>
+          <li data-i18n="vs_good_5"><b>Completely free &amp; open source</b>: MIT licensed, never a subscription fee</li>
         </ul>
       </div>
     </div>
@@ -1874,31 +1613,31 @@ footer {
 </section>
 
 <!-- ==========================================================================
-     TRUST & AUDIT METRICS
+     TRUST & METRICS
      ========================================================================== -->
 <section class="sec-padding">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_trust">工程證據</span>
-      <h2 class="sec-title" data-i18n="trust_title">經得起公開檢驗的 <span class="grad-text">可靠度與隱私</span></h2>
+      <span class="eyebrow" data-i18n="eyebrow_trust">Engineering Proof</span>
+      <h2 class="sec-title" data-i18n="trust_title">Auditable reliability <span class="grad-text">&amp; absolute privacy</span></h2>
     </div>
 
     <div class="stat-strip">
       <div class="stat-card reveal">
         <div class="stat-num" data-count="417">0</div>
-        <div class="stat-label" data-i18n="stat_1">自動化測試覆蓋同步引擎核心</div>
+        <div class="stat-label" data-i18n="stat_1">Automated tests covering sync engine</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="8" data-suffix=" 類">0</div>
-        <div class="stat-label" data-i18n="stat_2">完整雙向同步資料屬性</div>
+        <div class="stat-num" data-count="8" data-suffix="">0</div>
+        <div class="stat-label" data-i18n="stat_2">Two-way synced data categories</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="10" data-suffix=" 分鐘">0</div>
-        <div class="stat-label" data-i18n="stat_3">自動排程背景靜默同步循環</div>
+        <div class="stat-num" data-count="10" data-suffix=" min">0</div>
+        <div class="stat-label" data-i18n="stat_3">Background sync trigger cadence</div>
       </div>
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="0" data-suffix=" 元">0</div>
-        <div class="stat-label" data-i18n="stat_4">零中繼伺服器 · 永久免月費</div>
+        <div class="stat-num" data-count="0" data-suffix="$">0</div>
+        <div class="stat-label" data-i18n="stat_4">Third-party servers · Free forever</div>
       </div>
     </div>
 
@@ -1907,161 +1646,158 @@ footer {
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
       </div>
       <div class="privacy-content">
-        <h3 data-i18n="privacy_h">您的私人待辦事項，絕不流經任何第三方伺服器</h3>
-        <p data-i18n="privacy_p">無外部後台託管、無中央資料庫、無任何廣告與追蹤代碼——同步全數在您個人的 Google Apps Script 私人環境內運算。開源採用 MIT 授權，受 GitHub CI 與 CodeQL 靜態分析嚴格檢查。詳情請參閱專案工程審查文檔（docs/audit.md）。</p>
+        <h3 data-i18n="privacy_h">Your task data never touches any third-party server</h3>
+        <p data-i18n="privacy_p">No external database, no SaaS middleware, no tracking cookies. Everything executes inside your private Google Apps Script. Open source under MIT, audited by GitHub CI and CodeQL static analysis.</p>
       </div>
     </div>
   </div>
 </section>
 
 <!-- ==========================================================================
-     INSTALLATION SECTION (DUAL TRACK)
+     INSTALLATION (HERO ON SETUP WIZARD)
      ========================================================================== -->
 <section class="sec-padding" id="install">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_install">快速開始</span>
-      <h2 class="sec-title" data-i18n="install_title">兩種安裝路徑，<span class="grad-text">今晚立即搞定同步</span></h2>
-      <p class="lead-text" data-i18n="install_lead">無論是習慣圖形介面的日常使用者，還是喜歡指令行的開發者，都能在 3 到 5 分鐘內快速完成個人部署。</p>
+      <span class="eyebrow" data-i18n="eyebrow_install">Get Started</span>
+      <h2 class="sec-title" data-i18n="install_title">Get synced tonight <span class="grad-text">in under 5 minutes</span></h2>
+      <p class="lead-text" data-i18n="install_lead">Use our intuitive Setup Wizard directly in your browser, or deploy with one terminal command if you are a developer.</p>
     </div>
 
-    <!-- Dual Track Tabs -->
+    <!-- Dual Tabs -->
     <div class="install-tabs">
       <button class="tab-btn active tab-teal" id="tabWebBtn" type="button">
-        <span>✨</span> <span data-i18n="tab_web">免終端機：瀏覽器網頁精靈 (推薦)</span>
+        <span>✨</span> <span data-i18n="tab_web">Browser Setup Wizard (Recommended)</span>
       </button>
       <button class="tab-btn" id="tabCliBtn" type="button">
-        <span>💻</span> <span data-i18n="tab_cli">開發者：終端機一鍵指令 (npx)</span>
+        <span>💻</span> <span data-i18n="tab_cli">Developer CLI (npx)</span>
       </button>
     </div>
 
-    <!-- PANE 1: WEB WIZARD -->
+    <!-- TAB 1: SETUP WIZARD SHOWCASE -->
     <div class="tab-pane active" id="paneWeb">
-      <div class="steps-grid">
-        <div class="step-card reveal">
-          <div class="step-num">1</div>
-          <h3 data-i18n="web_s1_h">取得專案腳本</h3>
-          <p data-i18n="web_s1_p">在瀏覽器開啟 Google Apps Script，建立您的私有同步專案（或直接複製官方範本）。</p>
+      <div class="wizard-showcase reveal">
+        <!-- Visual Screenshot Column -->
+        <div class="wizard-preview-col">
+          <img class="wizard-preview-img" src="assets/setup-wizard.png" alt="Tasks-To Do Sync Easy Setup Wizard Interface" onerror="this.src='docs/assets/setup-wizard.png'">
         </div>
-        <div class="step-card reveal">
-          <div class="step-num">2</div>
-          <h3 data-i18n="web_s2_h">部署私有網頁精靈</h3>
-          <p data-i18n="web_s2_p">點擊「部署 → 新增部署作業 → 網頁應用程式」，設定僅限自己存取（私人安全）。</p>
-        </div>
-        <div class="step-card reveal">
-          <div class="step-num">3</div>
-          <h3 data-i18n="web_s3_h">微軟 Device 登入</h3>
-          <p data-i18n="web_s3_p">開啟私有 Setup 精靈，連線微軟官方 <b>microsoft.com/link</b> 輸入配對短碼，無須建立複雜 Azure App。</p>
-        </div>
-        <div class="step-card reveal">
-          <div class="step-num">4</div>
-          <h3 data-i18n="web_s4_h">一鍵啟動自動排程</h3>
-          <p data-i18n="web_s4_p">在精靈介面按下「Activate」，系統自動建立 10 分鐘同步觸發器，並完成首次健康檢查！</p>
-        </div>
-      </div>
 
-      <div style="margin-top: 24px; text-align: center;">
-        <button class="btn btn-teal" id="openWizardModalBtn" type="button">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-          <span data-i18n="btn_view_steps">開啟免終端機步驟指引</span>
-        </button>
+        <!-- 4 Step Guide Column -->
+        <div class="wizard-steps-col">
+          <div class="step-item-mini">
+            <div class="step-num-pill">1</div>
+            <div class="step-text-wrap">
+              <h4 data-i18n="wiz_s1_h">Deploy Apps Script Project</h4>
+              <p data-i18n="wiz_s1_p">Create a private Google Apps Script project and deploy it as a personal Web App with "Only myself" access.</p>
+            </div>
+          </div>
+
+          <div class="step-item-mini">
+            <div class="step-num-pill">2</div>
+            <div class="step-text-wrap">
+              <h4 data-i18n="wiz_s2_h">Open the Private Setup Page</h4>
+              <p data-i18n="wiz_s2_p">Open your deployed private Web App URL. The clean setup wizard loads securely inside your browser.</p>
+            </div>
+          </div>
+
+          <div class="step-item-mini">
+            <div class="step-num-pill">3</div>
+            <div class="step-text-wrap">
+              <h4 data-i18n="wiz_s3_h">Microsoft Device Login</h4>
+              <p data-i18n="wiz_s3_p">Click "Connect", open official <b>microsoft.com/link</b>, enter the short code to grant consent. No Azure app needed.</p>
+            </div>
+          </div>
+
+          <div class="step-item-mini">
+            <div class="step-num-pill">4</div>
+            <div class="step-text-wrap">
+              <h4 data-i18n="wiz_s4_h">Activate Auto-Sync</h4>
+              <p data-i18n="wiz_s4_p">Click "Activate" in the wizard. A 10-minute trigger is automatically scheduled and initial sync begins.</p>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px;">
+            <button class="btn btn-teal" id="openWizardModalBtn" type="button">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span data-i18n="btn_view_steps">Open Setup Guide</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- PANE 2: CLI MODE -->
+    <!-- TAB 2: CLI MODE -->
     <div class="tab-pane" id="paneCli">
-      <div class="steps-grid">
-        <div class="step-card">
-          <div class="step-num">1</div>
-          <h3 data-i18n="cli_s1_h">執行 init</h3>
-          <p data-i18n="cli_s1_p">在電腦終端機輸入指令，自動建立獨立 Apps Script 專案並推送最新發布版本代碼。</p>
-        </div>
-        <div class="step-card">
-          <div class="step-num">2</div>
-          <h3 data-i18n="cli_s2_h">Google 授權確認</h3>
-          <p data-i18n="cli_s2_p">開啟終端機輸出的編輯器網址，執行一次初始化，確認個人 Google Tasks 權限。</p>
-        </div>
-        <div class="step-card">
-          <div class="step-num">3</div>
-          <h3 data-i18n="cli_s3_h">Microsoft 授權</h3>
-          <p data-i18n="cli_s3_p">開啟部署的私有 Setup 網頁，在微軟官方網址輸入驗證碼完成綁定。</p>
-        </div>
-        <div class="step-card">
-          <div class="step-num">4</div>
-          <h3 data-i18n="cli_s4_h">排程啟動</h3>
-          <p data-i18n="cli_s4_p">執行 <code>createTrigger</code>，每 10 分鐘自動背景同步，開始您的雙向任務流動。</p>
-        </div>
-      </div>
-
       <div class="terminal-card">
         <div class="term-header">
           <span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span>
-          <span class="term-title">terminal — 建立您的私有同步專案</span>
+          <span class="term-title" data-i18n="term_title">terminal — deploy release to your private Apps Script</span>
         </div>
         <div class="term-content">
           <div class="term-code"><span class="term-prompt">$</span> npx tasks-todo-sync init</div>
           <button class="btn btn-teal btn-sm" id="cliCopyBtn" type="button">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-            <span id="cliCopyLabel" data-i18n="btn_copy_cmd">複製指令</span>
+            <span id="cliCopyLabel" data-i18n="btn_copy_cmd">Copy command</span>
           </button>
         </div>
       </div>
+      <p class="hero-note" style="margin-top: 14px;">
+        <span data-i18n="cli_note">The CLI pushes release sources and outputs the Apps Script editor URL for initial authorization.</span>
+      </p>
     </div>
   </div>
 </section>
 
 <!-- ==========================================================================
-     VIDEO SECTION (IN-PLACE RESPONSIVE YOUTUBE PLAYER EMBED)
+     CONCEPT VIDEO SECTION
      ========================================================================== -->
 <section class="sec-padding" id="video">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_video">專案影片</span>
-      <h2 class="sec-title" data-i18n="video_title">觀看專案 <span class="grad-text">官方概念宣傳片</span></h2>
-      <p class="lead-text" data-i18n="video_lead">作者親自製作的官方概念宣傳短片，呈現跨越 Google 與 Microsoft 雙待辦生態、保持單一任務循環的核心精神。</p>
+      <span class="eyebrow" data-i18n="eyebrow_video">Concept Video</span>
+      <h2 class="sec-title" data-i18n="video_title">See the vision behind <span class="grad-text">Tasks–To Do Sync</span></h2>
+      <p class="lead-text" data-i18n="video_lead">A concept video illustrating the philosophy of keeping Google Tasks and Microsoft To Do seamlessly connected in one loop.</p>
     </div>
 
     <div class="video-card-container reveal">
-      <!-- In-Place Video Player Box -->
+      <!-- In-Place YouTube Embed -->
       <div class="video-player-wrap" id="videoPlayerBox">
-        <!-- Custom Poster Cover -->
-        <div class="video-poster-box" id="videoPoster" style="background-image: url('https://i.ytimg.com/vi/nhni7xPxgg0/hqdefault.jpg');" title="點擊原地播放 YouTube 演示影片">
+        <div class="video-poster-box" id="videoPoster" style="background-image: url('https://i.ytimg.com/vi/nhni7xPxgg0/hqdefault.jpg');" title="Click to play YouTube concept video">
           <div class="play-button-glow"></div>
           <div class="video-poster-tag">
             <span class="live-red"></span>
-            <span data-i18n="video_badge_live">Official Promo · 1080p HD</span>
+            <span data-i18n="video_badge_live">Official Concept · 1080p HD</span>
           </div>
         </div>
 
-        <!-- Hidden Iframe Slot (swapped on click) -->
         <iframe 
           class="video-iframe-slot" 
           id="ytIframe"
           data-src="https://www.youtube-nocookie.com/embed/nhni7xPxgg0?autoplay=1&rel=0&modestbranding=1&playsinline=1"
-          title="Tasks–To Do Sync 官方概念宣傳短片"
+          title="Tasks–To Do Sync Concept Video"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
           allowfullscreen>
         </iframe>
       </div>
 
-      <!-- Video Description & Links -->
+      <!-- Video Description -->
       <div class="video-desc-panel">
-        <h3 data-i18n="video_h3">Tasks–To Do Sync 專案概念形象片</h3>
+        <h3 data-i18n="video_h3">Tasks–To Do Sync Official Concept Video</h3>
         <p data-i18n="video_p">
-          本影片為作者親自剪輯的專案形象短片，呈現打破兩大任務生態壁壘的核心理念。點擊左側封面即可原地流暢觀看 YouTube 串流。
+          This video introduces the core philosophy of bridging the gap between Google Tasks and Microsoft To Do. Click the poster to play in-place via YouTube.
         </p>
         <div class="video-meta-tags">
-          <span data-i18n="tag_author">原作者製作</span>
-          <span data-i18n="tag_youtube">YouTube 串流</span>
-          <span data-i18n="tag_sound">建議開啟聲音 🔊</span>
+          <span data-i18n="tag_promo">Concept Promo</span>
+          <span data-i18n="tag_youtube">YouTube Stream</span>
+          <span data-i18n="tag_sound">Audio Recommended 🔊</span>
         </div>
         <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap;">
           <button class="btn btn-primary btn-sm" id="playTriggerBtn" type="button">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            <span data-i18n="btn_play_video">觀看形象宣傳片</span>
+            <span data-i18n="btn_play_video">Watch Concept Video</span>
           </button>
           <a class="btn btn-ghost btn-sm" href="https://youtu.be/nhni7xPxgg0" target="_blank" rel="noopener">
-            <span data-i18n="btn_yt_open">在 YouTube 開新視窗 ↗</span>
+            <span data-i18n="btn_yt_open">Open on YouTube ↗</span>
           </a>
         </div>
       </div>
@@ -2075,8 +1811,8 @@ footer {
 <section class="sec-padding" id="docs">
   <div class="container">
     <div class="reveal">
-      <span class="eyebrow" data-i18n="eyebrow_docs">工程文檔</span>
-      <h2 class="sec-title" data-i18n="docs_title">透明嚴謹，<span class="grad-text">完整開源文檔庫</span></h2>
+      <span class="eyebrow" data-i18n="eyebrow_docs">Documentation</span>
+      <h2 class="sec-title" data-i18n="docs_title">Fully documented, <span class="grad-text">transparent and auditable</span></h2>
     </div>
 
     <div class="doc-grid">
@@ -2084,8 +1820,8 @@ footer {
         <a class="doc-card" href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/docs/quick-start.md" target="_blank" rel="noopener">
           <span class="doc-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2.2"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg></span>
           <div>
-            <b data-i18n="doc1_t">快速開始手冊 (Quick Start)</b>
-            <small data-i18n="doc1_d">最短路徑個人部署指南</small>
+            <b data-i18n="doc1_t">Quick Start Guide</b>
+            <small data-i18n="doc1_d">The shortest personal deployment path</small>
           </div>
           <span class="arrow-ic">→</span>
         </a>
@@ -2093,8 +1829,8 @@ footer {
         <a class="doc-card" href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/docs/deployment.md" target="_blank" rel="noopener">
           <span class="doc-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.2"><path d="M4 19V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14M2 19h20M9 7h6M9 11h6"/></svg></span>
           <div>
-            <b data-i18n="doc2_t">部署與運維指南 (Deployment Guide)</b>
-            <small data-i18n="doc2_d">權限授權、升級復原、跨清單移動與 Entra 自管</small>
+            <b data-i18n="doc2_t">Deployment Guide</b>
+            <small data-i18n="doc2_d">Authorizations, upgrades, recovery, and Entra options</small>
           </div>
           <span class="arrow-ic">→</span>
         </a>
@@ -2102,8 +1838,8 @@ footer {
         <a class="doc-card" href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/docs/audit.md" target="_blank" rel="noopener">
           <span class="doc-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b7cf6" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span>
           <div>
-            <b data-i18n="doc3_t">工程審查報告 (Engineering Audit)</b>
-            <small data-i18n="doc3_d">417 項測試邊界、容量極限與狀態證明</small>
+            <b data-i18n="doc3_t">Engineering Audit Report</b>
+            <small data-i18n="doc3_d">417 tests, capacity bounds, and limitations</small>
           </div>
           <span class="arrow-ic">→</span>
         </a>
@@ -2111,21 +1847,21 @@ footer {
         <a class="doc-card" href="https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose" target="_blank" rel="noopener">
           <span class="doc-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
           <div>
-            <b data-i18n="doc4_t">GitHub Issue 回饋</b>
-            <small data-i18n="doc4_d">提出功能建議、回報錯誤或技術交流</small>
+            <b data-i18n="doc4_t">GitHub Issues</b>
+            <small data-i18n="doc4_d">Questions, feature ideas, and support</small>
           </div>
           <span class="arrow-ic">→</span>
         </a>
       </div>
 
       <div class="roadmap-card reveal">
-        <h3 data-i18n="road_h3">🗺 未來藍圖 (Roadmap)</h3>
+        <h3 data-i18n="road_h3">🗺 Roadmap</h3>
         <ul>
-          <li><b data-i18n="road1_b">零終端機大眾安裝普及化</b> — 持續精簡設定引導，讓不具備 Node.js 與指令經驗的日常使用者，也能享受 100% 私有自託管。</li>
-          <li><b data-i18n="road2_b">彈性擴展與狀態自癒強化</b> — 提供更豐富的除錯診斷介面，提升巨量清單下的增量 Delta 處理效能。</li>
+          <li><b data-i18n="road1_b">Frictionless setup for everyone</b> — a streamlined onboarding path that removes terminal prerequisites, making private self-hosting effortless for everyday users.</li>
+          <li><b data-i18n="road2_b">Scalable &amp; resilient self-healing</b> — richer diagnostic tools and incremental delta processing beyond lightweight serverless runtimes.</li>
         </ul>
         <p class="ver-status" data-i18n="ver_status">
-          目前狀態：v0.6.1 · GitHub ⭐ 20 · MIT 授權 · 歡迎社群貢獻
+          Current status: v0.6.1 · GitHub ⭐ 20 · MIT licensed · Contributors welcome
         </p>
       </div>
     </div>
@@ -2138,15 +1874,15 @@ footer {
 <section class="cta-section">
   <div class="container">
     <div class="cta-banner-box reveal">
-      <h2 data-i18n="cta_title">讓每筆待辦，<span class="grad-text">永遠保持雙向連繫</span></h2>
-      <p data-i18n="cta_desc">三分鐘在瀏覽器完成私有設定——在 Google 隨手捕捉想法，在 Microsoft 流暢結案推進。</p>
+      <h2 data-i18n="cta_title">Every to-do, <span class="grad-text">always connected</span></h2>
+      <p data-i18n="cta_desc">One private sync bridge. Capture your tasks in Google, finish them in Microsoft.</p>
       <div class="cta-actions">
         <button class="btn btn-teal" id="ctaWebSetupBtn" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-          <span data-i18n="btn_web_setup">開始免終端機安裝</span>
+          <span data-i18n="btn_web_setup">Launch Setup Wizard</span>
         </button>
         <a class="btn btn-ghost" href="https://github.com/simonchai-tw/tasks-todo-sync" target="_blank" rel="noopener">
-          <span data-i18n="btn_star">給專案一顆 Star ⭐</span>
+          <span data-i18n="btn_star">Star on GitHub ⭐</span>
         </a>
       </div>
     </div>
@@ -2159,72 +1895,72 @@ footer {
 <footer>
   <div class="container footer-inner">
     <div>© 2026 Simon Chai · Tasks–To Do Sync · MIT License</div>
-    <nav class="footer-links" aria-label="頁尾連結">
-      <a href="https://github.com/simonchai-tw/tasks-todo-sync" target="_blank" rel="noopener">GitHub 倉庫</a>
-      <a href="https://www.npmjs.com/package/tasks-todo-sync" target="_blank" rel="noopener">npm 套件</a>
-      <a href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/CHANGELOG.md" target="_blank" rel="noopener">更新日誌</a>
-      <a href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/SECURITY.md" target="_blank" rel="noopener">安全性政策</a>
+    <nav class="footer-links" aria-label="Footer links">
+      <a href="https://github.com/simonchai-tw/tasks-todo-sync" target="_blank" rel="noopener">GitHub Repo</a>
+      <a href="https://www.npmjs.com/package/tasks-todo-sync" target="_blank" rel="noopener">npm Package</a>
+      <a href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
+      <a href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/SECURITY.md" target="_blank" rel="noopener">Security</a>
     </nav>
   </div>
 </footer>
 
 <!-- ==========================================================================
-     STEP-BY-STEP WEB SETUP MODAL
+     STEP-BY-STEP SETUP WIZARD MODAL
      ========================================================================== -->
 <div class="modal-overlay" id="wizardModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
   <div class="modal-box">
     <div class="modal-header">
-      <h3 class="modal-title" id="modalTitle">✨ 免終端機網頁安裝指引</h3>
-      <button class="modal-close" id="closeModalBtn" type="button" aria-label="關閉視窗">✕</button>
+      <h3 class="modal-title" id="modalTitle" data-i18n="modal_title">✨ Easy Setup Wizard Guide</h3>
+      <button class="modal-close" id="closeModalBtn" type="button" aria-label="Close">✕</button>
     </div>
 
     <div class="modal-step-item">
       <div class="modal-step-badge">1</div>
       <div class="modal-step-body">
-        <h4>建立 Google Apps Script 專案</h4>
-        <p>前往 <a href="https://script.google.com" target="_blank" rel="noopener" style="color:var(--teal);text-decoration:underline;">script.google.com</a> 點選「新專案」，此專案完全屬於您的個人 Google 雲端，絕無任何外人可檢視代碼與資料。</p>
+        <h4 data-i18n="m_s1_h">Deploy Apps Script Web App</h4>
+        <p data-i18n="m_s1_p">In your private Apps Script project, click <b>Deploy → New deployment</b>, select <b>Web app</b>, set Execute as: <b>Me</b>, and access to <b>Only myself</b>.</p>
       </div>
     </div>
 
     <div class="modal-step-item">
       <div class="modal-step-badge">2</div>
       <div class="modal-step-body">
-        <h4>匯入同步代碼或建立 Web App</h4>
-        <p>複製 GitHub 最新發布版本程式碼，於編輯器右上角點選<b>「部署」→「新增部署作業」</b>，類型選擇<b>「網頁應用程式 (Web App)」</b>，存取權限設為<b>「僅限自己」</b>。</p>
+        <h4 data-i18n="m_s2_h">Open Setup Wizard Page</h4>
+        <p data-i18n="m_s2_p">Open the private Web App URL generated by Google. The friendly Setup Wizard interface (Setup.html) will guide you through the two authorizations.</p>
       </div>
     </div>
 
     <div class="modal-step-item">
       <div class="modal-step-badge">3</div>
       <div class="modal-step-body">
-        <h4>開啟私有安裝精靈 (Setup.html)</h4>
-        <p>點開部署給您的專屬網址，跟隨網頁上的步驟：點選「Connect Microsoft」，在微軟官方網址輸入驗證碼完成授權（使用官方安全 Device Code Flow，免註冊複雜 Azure 憑證）。</p>
+        <h4 data-i18n="m_s3_h">Connect Microsoft Account</h4>
+        <p data-i18n="m_s3_p">Click "Connect", then visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.</p>
       </div>
     </div>
 
     <div class="modal-step-item">
       <div class="modal-step-badge">4</div>
       <div class="modal-step-body">
-        <h4>點擊 Activate 啟動排程</h4>
-        <p>完成兩端授權後，點擊網頁上的「Activate」按鈕，系統將自動啟動每 10 分鐘自動雙向同步排程，即刻生效！</p>
+        <h4 data-i18n="m_s4_h">Activate 10-Minute Sync</h4>
+        <p data-i18n="m_s4_p">Click "Activate" in the wizard. A reliable 10-minute trigger is created and your tasks start syncing automatically in the background!</p>
       </div>
     </div>
 
-    <div style="margin-top: 24px; display: flex; gap: 10px; justify-content: flex-end;">
-      <a class="btn btn-ghost btn-sm" href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/docs/quick-start.md" target="_blank" rel="noopener">
-        GitHub 部署技術手冊 (英文 Markdown) ↗
+    <div style="margin-top: 24px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+      <a class="btn btn-ghost btn-sm" href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/docs/deployment.md" target="_blank" rel="noopener">
+        <span data-i18n="btn_manual_doc">Deployment Guide ↗</span>
       </a>
       <button class="btn btn-primary btn-sm" id="closeModalConfirmBtn" type="button">
-        我知道了！
+        <span data-i18n="btn_got_it">Got It!</span>
       </button>
     </div>
   </div>
 </div>
 
-<div class="toast-notice" id="toastNotice">已成功複製到剪貼簿！✓</div>
+<div class="toast-notice" id="toastNotice">Copied to clipboard! ✓</div>
 
 <!-- ==========================================================================
-     INTERACTIVE LOGIC & INTERNATIONALIZATION (I18N)
+     INTERACTIVITY & I18N
      ========================================================================== -->
 <script>
 (function() {
@@ -2235,7 +1971,7 @@ footer {
 
   function showToast(msg) {
     if (!toast) return;
-    toast.textContent = msg || '已成功複製到剪貼簿！✓';
+    toast.textContent = msg || (currentLang === 'en' ? 'Copied to clipboard! ✓' : '已成功複製到剪貼簿！✓');
     toast.classList.add('show');
     setTimeout(() => toast.classList.remove('show'), 2200);
   }
@@ -2260,23 +1996,19 @@ footer {
       document.execCommand('copy');
       showToast();
     } catch (e) {
-      showToast('請手動選取複製');
+      showToast(currentLang === 'en' ? 'Please copy manually' : '請手動選取複製');
     }
     document.body.removeChild(ta);
   }
 
   // Copy Buttons
   const heroCopyBtn = document.getElementById('heroCopyCliBtn');
-  if (heroCopyBtn) {
-    heroCopyBtn.addEventListener('click', () => copyText(CMD));
-  }
+  if (heroCopyBtn) heroCopyBtn.addEventListener('click', () => copyText(CMD));
 
   const cliCopyBtn = document.getElementById('cliCopyBtn');
-  if (cliCopyBtn) {
-    cliCopyBtn.addEventListener('click', () => copyText(CMD));
-  }
+  if (cliCopyBtn) cliCopyBtn.addEventListener('click', () => copyText(CMD));
 
-  // Tabs Switcher
+  // Tabs
   const tabWeb = document.getElementById('tabWebBtn');
   const tabCli = document.getElementById('tabCliBtn');
   const paneWeb = document.getElementById('paneWeb');
@@ -2289,7 +2021,6 @@ footer {
       paneWeb.classList.add('active');
       paneCli.classList.remove('active');
     });
-
     tabCli.addEventListener('click', () => {
       tabCli.classList.add('active');
       tabWeb.classList.remove('active', 'tab-teal');
@@ -2298,7 +2029,7 @@ footer {
     });
   }
 
-  // In-Place YouTube Embed Player
+  // Video in-place YouTube embed
   const videoPoster = document.getElementById('videoPoster');
   const videoPlayerBox = document.getElementById('videoPlayerBox');
   const ytIframe = document.getElementById('ytIframe');
@@ -2315,7 +2046,7 @@ footer {
   if (videoPoster) videoPoster.addEventListener('click', startVideo);
   if (playTriggerBtn) playTriggerBtn.addEventListener('click', startVideo);
 
-  // Modal Wizard
+  // Modal
   const modal = document.getElementById('wizardModal');
   const openWebSetupBtn = document.getElementById('openWebSetupBtn');
   const openWizardModalBtn = document.getElementById('openWizardModalBtn');
@@ -2342,15 +2073,13 @@ footer {
   if (closeModalConfirmBtn) closeModalConfirmBtn.addEventListener('click', closeModal);
 
   if (modal) {
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeModal();
-    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
     });
   }
 
-  // Navbar shadow on scroll
+  // Scroll
   const nav = document.getElementById('top');
   window.addEventListener('scroll', () => {
     if (!nav) return;
@@ -2358,7 +2087,7 @@ footer {
     else nav.classList.remove('scrolled');
   }, { passive: true });
 
-  // Scroll Reveal Animations
+  // Reveal
   const reveals = document.querySelectorAll('.reveal');
   if ('IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => {
@@ -2369,13 +2098,12 @@ footer {
         }
       });
     }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
-
     reveals.forEach(el => io.observe(el));
   } else {
     reveals.forEach(el => el.classList.add('in'));
   }
 
-  // Counter Animations
+  // Counter
   const counters = document.querySelectorAll('.stat-num[data-count]');
   if ('IntersectionObserver' in window) {
     const counterIo = new IntersectionObserver((entries) => {
@@ -2397,175 +2125,336 @@ footer {
         requestAnimationFrame(step);
       });
     }, { threshold: 0.5 });
-
     counters.forEach(c => counterIo.observe(c));
-  } else {
-    counters.forEach(el => {
-      el.textContent = el.getAttribute('data-count') + (el.getAttribute('data-suffix') || '');
-    });
   }
 
-  // Language Switcher (Traditional Chinese <-> English)
-  let currentLang = 'zh-TW';
+  // ==========================================================================
+  // I18N (ENGLISH IS DEFAULT, MANUAL TOGGLE TO TRADITIONAL CHINESE)
+  // ==========================================================================
+  let currentLang = 'en';
   const langBtn = document.getElementById('langBtn');
   const langText = document.getElementById('langText');
 
-  const i18nData = {
-    'en': {
-      'nav_features': 'Features',
-      'nav_engine': 'Engine',
-      'nav_install': 'Install',
-      'nav_video': 'Video',
-      'nav_docs': 'Docs',
-      'badge_selfhosted': 'Self-Hosted',
-      'badge_tests': '417+ Automated Tests',
-      'hero_h1_1': 'Seamlessly Connect',
-      'hero_h1_and': 'and',
-      'hero_desc': 'Keep Google Tasks and Microsoft To Do in one continuous loop. No third-party sync server, no subscription fees. The entire sync engine runs inside your own private Google Apps Script project.',
-      'btn_web_setup': 'No-Terminal Web Setup (3 min)',
-      'hero_note': 'One-time setup · Official OAuth sign-in · Auto-syncs every 10 min',
-      'demo_live_sync': 'Live Sync Simulation',
-      'demo_interval': 'Auto Trigger: Every 10 Min',
-      'task_g1': 'Review Q3 Launch Report',
-      'task_g2': 'Reply to Manager Confirmation',
-      'task_g3': 'Buy Coffee Beans & Milk',
-      'tag_work': 'Work',
-      'tag_synced': 'Synced',
-      'tag_completed': 'Done',
-      'tag_personal': 'Personal',
-      'foot_sync1': 'Bidirectional Loop',
-      'foot_sync2': 'Anti-Loop Protection',
-      'foot_sync3': 'Automatic Discovery',
-      'foot_sync4': 'Safe Deletion Guard',
-      'eyebrow_pains': 'The Real Pain',
-      'pains_title': 'Your tasks never originate in <span class="grad-text">just one single app</span>',
-      'pains_lead': 'Modern work and life are fragmented across ecosystems. We capture to-dos wherever convenient, but without sync, tasks get forgotten.',
-      'pain1_h': 'Voice Capture via Gemini',
-      'pain1_p': '"Hey Google, remind me to buy coffee tomorrow." Captured in Google Tasks, but needed in Microsoft To Do on your work PC? Now fully synced.',
-      'pain1_2_h': 'Turn Outlook Emails to Tasks',
-      'pain1_2_p': 'Flag an important email in Outlook To Do, and it instantly shows up in your mobile Google Tasks calendar sidebar.',
-      'pain1_3_h': 'Copilot Summaries to Action Items',
-      'pain1_3_p': 'M365 Copilot creates action lists that seamlessly mirror into your personal Google workflow without manual copying.',
-      'pain1_4_h': 'Apple Reminders & Siri Bridge',
-      'pain1_4_p': 'Connect via Microsoft account to iOS Reminders, closing the loop across iPhone, Mac, Android and Windows.',
-      'eyebrow_feat': 'Capabilities',
-      'feat_title': 'Full task lifecycle, <span class="grad-text">synced across 8 dimensions</span>',
-      'feat_lead': 'Not just a one-time trigger! Create, edit, notes, due dates, cross-list relocations, and deletions are handled with durable state recovery.',
-      'feat1_h': 'Create & Edit Tasks',
-      'feat1_p': 'Creating or renaming a task in either app updates its counterpart without duplicate ghost entries.',
-      'feat2_h': 'Complete & Reopen',
-      'feat2_p': 'Mark done or reopen anytime. State settles cleanly without reviving completed tasks.',
-      'feat3_h': 'Notes & Body Text',
-      'feat3_p': 'Bi-directional notes sync with clean line breaks and text integrity across both platforms.',
-      'feat4_h': 'Due Date & Timezone',
-      'feat4_p': 'Accurate IANA timezone conversion ensures dates do not shift by a day due to UTC differences.',
-      'feat5_h': 'Cross-List Moves',
-      'feat5_p': 'Destination-first move journals safely relocate tasks between categorized lists.',
-      'feat6_h': 'Deletion Safeguards',
-      'feat6_p': 'Two-round confirmation protects your lists from accidental network-drop wipeouts.',
-      'feat7_h': 'Tombstone Markers',
-      'feat7_p': 'Durable tombstones prevent deleted items from resurrecting on subsequent runs.',
-      'feat8_h': 'Batch Self-Healing',
-      'feat8_p': '6-minute Apps Script execution limit guard; auto-saves progress and continues on next trigger.',
-      'eyebrow_engine': 'Architecture',
-      'engine_title': 'Why you need a <span class="grad-text">stateful sync engine</span>, not just Zapier recipes',
-      'engine_lead': 'Trigger-action tools lack state memory. Maintaining two live task databases is a distributed state consistency challenge.',
-      'vs_bad_title': 'Generic Automation Tools (Zapier / Make)',
-      'vs_bad_1': 'Independent triggers easily fight each other in endless loops',
-      'vs_bad_2': 'A typo edit can trigger duplicate creations',
-      'vs_bad_3': 'Completion, deletion and move logic must be manually stitched together',
-      'vs_bad_4': 'Your private to-do data passes through third-party servers',
-      'vs_bad_5': 'Pay-per-task monthly pricing quickly escalates with active use',
-      'vs_good_1': '<b>Single-loop state machine</b>: stable UUID mappings across lists and tasks',
-      'vs_good_2': '<b>Full task lifecycle</b>: create, edit, complete, due date, move and delete handled together',
-      'vs_good_3': '<b>Built specifically for these 2 apps</b>: conflict checks, move journals, tombstones',
-      'vs_good_4': '<b>100% Private ownership</b>: code, credentials, and state live solely in your Google account',
-      'vs_good_5': '<b>Completely free & open source</b>: MIT licensed, never a subscription fee',
-      'eyebrow_trust': 'Engineering Proof',
-      'trust_title': 'Auditable reliability <span class="grad-text">& absolute privacy</span>',
-      'stat_1': 'Automated tests covering the sync engine',
-      'stat_2': 'Two-way synced data categories',
-      'stat_3': 'Automatic trigger interval (minutes)',
-      'stat_4': 'Third-party servers · Free forever',
-      'privacy_h': 'Your task data never touches any third-party server',
-      'privacy_p': 'No external database, no SaaS middleware, no tracking cookies. Everything executes inside your private Google Apps Script. Open source under MIT, audited by GitHub CI and CodeQL.',
-      'eyebrow_install': 'Getting Started',
-      'install_title': 'Two installation paths, <span class="grad-text">synced tonight</span>',
-      'install_lead': 'Whether you prefer a friendly browser wizard or a CLI command, you can deploy in under 5 minutes.',
-      'tab_web': '✨ No-Terminal: Web Wizard (Recommended)',
-      'tab_cli': '💻 Developer: One-Line CLI (npx)',
-      'web_s1_h': 'Create Script Project',
-      'web_s1_p': 'Open script.google.com and create a private project in your Google Cloud.',
-      'web_s2_h': 'Deploy as Web App',
-      'web_s2_p': 'Deploy as Web App with access set to "Only myself" for maximum security.',
-      'web_s3_h': 'Microsoft Device Login',
-      'web_s3_p': 'Open your private setup wizard and enter the code at microsoft.com/link.',
-      'web_s4_h': 'Activate Auto-Sync',
-      'web_s4_p': 'Click "Activate" to schedule the 10-minute automatic background trigger.',
-      'btn_view_steps': 'Open No-Terminal Setup Wizard Guide',
-      'cli_s1_h': 'Run init command',
-      'cli_s1_p': 'Run the command in your terminal to initialize and push the release code.',
-      'cli_s2_h': 'Google Consent',
-      'cli_s2_p': 'Open the editor URL, run initialization, and approve Google Tasks scope.',
-      'cli_s3_h': 'Microsoft Login',
-      'cli_s3_p': 'Complete Microsoft device code authorization in the private setup UI.',
-      'cli_s4_h': 'Schedule Trigger',
-      'cli_s4_p': 'Run createTrigger to start 10-minute autonomous background sync.',
-      'btn_copy_cmd': 'Copy Command',
-      'eyebrow_video': 'Official Video',
-      'video_title': 'Watch the Official <span class="grad-text">Promo Video</span>',
-      'video_lead': 'Watch the author's concept promo showcasing the vision of keeping Google and Microsoft task loops seamlessly united.',
-      'video_badge_live': 'Official Promo · 1080p HD',
-      'video_h3': 'Tasks–To Do Sync Official Concept Promo',
-      'video_p': 'This video introduces the project's core philosophy and experience in bridging Google Tasks and Microsoft To Do. Click the poster to play in-place via YouTube.',
-      'tag_author': 'By Author',
-      'tag_youtube': 'YouTube Stream',
-      'tag_sound': 'Sound Recommended 🔊',
-      'btn_play_video': 'Watch Promo Video',
-      'btn_yt_open': 'Open on YouTube ↗',
-      'eyebrow_docs': 'Documentation',
-      'docs_title': 'Fully documented, <span class="grad-text">open source and auditable</span>',
-      'doc1_t': 'Quick Start Guide',
-      'doc1_d': 'Shortest path for personal deployment',
-      'doc2_t': 'Deployment & Operations Guide',
-      'doc2_d': 'Permissions, upgrades, rollbacks and Entra options',
-      'doc3_t': 'Engineering Audit Report',
-      'doc3_d': '417 tests, state boundaries and limits',
-      'doc4_t': 'GitHub Issues',
-      'doc4_d': 'Questions, feature ideas, and support',
-      'road_h3': '🗺 Roadmap',
-      'road1_b': 'Frictionless setup for everyone',
-      'road2_b': 'Scalable & resilient self-healing diagnostics',
-      'ver_status': 'Current status: v0.6.1 · GitHub ⭐ 20 · MIT licensed',
-      'cta_title': 'Every to-do, <span class="grad-text">always connected</span>',
-      'cta_desc': '3 minutes to build your private sync bridge. Capture in Google, finish in Microsoft.',
-      'btn_star': 'Star on GitHub ⭐'
-    }
+  const dictZh = {
+    'nav_features': '功能特色',
+    'nav_engine': '同步架構',
+    'nav_install': '安裝設定',
+    'nav_video': '概念影片',
+    'nav_docs': '技術文檔',
+    'badge_selfhosted': '私有自託管',
+    'badge_tests': '417+ 自動化測試',
+    'hero_h1_1': '跨平台串聯',
+    'hero_h1_and': '與',
+    'hero_h1_2': '保持雙向即時同步',
+    'hero_desc': '在 Google 上建立的待辦事項，立即出現在微軟生態；在 To Do 上勾選完成，Google Tasks 同步結案。無第三方伺服器、零訂閱月費，同步邏輯私有運行在您自己的 <strong>Google Apps Script</strong> 專案內。',
+    'btn_web_setup': '網頁安裝精靈 (3分鐘)',
+    'hero_note': '一次設定 · 兩端官方授權 · 每 10 分鐘背景靜默同步',
+    'demo_live_sync': '即時同步動態模擬',
+    'demo_interval': '自動排程：每 10 分鐘',
+    'task_g1': '審查週五發布報告',
+    'task_g2': '回覆主管確認郵件',
+    'task_g3': '購買咖啡豆 & 牛奶',
+    'tag_work': '工作',
+    'tag_synced': '已同步',
+    'tag_completed': '已完成',
+    'tag_personal': '個人',
+    'chip_create': '+ 建立任務',
+    'chip_done': '✓ 勾選完成',
+    'chip_note': '✎ 同步備註',
+    'chip_due': '⏰ 到期日變更',
+    'foot_sync1': '雙向生命週期閉環',
+    'foot_sync2': '狀態防迴圈保護',
+    'foot_sync3': '自動化清單探索',
+    'foot_sync4': '安全刪除判定機制',
+    'eyebrow_pains': '現實痛點',
+    'pains_title': '您的待辦事項，從不會只出現在 <span class="grad-text">同一個應用裡</span>',
+    'pains_lead': '現代人的工作與生活被不同平台切割。我們總是想用最順手的工具記下一筆待辦，但最終卻散落各處被遺忘。',
+    'pain1_h': '隨手呼叫 Gemini 語音輸入',
+    'pain1_p': '「Hey Google，幫我新增明天買咖啡豆。」語音建立在 Google Tasks，工作電腦 Microsoft To Do 卻看不到？現在兩端自動同步。',
+    'pain2_h': 'Outlook 郵件一鍵標記待辦',
+    'pain2_p': '工作郵件在微軟 Outlook 隨手插上小紅旗加入 To Do，立刻自動呈現在手機 Google 日曆側欄 Tasks 中，外出行程一目了然。',
+    'pain3_h': 'Copilot 摘要檔案生成行動清單',
+    'pain3_p': 'Office 365 Copilot 產生的專案待辦，自動同步進個人習慣的 Google 任務系統，不必跨視窗手動重複複製貼上。',
+    'pain4_h': 'Apple 提醒事項 & Siri 串聯',
+    'pain4_p': '透過微軟帳號連接 iOS 提醒事項，實現 iPhone / Mac、Android 手機與 Windows 電腦的全生態待辦閉環。',
+    'eyebrow_feat': '同步能力',
+    'feat_title': '涵蓋完整生命週期，<span class="grad-text">八大維度雙向同步</span>',
+    'feat_lead': '不是只有建立一瞬間！從編輯內容、附註、改期、跨清單移動到刪除，皆具備嚴格的資料對照與衝突自癒能力。',
+    'feat1_h': '建立與標題編輯',
+    'feat1_p': '在任何一端新增任務或修改文字，Counterpart 映射機制會精準更新另一端，絕不重複建立副本。',
+    'feat2_h': '完成標記與重啟',
+    'feat2_p': '打勾結案或重新啟用未完成任務，狀態即時同步。避免傳統單向工具「死灰復燃」重複出現的問題。',
+    'feat3_h': '詳細附註與備註',
+    'feat3_p': '支援 Google Tasks Notes 與 To Do Body 雙向對應，維持清晰的純文字格式與換行。',
+    'feat4_h': '到期日智慧換算',
+    'feat4_p': '精準計算時區偏移（IANA Timezone），確保跨國或日曆檢視時不會發生日期提早一天的落差。',
+    'feat5_h': '跨清單移動轉移',
+    'feat5_p': '具備 Destination-first 搬移恢復日誌。當您把任務拖到不同分類清單時，自動遷移對應端項目。',
+    'feat6_h': '刪除防護與二次校驗',
+    'feat6_p': '兩階段確認刪除保護，避免因網路暫時斷線造成誤刪整個清單的悲劇。',
+    'feat7_h': '墓碑紀錄（Tombstone）',
+    'feat7_p': '透過持久化墓碑標記，杜絕任何重複復原舊資料的幽靈任務現象，確保狀態絕對真實。',
+    'feat8_h': '批次故障自癒機制',
+    'feat8_p': '執行時間保護（Apps Script 6分鐘上限），逾時自動持久化進度，下次觸發無縫接軌繼續。',
+    'tag_twoway': '雙向即時 ⇄',
+    'tag_status': '狀態閉環 ⇄',
+    'tag_content': '內文同步 ⇄',
+    'tag_tz': '時區校準 ⇄',
+    'tag_move': '跨清單保護 ⇄',
+    'tag_deletion': '安全刪除 🛡️',
+    'tag_tombstone': '幽靈防護 👻',
+    'tag_heal': '自癒容錯 ⚙️',
+    'eyebrow_engine': '架構差異',
+    'engine_title': '為什麼你需要的是 <span class="grad-text">專用狀態引擎</span>，而非 Zapier 拼裝觸發器？',
+    'engine_lead': 'Zapier、Make 或 IFTTT 能靠觸發器串接 API，但維持兩套任務庫一致是嚴格的分散式狀態問題。',
+    'vs_bad_title': '通用型自動化平台 (Zapier / Make)',
+    'vs_bad_1': '彼此孤立的單向觸發，極易互相打架或引發死循環',
+    'vs_bad_2': '修改一個字元可能被判定為新任務，不斷複製重複項目',
+    'vs_bad_3': '完成、重新開啟、移動分類與刪除邏輯必須手動拼湊',
+    'vs_bad_4': '所有私人任務資料皆需流經第三方商用主機',
+    'vs_bad_5': '隨任務量計費，常常超出免費用量產生每月份額帳單',
+    'vs_good_title': 'Tasks–To Do Sync 專用同步引擎',
+    'vs_good_1': '<b>單一閉環狀態機</b>：雙邊清單與任務維持持久穩定的 UUID 映射表',
+    'vs_good_2': '<b>完整生命週期</b>：新增、編輯、完成、時區、移動、刪除統一生態處理',
+    'vs_good_3': '<b>專為雙平台量身打造</b>：衝突比對、復原日誌、更名追蹤、墓碑紀錄',
+    'vs_good_4': '<b>100% 個人私有掌握</b>：所有代碼、金鑰、狀態都在您自己的 Google 帳號',
+    'vs_good_5': '<b>完全免費與開源</b>：MIT 授權，永久不收取任何訂閱月費',
+    'eyebrow_trust': '工程證據',
+    'trust_title': '經得起公開檢驗的 <span class="grad-text">可靠度與隱私</span>',
+    'stat_1': '自動化測試覆蓋同步引擎核心',
+    'stat_2': '完整雙向同步資料屬性',
+    'stat_3': '自動排程背景靜默同步循環',
+    'stat_4': '零中繼伺服器 · 永久免月費',
+    'privacy_h': '您的私人待辦事項，絕不流經任何第三方伺服器',
+    'privacy_p': '無外部後台託管、無中央資料庫、無任何廣告與追蹤代碼——同步全數在您個人的 Google Apps Script 私人環境內運算。開源採用 MIT 授權，受 GitHub CI 與 CodeQL 靜態分析嚴格檢查。',
+    'eyebrow_install': '快速開始',
+    'install_title': '兩種安裝路徑，<span class="grad-text">今晚立即搞定同步</span>',
+    'install_lead': '首推圖形化安裝精靈，在瀏覽器 3 分鐘完成；亦支援開發者終端機單行指令。',
+    'tab_web': '✨ 瀏覽器安裝精靈 (推薦)',
+    'tab_cli': '💻 開發者終端機 (npx)',
+    'wiz_s1_h': '部署 Apps Script 專案',
+    'wiz_s1_p': '在個人 Google 雲端建立私有 Apps Script 專案，並部署為僅限自己存取的 Web 應用程式。',
+    'wiz_s2_h': '開啟私有設定網頁',
+    'wiz_s2_p': '點開部署產生的專屬網址，乾淨現代的安裝精靈 (Setup.html) 直接在瀏覽器中引導兩端授權。',
+    'wiz_s3_h': '微軟 Device Code 登入',
+    'wiz_s3_p': '點擊「Connect」，至微軟官方 <b>microsoft.com/link</b> 輸入驗證碼完成授權，免註冊複雜 Azure 憑證。',
+    'wiz_s4_h': '一鍵啟動自動排程',
+    'wiz_s4_p': '在精靈按下「Activate」，系統自動建立 10 分鐘定時觸發器，開始背景靜默同步。',
+    'btn_view_steps': '開啟安裝步驟指引',
+    'term_title': 'terminal — 推送發布代碼至個人私有 Apps Script',
+    'btn_copy_cmd': '複製指令',
+    'cli_note': '終端機指令會使用 clasp 自動建立專案並輸出 Apps Script 編輯器網址。',
+    'eyebrow_video': '概念影片',
+    'video_title': '觀看專案 <span class="grad-text">官方概念宣傳片</span>',
+    'video_lead': '官方概念宣傳短片，呈現跨越 Google 與 Microsoft 雙待辦生態、保持單一任務循環的核心精神。',
+    'video_badge_live': 'Official Concept · 1080p HD',
+    'video_h3': 'Tasks–To Do Sync 專案概念宣傳片',
+    'video_p': '本短片呈現打破兩大任務生態壁壘的核心理念。點擊封面即可原地流暢觀看 YouTube 串流。',
+    'tag_promo': '概念宣傳片',
+    'tag_youtube': 'YouTube 串流',
+    'tag_sound': '建議開啟聲音 🔊',
+    'btn_play_video': '觀看概念宣傳片',
+    'btn_yt_open': '在 YouTube 開新視窗 ↗',
+    'eyebrow_docs': '工程文檔',
+    'docs_title': '透明嚴謹，<span class="grad-text">完整開源文檔庫</span>',
+    'doc1_t': '快速開始手冊 (Quick Start)',
+    'doc1_d': '最短路徑個人部署指南',
+    'doc2_t': 'GitHub 部署手冊 (Deployment Guide)',
+    'doc2_d': '權限授權、升級復原、跨清單移動與 Entra 自管',
+    'doc3_t': '工程審查報告 (Engineering Audit)',
+    'doc3_d': '417 項測試邊界、容量極限與狀態證明',
+    'doc4_t': 'GitHub Issue 回饋',
+    'doc4_d': '提出功能建議、回報問題或交流',
+    'road_h3': '🗺 未來藍圖 (Roadmap)',
+    'road1_b': '零終端機大眾安裝普及化',
+    'road2_b': '彈性擴展與狀態自癒強化',
+    'ver_status': '目前狀態：v0.6.1 · GitHub ⭐ 20 · MIT 授權 · 歡迎社群貢獻',
+    'cta_title': '讓每筆待辦，<span class="grad-text">永遠保持雙向連繫</span>',
+    'cta_desc': '三分鐘在瀏覽器完成私有設定——在 Google 隨手捕捉想法，在 Microsoft 流暢結案推進。',
+    'btn_star': '給專案一顆 Star ⭐',
+    'modal_title': '✨ 網頁安裝精靈步驟指引',
+    'm_s1_h': '部署 Apps Script 網頁應用程式',
+    'm_s1_p': '在您的私有 Apps Script 專案中，點選<b>「部署」→「新增部署作業」</b>，類型選<b>「網頁應用程式 (Web App)」</b>，存取權限設為<b>「僅限自己」</b>。',
+    'm_s2_h': '開啟私有 Setup 網頁精靈',
+    'm_s2_p': '點開 Google 部署給您的專屬網址，視覺化安裝精靈 (Setup.html) 將引導您完成兩邊授權。',
+    'm_s3_h': '微軟帳號 Device Code 授權',
+    'm_s3_p': '在精靈中點擊「Connect」，依提示前往微軟官方 <b>microsoft.com/link</b> 輸入畫面上的短碼完成授權（官方安全通道，免 Azure App）。',
+    'm_s4_h': '點擊 Activate 啟動 10 分鐘排程',
+    'm_s4_p': '完成兩端認證後，在精靈點擊「Activate」按鈕，每 10 分鐘自動雙向同步排程立即生效！',
+    'btn_manual_doc': 'GitHub 部署手冊 ↗',
+    'btn_got_it': '我知道了！'
   };
+
+  const dictEn = {
+    'nav_features': 'Features',
+    'nav_engine': 'Engine',
+    'nav_install': 'Install',
+    'nav_video': 'Video',
+    'nav_docs': 'Docs',
+    'badge_selfhosted': 'Self-Hosted',
+    'badge_tests': '417+ Automated Tests',
+    'hero_h1_1': 'Keep',
+    'hero_h1_and': 'and',
+    'hero_h1_2': 'in one continuous loop',
+    'hero_desc': 'Every task you capture on Google instantly flows to Microsoft — and checking it off in To Do completes it on Google Tasks. No third-party sync server, no subscriptions. The entire bridge runs privately inside <strong>your own Google Apps Script</strong> project.',
+    'btn_web_setup': 'Easy Setup Wizard (3 min)',
+    'hero_note': 'One-time setup · Official OAuth sign-ins · Automatic background sync every 10 min',
+    'demo_live_sync': 'Live Sync Simulation',
+    'demo_interval': 'Trigger: Every 10 min',
+    'task_g1': 'Review Q3 Launch Report',
+    'task_g2': 'Reply to Manager Confirmation',
+    'task_g3': 'Buy Coffee Beans & Milk',
+    'tag_work': 'Work',
+    'tag_synced': 'Synced',
+    'tag_completed': 'Done',
+    'tag_personal': 'Personal',
+    'chip_create': '+ New Task',
+    'chip_done': '✓ Completed',
+    'chip_note': '✎ Update Notes',
+    'chip_due': '⏰ Due Date Change',
+    'foot_sync1': 'Bidirectional Loop',
+    'foot_sync2': 'Anti-Loop Guard',
+    'foot_sync3': 'Auto List Discovery',
+    'foot_sync4': 'Safe Deletion Protocol',
+    'eyebrow_pains': 'Everyday Reality',
+    'pains_title': 'Your tasks don\'t always begin in <span class="grad-text">the same app</span>',
+    'pains_lead': 'Modern work is divided across ecosystems. We capture action items wherever inspiration hits, but without synchronization, to-dos get scattered and forgotten.',
+    'pain1_h': 'Voice Capture via Gemini',
+    'pain1_p': '"Hey Google, remind me to buy coffee tomorrow." Captured into Google Tasks, but needed in Microsoft To Do on your work PC? Now fully synced.',
+    'pain2_h': 'Flag Emails in Outlook',
+    'pain2_p': 'Flag an email in Microsoft Outlook to add it to To Do, and it automatically appears in your mobile Google Calendar sidebar Tasks.',
+    'pain3_h': 'Copilot Document Summaries',
+    'pain3_p': 'Microsoft 365 Copilot generates project to-dos that seamlessly mirror into your personal Google workflow without manual copy-pasting.',
+    'pain4_h': 'Apple Reminders & Siri Bridge',
+    'pain4_p': 'Connect through your Microsoft account to iOS Reminders, closing the loop across iPhone, Mac, Android, and Windows PCs.',
+    'eyebrow_feat': 'Engine Capabilities',
+    'feat_title': 'Full task lifecycle, <span class="grad-text">synced across 8 dimensions</span>',
+    'feat_lead': 'Not just a one-time create trigger. Title edits, detailed notes, due dates, cross-list moves, and deletions are handled with durable state recovery.',
+    'feat1_h': 'Create & Edit Tasks',
+    'feat1_p': 'Creating or renaming a task on either platform precisely updates its counterpart without duplicate ghost entries.',
+    'feat2_h': 'Complete & Reopen',
+    'feat2_p': 'Check items off or reopen uncompleted work anytime. Statuses settle cleanly without reviving finished tasks.',
+    'feat3_h': 'Notes & Body Text',
+    'feat3_p': 'Bi-directional notes sync with clean line breaks and text formatting integrity preserved across both platforms.',
+    'feat4_h': 'Due Date & Timezone',
+    'feat4_p': 'Accurate IANA timezone conversion ensures due dates do not shift by a day due to UTC boundary differences.',
+    'feat5_h': 'Cross-List Moves',
+    'feat5_p': 'Destination-first move journals safely relocate tasks between categorized lists with state preservation.',
+    'feat6_h': 'Deletion Safeguards',
+    'feat6_p': 'Two-round confirmation safeguards protect your lists from accidental network-drop wipeouts.',
+    'feat7_h': 'Tombstone Tracking',
+    'feat7_p': 'Durable tombstones prevent deleted items from resurrecting on subsequent runs as zombie tasks.',
+    'feat8_h': 'Batch Self-Healing',
+    'feat8_p': '6-minute Apps Script execution limit guard; auto-saves progress and seamlessly resumes on the next trigger.',
+    'tag_twoway': 'Two-way ⇄',
+    'tag_status': 'State Loop ⇄',
+    'tag_content': 'Body Sync ⇄',
+    'tag_tz': 'Timezone Aware ⇄',
+    'tag_move': 'List Moves ⇄',
+    'tag_deletion': 'Protected 🛡️',
+    'tag_tombstone': 'No Zombies 👻',
+    'tag_heal': 'Self-Healing ⚙️',
+    'eyebrow_engine': 'Architecture',
+    'engine_title': 'Why you need a <span class="grad-text">stateful sync engine</span>, not Zapier recipes',
+    'engine_lead': 'Trigger-action tools lack state memory. Maintaining two live task databases is a distributed state consistency challenge, not a naive "when this, do that" recipe.',
+    'vs_bad_title': 'Generic Automation Tools (Zapier / Make)',
+    'vs_bad_1': 'Independent triggers easily fight each other in endless loops',
+    'vs_bad_2': 'A typo edit can trigger duplicate creations',
+    'vs_bad_3': 'Completion, deletion, and move logic must be manually stitched together',
+    'vs_bad_4': 'Your private to-do data passes through commercial third-party servers',
+    'vs_bad_5': 'Monthly per-task pricing quickly escalates with active use',
+    'vs_good_title': 'Tasks–To Do Sync Engine',
+    'vs_good_1': '<b>Single-loop state machine</b>: stable UUID mappings across lists and tasks',
+    'vs_good_2': '<b>Full task lifecycle</b>: create, edit, complete, due date, move, and delete handled together',
+    'vs_good_3': '<b>Built specifically for these 2 apps</b>: conflict checks, move journals, tombstones',
+    'vs_good_4': '<b>100% Private ownership</b>: code, credentials, and state live solely in your Google account',
+    'vs_good_5': '<b>Completely free & open source</b>: MIT licensed, never a subscription fee',
+    'eyebrow_trust': 'Engineering Proof',
+    'trust_title': 'Auditable reliability <span class="grad-text">& absolute privacy</span>',
+    'stat_1': 'Automated tests covering sync engine',
+    'stat_2': 'Two-way synced data categories',
+    'stat_3': 'Background sync trigger cadence',
+    'stat_4': 'Third-party servers · Free forever',
+    'privacy_h': 'Your task data never touches any third-party server',
+    'privacy_p': 'No external database, no SaaS middleware, no tracking cookies. Everything executes inside your private Google Apps Script. Open source under MIT, audited by GitHub CI and CodeQL static analysis.',
+    'eyebrow_install': 'Get Started',
+    'install_title': 'Get synced tonight <span class="grad-text">in under 5 minutes</span>',
+    'install_lead': 'Use our intuitive Setup Wizard directly in your browser, or deploy with one terminal command if you are a developer.',
+    'tab_web': '✨ Browser Setup Wizard (Recommended)',
+    'tab_cli': '💻 Developer CLI (npx)',
+    'wiz_s1_h': 'Deploy Apps Script Project',
+    'wiz_s1_p': 'Create a private Google Apps Script project and deploy it as a personal Web App with "Only myself" access.',
+    'wiz_s2_h': 'Open the Private Setup Page',
+    'wiz_s2_p': 'Open your deployed private Web App URL. The clean setup wizard loads securely inside your browser.',
+    'wiz_s3_h': 'Microsoft Device Login',
+    'wiz_s3_p': 'Click "Connect", open official <b>microsoft.com/link</b>, enter the short code to grant consent. No Azure app needed.',
+    'wiz_s4_h': 'Activate Auto-Sync',
+    'wiz_s4_p': 'Click "Activate" in the wizard. A 10-minute trigger is automatically scheduled and initial sync begins.',
+    'btn_view_steps': 'Open Setup Guide',
+    'term_title': 'terminal — deploy release to your private Apps Script',
+    'btn_copy_cmd': 'Copy command',
+    'cli_note': 'The CLI pushes release sources and outputs the Apps Script editor URL for initial authorization.',
+    'eyebrow_video': 'Concept Video',
+    'video_title': 'See the vision behind <span class="grad-text">Tasks–To Do Sync</span>',
+    'video_lead': 'A concept video illustrating the philosophy of keeping Google Tasks and Microsoft To Do seamlessly connected in one loop.',
+    'video_badge_live': 'Official Concept · 1080p HD',
+    'video_h3': 'Tasks–To Do Sync Official Concept Video',
+    'video_p': 'This video introduces the core philosophy of bridging the gap between Google Tasks and Microsoft To Do. Click the poster to play in-place via YouTube.',
+    'tag_promo': 'Concept Promo',
+    'tag_youtube': 'YouTube Stream',
+    'tag_sound': 'Audio Recommended 🔊',
+    'btn_play_video': 'Watch Concept Video',
+    'btn_yt_open': 'Open on YouTube ↗',
+    'eyebrow_docs': 'Documentation',
+    'docs_title': 'Fully documented, <span class="grad-text">transparent and auditable</span>',
+    'doc1_t': 'Quick Start Guide',
+    'doc1_d': 'The shortest personal deployment path',
+    'doc2_t': 'Deployment Guide',
+    'doc2_d': 'Authorizations, upgrades, recovery, and Entra options',
+    'doc3_t': 'Engineering Audit Report',
+    'doc3_d': '417 tests, capacity bounds, and limitations',
+    'doc4_t': 'GitHub Issues',
+    'doc4_d': 'Questions, feature ideas, and support',
+    'road_h3': '🗺 Roadmap',
+    'road1_b': 'Frictionless setup for everyone',
+    'road2_b': 'Scalable & resilient self-healing',
+    'ver_status': 'Current status: v0.6.1 · GitHub ⭐ 20 · MIT licensed · Contributors welcome',
+    'cta_title': 'Every to-do, <span class="grad-text">always connected</span>',
+    'cta_desc': 'One private sync bridge. Capture your tasks in Google, finish them in Microsoft.',
+    'btn_star': 'Star on GitHub ⭐',
+    'modal_title': '✨ Easy Setup Wizard Guide',
+    'm_s1_h': 'Deploy Apps Script Web App',
+    'm_s1_p': 'In your private Apps Script project, click <b>Deploy → New deployment</b>, select <b>Web app</b>, set Execute as: <b>Me</b>, and access to <b>Only myself</b>.',
+    'm_s2_h': 'Open Setup Wizard Page',
+    'm_s2_p': 'Open the private Web App URL generated by Google. The friendly Setup Wizard interface (Setup.html) will guide you through the two authorizations.',
+    'm_s3_h': 'Connect Microsoft Account',
+    'm_s3_p': 'Click "Connect", then visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.',
+    'm_s4_h': 'Activate 10-Minute Sync',
+    'm_s4_p': 'Click "Activate" in the wizard. A reliable 10-minute trigger is created and your tasks start syncing automatically in the background!',
+    'btn_manual_doc': 'Deployment Guide ↗',
+    'btn_got_it': 'Got It!'
+  };
+
+  function applyLanguage(lang) {
+    const dict = lang === 'zh-TW' ? dictZh : dictEn;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (dict[key]) el.innerHTML = dict[key];
+    });
+  }
 
   if (langBtn) {
     langBtn.addEventListener('click', () => {
-      if (currentLang === 'zh-TW') {
+      if (currentLang === 'en') {
+        currentLang = 'zh-TW';
+        langText.textContent = 'EN';
+        document.documentElement.lang = 'zh-TW';
+        applyLanguage('zh-TW');
+      } else {
         currentLang = 'en';
         langText.textContent = '繁中';
         document.documentElement.lang = 'en';
         applyLanguage('en');
-      } else {
-        currentLang = 'zh-TW';
-        langText.textContent = 'EN';
-        document.documentElement.lang = 'zh-TW';
-        location.reload(); // Quick restore to original pristine Chinese
-      }
-    });
-  }
-
-  function applyLanguage(lang) {
-    const dict = i18nData[lang];
-    if (!dict) return;
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-      const key = el.getAttribute('data-i18n');
-      if (dict[key]) {
-        el.innerHTML = dict[key];
       }
     });
   }
