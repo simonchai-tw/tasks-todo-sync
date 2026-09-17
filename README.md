@@ -126,7 +126,7 @@ Follow the **[quick start](docs/quick-start.md)** for the guided walkthrough, or
 
 Questions, ideas, or something not working? [Open an issue](https://github.com/simonchai-tw/tasks-todo-sync/issues/new/choose).
 
-## Roadmap
+## What's ahead
 
 - **Frictionless setup for everyone.** Explore a streamlined onboarding path that removes terminal and Node.js prerequisites, making private self-hosting effortless for everyday users.
 - **Scalable and resilient architecture.** Richer diagnostics and future incremental delta processing beyond lightweight serverless runtimes.
