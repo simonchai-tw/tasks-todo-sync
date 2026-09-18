@@ -6,10 +6,18 @@
 <title>Tasks–To Do Sync · Keep Google Tasks &amp; Microsoft To Do in One Seamless Loop</title>
 <meta name="description" content="Self-hosted, open-source bidirectional synchronization engine between Google Tasks and Microsoft To Do. Powered entirely by your own Google Apps Script project.">
 <meta name="keywords" content="Google Tasks, Microsoft To Do, bidirectional sync, Google Apps Script, self-hosted, tasks-todo-sync">
+<link rel="canonical" href="https://simonchai-tw.github.io/tasks-todo-sync/">
+<meta name="theme-color" content="#070b14">
 <meta property="og:title" content="Tasks–To Do Sync · Keep Tasks &amp; To Do in One Seamless Loop">
 <meta property="og:description" content="A private, self-hosted bridge that keeps your daily tasks effortlessly in sync across Google and Microsoft.">
 <meta property="og:type" content="website">
+<meta property="og:url" content="https://simonchai-tw.github.io/tasks-todo-sync/">
+<meta property="og:site_name" content="Tasks-ToDo-Sync">
 <meta property="og:image" content="https://i.ytimg.com/vi/nhni7xPxgg0/hqdefault.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Tasks–To Do Sync · Keep Tasks &amp; To Do in One Seamless Loop">
+<meta name="twitter:description" content="A private, self-hosted bridge that keeps your daily tasks effortlessly in sync across Google and Microsoft.">
+<meta name="twitter:image" content="https://i.ytimg.com/vi/nhni7xPxgg0/hqdefault.jpg">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="alternate icon" type="image/png" href="favicon.png">
 <link rel="apple-touch-icon" href="favicon.png">
@@ -34,7 +42,7 @@
   --line: rgba(148, 163, 214, 0.12);
   --text: #f1f5f9;
   --text-dim: #94a3b8;
-  --text-muted: #64748b;
+  --text-muted: #8190a6;
   
   --g-blue: #4285F4;
   --m-blue: #0078D4;
@@ -52,7 +60,7 @@
   --radius-md: 14px;
   --radius-lg: 20px;
   --radius-xl: 28px;
-  --max-w: 1160px;
+  --max-w: 1200px;
   --nav-h: 70px;
   
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
@@ -367,8 +375,8 @@ p.lead-text {
 }
 .hero-grid {
   display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: clamp(32px, 5vw, 64px);
+  grid-template-columns: 0.92fr 1.08fr;
+  gap: clamp(24px, 3.5vw, 44px);
   align-items: center;
   position: relative;
 }
@@ -456,7 +464,7 @@ p.hero-desc {
 .sync-stage {
   position: relative;
   border-radius: var(--radius-xl);
-  padding: clamp(20px, 3vw, 32px);
+  padding: clamp(18px, 2.4vw, 26px) clamp(16px, 2vw, 22px);
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(66, 133, 244, 0.14), transparent 60%),
     linear-gradient(180deg, rgba(21, 32, 56, 0.8), rgba(13, 20, 36, 0.95));
@@ -468,11 +476,11 @@ p.hero-desc {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 .sync-title-tag {
-  font-size: 12.5px;
+  font-size: 12px;
   letter-spacing: 0.12em;
   color: var(--text-dim);
   font-weight: 700;
@@ -495,7 +503,7 @@ p.hero-desc {
 }
 
 .sync-badge-pill {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--teal);
   border: 1px solid rgba(45, 212, 191, 0.35);
   border-radius: 999px;
@@ -506,7 +514,7 @@ p.hero-desc {
 .sync-panes {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 40px;
+  gap: 16px;
   position: relative;
 }
 .sync-panes::before {
@@ -558,20 +566,27 @@ p.hero-desc {
 .task-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin: 9px 12px;
-  padding: 9px 11px;
+  gap: 8px;
+  margin: 7px 8px;
+  padding: 8px 10px;
   background: #111827;
   border: 1px solid var(--line);
-  border-radius: 10px;
-  font-size: 12.8px;
-  min-height: 40px;
+  border-radius: 9px;
+  font-size: 12.2px;
+  min-height: 38px;
   white-space: nowrap;
   overflow: hidden;
 }
+.task-item > span:not(.task-tag) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .task-chk {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   border: 2px solid #475569;
   flex: none;
@@ -584,26 +599,27 @@ p.hero-desc {
 .task-item.done .task-chk::after {
   content: "";
   position: absolute;
-  left: 4px;
-  top: 1px;
+  left: 3.5px;
+  top: 0.5px;
   width: 4px;
   height: 8px;
   border: solid #04211c;
   border-width: 0 2px 2px 0;
   transform: rotate(45deg);
 }
-.task-item.done span {
-  color: #64748b;
+.task-item.done span:not(.task-tag) {
+  color: #8190a6;
   text-decoration: line-through;
 }
 .task-tag {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: 10px;
   color: #94a3b8;
   border: 1px solid rgba(148, 163, 214, 0.2);
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
   flex: none;
+  flex-shrink: 0;
 }
 
 /* Floating Chips */
@@ -614,43 +630,42 @@ p.hero-desc {
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
+  gap: 6px;
+  font-size: 11px;
   font-weight: 700;
   color: #f8fafc;
   background: linear-gradient(90deg, #2563eb, #3b82f6);
   border: 1px solid rgba(147, 197, 253, 0.4);
-  padding: 7px 13px;
+  padding: 5px 11px;
   border-radius: 999px;
   white-space: nowrap;
-  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
   pointer-events: none;
+  opacity: 0;
 }
 .sync-chip.rev {
   background: linear-gradient(90deg, #0f766e, #14b8a6);
-  box-shadow: 0 6px 20px rgba(20, 184, 166, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
   border-color: rgba(153, 246, 228, 0.35);
 }
-.sync-chip.c1 { animation: flyDesktopRight 6.5s ease-in-out infinite; }
-.sync-chip.c2 { animation: flyDesktopLeft 6.5s ease-in-out 1.8s infinite; background: linear-gradient(90deg, #6366f1, #8b7cf6); border-color: rgba(196, 181, 253, 0.4); }
-.sync-chip.c3 { animation: flyDesktopLeft 6.5s ease-in-out 3.6s infinite; }
-.sync-chip.c4 { animation: flyDesktopRight 6.5s ease-in-out 5s infinite; background: linear-gradient(90deg, #d97706, #f59e0b); border-color: rgba(253, 230, 138, 0.4); color: #1e1503; }
+.sync-chip.c1 { animation: flyDesktopRight 10s ease-in-out 0s infinite; }
+.sync-chip.c2 { animation: flyDesktopLeft 10s ease-in-out 2.5s infinite; background: linear-gradient(90deg, #6366f1, #8b7cf6); border-color: rgba(196, 181, 253, 0.4); }
+.sync-chip.c3 { animation: flyDesktopLeft 10s ease-in-out 5s infinite; }
+.sync-chip.c4 { animation: flyDesktopRight 10s ease-in-out 7.5s infinite; background: linear-gradient(90deg, #d97706, #f59e0b); border-color: rgba(253, 230, 138, 0.4); color: #1e1503; }
 
 @keyframes flyDesktopRight {
-  0% { transform: translate(-150%, -50%); opacity: 0; }
-  10% { transform: translate(-90%, -50%); opacity: 1; }
-  55% { transform: translate(-8%, -50%); opacity: 1; }
-  75% { transform: translate(35%, -50%); opacity: 1; }
-  90% { transform: translate(85%, -50%); opacity: 0; }
-  100% { transform: translate(85%, -50%); opacity: 0; }
+  0% { transform: translate(-140%, -50%); opacity: 0; }
+  3% { transform: translate(-95%, -50%); opacity: 1; }
+  18% { transform: translate(-5%, -50%); opacity: 1; }
+  22% { transform: translate(40%, -50%); opacity: 0; }
+  23%, 100% { transform: translate(-140%, -50%); opacity: 0; }
 }
 @keyframes flyDesktopLeft {
-  0% { transform: translate(50%, -50%); opacity: 0; }
-  10% { transform: translate(-10%, -50%); opacity: 1; }
-  55% { transform: translate(-90%, -50%); opacity: 1; }
-  75% { transform: translate(-140%, -50%); opacity: 1; }
-  90% { transform: translate(-175%, -50%); opacity: 0; }
-  100% { transform: translate(-175%, -50%); opacity: 0; }
+  0% { transform: translate(40%, -50%); opacity: 0; }
+  3% { transform: translate(-5%, -50%); opacity: 1; }
+  18% { transform: translate(-95%, -50%); opacity: 1; }
+  22% { transform: translate(-140%, -50%); opacity: 0; }
+  23%, 100% { transform: translate(40%, -50%); opacity: 0; }
 }
 
 .sync-foot {
@@ -680,26 +695,24 @@ p.hero-desc {
   }
   .sync-chip { left: 50%; top: 50%; font-size: 11px; padding: 6px 12px; }
   .sync-chip svg { transform: rotate(90deg); }
-  .sync-chip.c1 { animation: flyMobileDown 8s ease-in-out 0s infinite; }
-  .sync-chip.c2 { animation: flyMobileUp 8s ease-in-out 2s infinite; }
-  .sync-chip.c3 { animation: flyMobileUp 8s ease-in-out 4s infinite; }
-  .sync-chip.c4 { animation: flyMobileDown 8s ease-in-out 6s infinite; }
+  .sync-chip.c1 { animation: flyMobileDown 10s ease-in-out 0s infinite; }
+  .sync-chip.c2 { animation: flyMobileUp 10s ease-in-out 2.5s infinite; }
+  .sync-chip.c3 { animation: flyMobileUp 10s ease-in-out 5s infinite; }
+  .sync-chip.c4 { animation: flyMobileDown 10s ease-in-out 7.5s infinite; }
 
   @keyframes flyMobileDown {
-    0% { transform: translate(-50%, -150%); opacity: 0; }
-    4% { transform: translate(-50%, -110%); opacity: 1; }
-    12% { transform: translate(-50%, -50%); opacity: 1; }
-    20% { transform: translate(-50%, 10%); opacity: 1; }
-    24% { transform: translate(-50%, 50%); opacity: 0; }
-    25%, 100% { transform: translate(-50%, -150%); opacity: 0; }
+    0% { transform: translate(-50%, -140%); opacity: 0; }
+    3% { transform: translate(-50%, -95%); opacity: 1; }
+    18% { transform: translate(-50%, -5%); opacity: 1; }
+    22% { transform: translate(-50%, 40%); opacity: 0; }
+    23%, 100% { transform: translate(-50%, -140%); opacity: 0; }
   }
   @keyframes flyMobileUp {
-    0% { transform: translate(-50%, 50%); opacity: 0; }
-    4% { transform: translate(-50%, 10%); opacity: 1; }
-    12% { transform: translate(-50%, -50%); opacity: 1; }
-    20% { transform: translate(-50%, -110%); opacity: 1; }
-    24% { transform: translate(-50%, -150%); opacity: 0; }
-    25%, 100% { transform: translate(-50%, 50%); opacity: 0; }
+    0% { transform: translate(-50%, 40%); opacity: 0; }
+    3% { transform: translate(-50%, -5%); opacity: 1; }
+    18% { transform: translate(-50%, -95%); opacity: 1; }
+    22% { transform: translate(-50%, -140%); opacity: 0; }
+    23%, 100% { transform: translate(-50%, 40%); opacity: 0; }
   }
 }
 
@@ -1325,34 +1338,13 @@ code {
 }
 .roadmap-card li:last-child { border: none; }
 .roadmap-card li::before { content: "◆"; position: absolute; left: 2px; top: 13px; font-size: 11px; color: var(--violet); }
-.roadmap-card p.ver-status { margin-top: 14px; font-size: 12.8px; color: var(--text-muted); }
+
 
 @media (max-width: 768px) { .doc-grid { grid-template-columns: 1fr; } }
 
 /* ==========================================================================
    FINAL CTA & FOOTER
    ========================================================================== */
-.cta-section { padding: 80px 0 90px; }
-.cta-banner-box {
-  text-align: center;
-  border-radius: var(--radius-xl);
-  padding: clamp(40px, 6vw, 68px) 24px;
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(140deg, rgba(66, 133, 244, 0.16), rgba(45, 212, 191, 0.1) 55%, rgba(139, 124, 246, 0.14));
-  border: 1px solid rgba(148, 163, 214, 0.3);
-}
-.cta-banner-box::before {
-  content: "";
-  position: absolute;
-  inset: auto -10% -60%;
-  height: 260px;
-  background: radial-gradient(50% 90% at 50% 100%, rgba(66, 133, 244, 0.35), transparent 70%);
-  pointer-events: none;
-}
-.cta-banner-box h2 { font-size: clamp(26px, 4.2vw, 38px); letter-spacing: -0.01em; }
-.cta-banner-box p { color: var(--text-dim); margin: 16px auto 28px; max-width: 540px; font-size: 15.5px; }
-.cta-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; position: relative; }
 
 footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.5px; color: var(--text-muted); }
 .author-mail {
@@ -1368,75 +1360,9 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   outline: none !important;
 }
 .footer-inner { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
-.footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
-.footer-links a:hover { color: var(--text); }
 
-/* ==========================================================================
-   SETUP WIZARD MODAL
-   ========================================================================== */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  background: rgba(4, 7, 14, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s var(--ease-smooth);
-}
-.modal-overlay.open { opacity: 1; pointer-events: auto; }
-.modal-box {
-  width: 100%;
-  max-width: 680px;
-  background: #0d1527;
-  border: 1px solid var(--card-border-hover);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.6);
-  padding: clamp(24px, 4vw, 36px);
-  transform: translateY(20px) scale(0.97);
-  transition: transform 0.25s var(--ease-spring);
-  max-height: 90vh;
-  overflow-y: auto;
-}
-.modal-overlay.open .modal-box { transform: translateY(0) scale(1); }
-.modal-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.modal-title { font-size: 22px; font-weight: 800; }
-.modal-close {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(148, 163, 214, 0.1);
-  display: grid;
-  place-items: center;
-  font-size: 18px;
-  color: var(--text-dim);
-}
-.modal-close:hover { background: rgba(148, 163, 214, 0.2); color: var(--text); }
-.modal-step-item {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--line);
-}
-.modal-step-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-.modal-step-badge {
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  background: var(--grad-primary);
-  color: #070b14;
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-  flex: none;
-}
-.modal-step-body h4 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
-.modal-step-body p { font-size: 13.8px; color: var(--text-dim); line-height: 1.6; }
+
+
 
 .toast-notice {
   position: fixed;
@@ -1514,10 +1440,10 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       </p>
 
       <div class="hero-actions">
-        <button class="btn btn-teal" id="openWebSetupBtn" type="button">
+        <a href="#install" class="btn btn-teal" id="openWebSetupBtn">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
           <span data-i18n="btn_web_setup">Easy Setup Wizard (3 min)</span>
-        </button>
+        </a>
       </div>
 
       <p class="hero-note">
@@ -1544,17 +1470,17 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g1">Review Q3 Launch Report</span>
+            <span data-i18n="task_g1">Review Q3 Roadmap</span>
             <span class="task-tag" data-i18n="tag_work">Work</span>
           </div>
           <div class="task-item done">
             <div class="task-chk"></div>
-            <span data-i18n="task_g2">Reply to Manager Confirmation</span>
+            <span data-i18n="task_g2">Reply to Manager</span>
             <span class="task-tag" data-i18n="tag_synced">Synced</span>
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g3">Buy Coffee Beans &amp; Milk</span>
+            <span data-i18n="task_g3">Coffee &amp; Milk</span>
             <span class="task-tag" data-i18n="tag_personal">Personal</span>
           </div>
         </div>
@@ -1569,17 +1495,17 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g1">Review Q3 Launch Report</span>
+            <span data-i18n="task_g1">Review Q3 Roadmap</span>
             <span class="task-tag" data-i18n="tag_work">Work</span>
           </div>
           <div class="task-item done">
             <div class="task-chk"></div>
-            <span data-i18n="task_g2">Reply to Manager Confirmation</span>
+            <span data-i18n="task_g2">Reply to Manager</span>
             <span class="task-tag" data-i18n="tag_completed">Done</span>
           </div>
           <div class="task-item">
             <div class="task-chk"></div>
-            <span data-i18n="task_g3">Buy Coffee Beans &amp; Milk</span>
+            <span data-i18n="task_g3">Coffee &amp; Milk</span>
             <span class="task-tag" data-i18n="tag_personal">Personal</span>
           </div>
         </div>
@@ -2031,58 +1957,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   </div>
 </footer>
 
-<!-- ==========================================================================
-     STEP-BY-STEP SETUP WIZARD MODAL
-     ========================================================================== -->
-<div class="modal-overlay" id="wizardModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-  <div class="modal-box">
-    <div class="modal-header">
-      <h3 class="modal-title" id="modalTitle" data-i18n="modal_title">✨ Easy Setup Wizard Guide</h3>
-      <button class="modal-close" id="closeModalBtn" type="button" aria-label="Close">✕</button>
-    </div>
 
-    <div class="modal-step-item">
-      <div class="modal-step-badge">1</div>
-      <div class="modal-step-body">
-        <h4 data-i18n="m_s1_h">Run Setup Command</h4>
-        <p data-i18n="m_s1_p">Open Terminal or PowerShell and run <code>npx tasks-todo-sync init</code>. It automatically logs into Google, creates your private project, and uploads all sources.</p>
-      </div>
-    </div>
-
-    <div class="modal-step-item">
-      <div class="modal-step-badge">2</div>
-      <div class="modal-step-body">
-        <h4 data-i18n="m_s2_h">Deploy &amp; Open Wizard</h4>
-        <p data-i18n="m_s2_p">Open the project URL printed in the terminal. Click <b>Deploy → New deployment → Web app</b> (Access: <b>Only myself</b>), then open the generated Web App URL.</p>
-      </div>
-    </div>
-
-    <div class="modal-step-item">
-      <div class="modal-step-badge">3</div>
-      <div class="modal-step-body">
-        <h4 data-i18n="m_s3_h">Connect Microsoft Account</h4>
-        <p data-i18n="m_s3_p">In the wizard, click "Connect". Visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.</p>
-      </div>
-    </div>
-
-    <div class="modal-step-item">
-      <div class="modal-step-badge">4</div>
-      <div class="modal-step-body">
-        <h4 data-i18n="m_s4_h">Activate 10-Minute Sync</h4>
-        <p data-i18n="m_s4_p">Click "Activate" in the wizard. A reliable 10-minute trigger is created and your tasks start syncing automatically in the background!</p>
-      </div>
-    </div>
-
-    <div style="margin-top: 24px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
-      <a class="btn btn-ghost btn-sm" href="https://github.com/simonchai-tw/tasks-todo-sync/blob/main/docs/deployment.md" target="_blank" rel="noopener">
-        <span data-i18n="btn_manual_doc">Deployment Guide ↗</span>
-      </a>
-      <button class="btn btn-primary btn-sm" id="closeModalConfirmBtn" type="button">
-        <span data-i18n="btn_got_it">Got It!</span>
-      </button>
-    </div>
-  </div>
-</div>
 
 <div class="toast-notice" id="toastNotice">Copied to clipboard! ✓</div>
 
@@ -2129,9 +2004,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     document.body.removeChild(ta);
   }
 
-  // Copy Buttons
-  const heroCopyBtn = document.getElementById('heroCopyCliBtn');
-  if (heroCopyBtn) heroCopyBtn.addEventListener('click', () => copyText(CMD));
+
 
   // Interactive Onboarding Showcase Controller
   (function initWizardShowcase() {
@@ -2400,13 +2273,17 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     // Initial state
     updatePlayUi(false);
+    
+    window.updateCarouselI18n = function() {
+      updateBadge(currentIndex);
+      updatePlayUi(isManualPaused);
+    };
   })();
 
   // Video in-place YouTube embed
   const videoPoster = document.getElementById('videoPoster');
   const videoPlayerBox = document.getElementById('videoPlayerBox');
   const ytIframe = document.getElementById('ytIframe');
-  const playTriggerBtn = document.getElementById('playTriggerBtn');
 
   function startVideo() {
     if (!videoPlayerBox || !ytIframe) return;
@@ -2417,40 +2294,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   }
 
   if (videoPoster) videoPoster.addEventListener('click', startVideo);
-  if (playTriggerBtn) playTriggerBtn.addEventListener('click', startVideo);
-
-  // Modal
-  const modal = document.getElementById('wizardModal');
-  const openWebSetupBtn = document.getElementById('openWebSetupBtn');
-  const openWizardModalBtn = document.getElementById('openWizardModalBtn');
-  const ctaWebSetupBtn = document.getElementById('ctaWebSetupBtn');
-  const closeModalBtn = document.getElementById('closeModalBtn');
-  const closeModalConfirmBtn = document.getElementById('closeModalConfirmBtn');
-
-  function openModal() {
-    if (!modal) return;
-    modal.classList.add('open');
-    document.body.style.overflow = 'hidden';
-  }
-
-  function closeModal() {
-    if (!modal) return;
-    modal.classList.remove('open');
-    document.body.style.overflow = '';
-  }
-
-  if (openWebSetupBtn) openWebSetupBtn.addEventListener('click', openModal);
-  if (openWizardModalBtn) openWizardModalBtn.addEventListener('click', openModal);
-  if (ctaWebSetupBtn) ctaWebSetupBtn.addEventListener('click', openModal);
-  if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
-  if (closeModalConfirmBtn) closeModalConfirmBtn.addEventListener('click', closeModal);
-
-  if (modal) {
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-    window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && modal.classList.contains('open')) closeModal();
-    });
-  }
 
   // Scroll
   const nav = document.getElementById('top');
@@ -2515,7 +2358,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'nav_video': '概念影片',
     'nav_docs': '技術文檔',
     'badge_selfhosted': '私有自託管',
-    'badge_tests': '417+ 自動化測試',
     'hero_h1_1': '讓',
     'hero_h1_and': '與',
     'hero_h1_2': '完美無縫同步',
@@ -2524,9 +2366,9 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'hero_note': '一次性快速部署 · 官方標準 OAuth 授權 · 10 分鐘背景靜默同步',
     'demo_live_sync': '即時雙向模擬',
     'demo_interval': '排程：每 10 分鐘',
-    'task_g1': '審查 Q3 專案發布報告',
-    'task_g2': '回覆主管工作進度確認',
-    'task_g3': '採買辦公室咖啡豆與牛奶',
+    'task_g1': '審查 Q3 專案規劃',
+    'task_g2': '回覆主管工作進度',
+    'task_g3': '採買辦公室咖啡',
     'tag_work': '工作',
     'tag_synced': '已同步',
     'tag_completed': '已完成',
@@ -2613,7 +2455,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'wiz_s4_p': '在精靈點擊 Activate，立即建立排程，每 10 分鐘自動背景靜默同步！',
     'wiz_pause': '暫停',
     'wiz_play': '播放',
-    'btn_view_steps': '開啟安裝步驟指引',
     'eyebrow_video': '概念影片',
     'video_title': '觀看專案 <span class="grad-text">官方概念宣傳片</span>',
     'video_lead': '官方概念宣傳短片，呈現跨越 Google 與 Microsoft 雙待辦生態、保持單一任務循環的核心精神。',
@@ -2622,8 +2463,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'video_p': '本短片呈現打破兩大任務生態壁壘的核心理念。點擊封面即可原地流暢觀看 YouTube 串流。',
     'tag_promo': '概念宣傳片',
     'tag_youtube': 'YouTube 串流',
-    'tag_sound': '建議開啟聲音 🔊',
-    'btn_play_video': '觀看概念宣傳片',
     'btn_yt_open': '在 YouTube 開新視窗 ↗',
     'eyebrow_docs': '工程文檔',
     'docs_title': '透明嚴謹，<span class="grad-text">完整開源文檔庫</span>',
@@ -2642,21 +2481,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'road2_d': '提供更豐富的診斷工具與增量 Delta 處理，突破輕量無伺服器運行環境限制。',
     'road3_b': '跨雲端檔案保險庫',
     'road3_d': '將微軟 To Do 附件照片與文件轉存至 Google Drive，並在 Google Tasks 內直接連結存取。',
-    'ver_status': '目前狀態：v0.6.1 · GitHub ⭐ 20 · MIT 授權 · 歡迎社群貢獻',
-    'cta_title': '兩個生態，<span class="grad-text">同一個流暢閉環</span>',
-    'cta_desc': '隨處記錄，隨處勾選完成。跨越 Google 與微軟兩大陣營的私有自託管雙向同步橋梁。',
-    'btn_star': '給專案一顆 Star ⭐',
-    'modal_title': '✨ 快速安裝步驟指引',
-    'm_s1_h': '終端機執行一行指令',
-    'm_s1_p': '打開電腦終端機或 PowerShell 執行 <code>npx tasks-todo-sync init</code>，系統將自動引導 Google 登入，在您的雲端硬碟建立私有專案並上傳代碼。',
-    'm_s2_h': '部署並開啟安裝精靈',
-    'm_s2_p': '點開終端機輸出的專案網址，點擊右上角 <b>Deploy（部署）→ New deployment → Web app</b>（存取權限設為 <b>Only myself</b>），點開 Google 生出的私有網址。',
-    'm_s3_h': '安全綁定微軟帳號',
-    'm_s3_p': '在精靈介面點擊「Connect」，前往微軟官方網址 <b>microsoft.com/link</b> 輸入畫面上顯示的 8 位英數代碼，完成安全授權。',
-    'm_s4_h': '啟動每 10 分鐘自動同步',
-    'm_s4_p': '在精靈介面點擊「Activate」，系統即自動排程每 10 分鐘背景觸發器，雙向同步正式上線運作！',
-    'btn_manual_doc': 'GitHub 部署手冊 ↗',
-    'btn_got_it': '我知道了！'
+    'btn_star': '給專案一顆 Star ⭐'
   };
 
     const dictEn = {
@@ -2666,7 +2491,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'nav_video': 'Video',
     'nav_docs': 'Docs',
     'badge_selfhosted': 'Self-Hosted',
-    'badge_tests': '417+ Automated Tests',
     'hero_h1_1': 'Keep',
     'hero_h1_and': '&',
     'hero_h1_2': 'in one seamless loop.',
@@ -2675,9 +2499,9 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'hero_note': 'One-time setup · Official OAuth sign-ins · Automatic background sync every 10 min',
     'demo_live_sync': 'Live Sync Simulation',
     'demo_interval': 'Trigger: Every 10 min',
-    'task_g1': 'Review Q3 Launch Report',
-    'task_g2': 'Reply to Manager Confirmation',
-    'task_g3': 'Buy Coffee Beans & Milk',
+    'task_g1': 'Review Q3 Roadmap',
+    'task_g2': 'Reply to Manager',
+    'task_g3': 'Coffee & Milk',
     'tag_work': 'Work',
     'tag_synced': 'Synced',
     'tag_completed': 'Done',
@@ -2764,7 +2588,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'wiz_s4_p': 'Click "Activate" in the wizard to start automatic background synchronization!',
     'wiz_pause': 'Pause',
     'wiz_play': 'Play',
-    'btn_view_steps': 'Open Setup Guide',
     'eyebrow_video': 'Concept Video',
     'video_title': 'See the vision behind <span class="grad-text">Tasks–To Do Sync</span>',
     'video_lead': 'A concept video illustrating the philosophy of keeping Google Tasks and Microsoft To Do seamlessly connected in one loop.',
@@ -2773,8 +2596,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'video_p': 'This video introduces the core philosophy of bridging the gap between Google Tasks and Microsoft To Do. Click the poster to play in-place via YouTube.',
     'tag_promo': 'Concept Promo',
     'tag_youtube': 'YouTube Stream',
-    'tag_sound': 'Audio Recommended 🔊',
-    'btn_play_video': 'Watch Concept Video',
     'btn_yt_open': 'Open on YouTube ↗',
     'eyebrow_docs': 'Documentation',
     'docs_title': 'Fully documented, <span class="grad-text">transparent and auditable</span>',
@@ -2793,21 +2614,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'road2_d': 'richer diagnostic tools and incremental delta processing beyond lightweight serverless runtimes.',
     'road3_b': 'Cross-cloud attachment vault',
     'road3_d': 'save Microsoft To Do attachments to Google Drive and link them directly in Google Tasks.',
-    'ver_status': 'Current status: v0.6.1 · GitHub ⭐ 20 · MIT licensed · Contributors welcome',
-    'cta_title': 'Two ecosystems, <span class="grad-text">one seamless loop</span>',
-    'cta_desc': 'Capture anywhere, check off anywhere. A private, self-hosted bridge connecting Google Tasks and Microsoft To Do.',
-    'btn_star': 'Star on GitHub ⭐',
-    'modal_title': '✨ Easy Setup Wizard Guide',
-    'm_s1_h': 'Run Setup Command',
-    'm_s1_p': 'Open Terminal or PowerShell and run <code>npx tasks-todo-sync init</code>. It automatically logs into Google, creates your private project, and uploads all sources.',
-    'm_s2_h': 'Deploy & Open Wizard',
-    'm_s2_p': 'Open the project URL printed in the terminal. Click <b>Deploy → New deployment → Web app</b> (Access: <b>Only myself</b>), then open the generated Web App URL.',
-    'm_s3_h': 'Connect Microsoft Account',
-    'm_s3_p': 'In the wizard, click "Connect". Visit official <b>microsoft.com/link</b> and enter the displayed device code to approve personal To Do access safely.',
-    'm_s4_h': 'Activate 10-Minute Sync',
-    'm_s4_p': 'Click "Activate" in the wizard. A reliable 10-minute trigger is created and your tasks start syncing automatically in the background!',
-    'btn_manual_doc': 'Deployment Guide ↗',
-    'btn_got_it': 'Got It!'
+    'btn_star': 'Star on GitHub ⭐'
   };
 
   function applyLanguage(lang) {
@@ -2816,6 +2623,9 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       const key = el.getAttribute('data-i18n');
       if (dict[key]) el.innerHTML = dict[key];
     });
+    if (typeof window.updateCarouselI18n === 'function') {
+      window.updateCarouselI18n();
+    }
   }
 
   if (langBtn) {
