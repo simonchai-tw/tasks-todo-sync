@@ -667,32 +667,39 @@ p.hero-desc {
   padding: 4px 10px;
 }
 
-@media (max-width: 768px) {
-  .hero-grid { grid-template-columns: 1fr; gap: 36px; }
-  .sync-panes { grid-template-columns: 1fr; gap: 50px; }
+@media (max-width: 960px) {
+  .hero-grid { grid-template-columns: 1fr; gap: 40px; }
+}
+
+@media (max-width: 640px) {
+  .sync-panes { grid-template-columns: 1fr; gap: 56px; }
   .sync-panes::before {
     left: 8%; right: 8%; top: 50%; bottom: auto; width: auto; height: 2px;
     transform: translateY(-50%);
     background: repeating-linear-gradient(90deg, rgba(148, 163, 214, 0.3) 0 6px, transparent 6px 12px);
   }
-  .sync-chip { left: 50%; top: 50%; }
-  .sync-chip.c1 { animation: flyMobileDown 6.5s ease-in-out infinite; }
-  .sync-chip.c2 { animation: flyMobileUp 6.5s ease-in-out 1.8s infinite; }
-  .sync-chip.c3 { animation: flyMobileUp 6.5s ease-in-out 3.6s infinite; }
-  .sync-chip.c4 { animation: flyMobileDown 6.5s ease-in-out 5s infinite; }
+  .sync-chip { left: 50%; top: 50%; font-size: 11px; padding: 6px 12px; }
+  .sync-chip svg { transform: rotate(90deg); }
+  .sync-chip.c1 { animation: flyMobileDown 8s ease-in-out 0s infinite; }
+  .sync-chip.c2 { animation: flyMobileUp 8s ease-in-out 2s infinite; }
+  .sync-chip.c3 { animation: flyMobileUp 8s ease-in-out 4s infinite; }
+  .sync-chip.c4 { animation: flyMobileDown 8s ease-in-out 6s infinite; }
+
   @keyframes flyMobileDown {
-    0% { transform: translate(-50%, -180%); opacity: 0; }
-    15% { transform: translate(-50%, -100%); opacity: 1; }
-    50% { transform: translate(-50%, -50%); opacity: 1; }
-    85% { transform: translate(-50%, 80%); opacity: 0; }
-    100% { transform: translate(-50%, 80%); opacity: 0; }
+    0% { transform: translate(-50%, -150%); opacity: 0; }
+    4% { transform: translate(-50%, -110%); opacity: 1; }
+    12% { transform: translate(-50%, -50%); opacity: 1; }
+    20% { transform: translate(-50%, 10%); opacity: 1; }
+    24% { transform: translate(-50%, 50%); opacity: 0; }
+    25%, 100% { transform: translate(-50%, -150%); opacity: 0; }
   }
   @keyframes flyMobileUp {
-    0% { transform: translate(-50%, 80%); opacity: 0; }
-    15% { transform: translate(-50%, 0%); opacity: 1; }
-    50% { transform: translate(-50%, -50%); opacity: 1; }
-    85% { transform: translate(-50%, -180%); opacity: 0; }
-    100% { transform: translate(-50%, -180%); opacity: 0; }
+    0% { transform: translate(-50%, 50%); opacity: 0; }
+    4% { transform: translate(-50%, 10%); opacity: 1; }
+    12% { transform: translate(-50%, -50%); opacity: 1; }
+    20% { transform: translate(-50%, -110%); opacity: 1; }
+    24% { transform: translate(-50%, -150%); opacity: 0; }
+    25%, 100% { transform: translate(-50%, 50%); opacity: 0; }
   }
 }
 
