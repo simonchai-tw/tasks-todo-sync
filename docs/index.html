@@ -1970,7 +1970,12 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 (function() {
   'use strict';
 
+  const STORAGE_KEY = 'tts_lang';
   let currentLang = 'en';
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === 'zh-TW' || saved === 'en') currentLang = saved;
+  } catch (e) {}
   const CMD = 'npx tasks-todo-sync init';
   const toast = document.getElementById('toastNotice');
 
@@ -2630,6 +2635,12 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     }
   }
 
+  if (currentLang === 'zh-TW') {
+    if (langText) langText.textContent = 'EN';
+    document.documentElement.lang = 'zh-TW';
+    applyLanguage('zh-TW');
+  }
+
   if (langBtn) {
     langBtn.addEventListener('click', () => {
       if (currentLang === 'en') {
@@ -2643,6 +2654,9 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
         document.documentElement.lang = 'en';
         applyLanguage('en');
       }
+      try {
+        localStorage.setItem(STORAGE_KEY, currentLang);
+      } catch (e) {}
     });
   }
 })();
