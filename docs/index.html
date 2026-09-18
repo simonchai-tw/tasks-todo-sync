@@ -60,7 +60,7 @@
   --radius-md: 14px;
   --radius-lg: 20px;
   --radius-xl: 28px;
-  --max-w: 1200px;
+  --max-w: 1160px;
   --nav-h: 70px;
   
   --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
@@ -160,9 +160,9 @@ h2.sec-title {
 
 p.lead-text {
   color: var(--text-dim);
-  max-width: min(clamp(44em, 55vw, 50em), 100%);
+  max-width: min(clamp(38em, 20vw + 32em, 48em), 100%);
   margin-top: 14px;
-  font-size: clamp(15px, 0.25vw + 13.5px, 17.5px);
+  font-size: clamp(14.5px, 0.35vw + 13.2px, 17.5px);
   line-height: 1.7;
 }
 
@@ -430,9 +430,9 @@ h1.hero-title .en-sub {
 p.hero-desc {
   margin-top: 18px;
   color: var(--text-dim);
-  font-size: clamp(15px, 1.7vw, 17.5px);
+  font-size: clamp(14.5px, 0.35vw + 13.2px, 17.5px);
   line-height: 1.7;
-  max-width: 580px;
+  max-width: min(clamp(28em, 20vw + 20em, 35em), 560px);
 }
 
 .hero-actions {
