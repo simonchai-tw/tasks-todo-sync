@@ -2659,6 +2659,38 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       } catch (e) {}
     });
   }
+
+  // Smooth scroll interceptor for in-page anchors without polluting URL hash
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function(e) {
+      const href = this.getAttribute('href');
+      if (!href) return;
+      if (href === '#' || href === '#top') {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        try {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        } catch (err) {}
+        return;
+      }
+      const targetId = href.slice(1);
+      const targetEl = document.getElementById(targetId);
+      if (targetEl) {
+        e.preventDefault();
+        targetEl.scrollIntoView({ behavior: 'smooth' });
+        try {
+          history.replaceState(null, '', window.location.pathname + window.location.search);
+        } catch (err) {}
+      }
+    });
+  });
+
+  // Clean up any residual hash in URL on page load so future reloads don't get trapped
+  if (window.location.hash) {
+    try {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    } catch (err) {}
+  }
 })();
 </script>
 </body>
