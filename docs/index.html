@@ -160,10 +160,11 @@ h2.sec-title {
 
 p.lead-text {
   color: var(--text-dim);
-  max-width: min(clamp(38em, 20vw + 32em, 48em), 100%);
+  max-width: min(clamp(40em, 18vw + 38em, 54em), 100%);
   margin-top: 14px;
   font-size: clamp(14.5px, 0.35vw + 13.2px, 17.5px);
   line-height: 1.7;
+  text-wrap: pretty;
 }
 
 /* Animations */
@@ -904,7 +905,7 @@ code {
   border-radius: var(--radius-xl);
   overflow: hidden;
   display: grid;
-  grid-template-columns: 1.15fr 1fr;
+  grid-template-columns: 1.10fr 1fr;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
 }
 .wizard-preview-col {
@@ -915,7 +916,7 @@ code {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px 20px;
+  padding: 22px 20px;
   overflow: hidden;
   user-select: none;
 }
@@ -928,7 +929,7 @@ code {
   border: 1px solid var(--line);
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6);
   background: #090d16;
-  margin-top: 10px;
+  margin-top: 0;
   touch-action: pan-y manipulation;
 }
 .preview-slide {
@@ -1070,38 +1071,38 @@ code {
 }
 
 .wizard-steps-col {
-  padding: clamp(20px, 3.5vw, 36px);
+  padding: clamp(18px, 2.5vw, 22px);
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 14px;
 }
 .step-item-mini {
   display: flex;
   gap: 14px;
   align-items: flex-start;
-  padding: 12px 14px;
+  padding: 13px 15px;
   border-radius: var(--radius-md);
-  border: 1px solid transparent;
+  border: 1px solid rgba(148, 163, 214, 0.08);
   cursor: pointer;
   transition: all 0.22s ease;
   position: relative;
   overflow: hidden;
-  background: transparent;
+  background: rgba(148, 163, 214, 0.025);
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 @media (hover: hover) and (pointer: fine) {
   .step-item-mini:hover {
-    background: rgba(148, 163, 214, 0.05);
-    border-color: rgba(148, 163, 214, 0.15);
+    background: rgba(148, 163, 214, 0.07);
+    border-color: rgba(148, 163, 214, 0.2);
   }
 }
 .step-item-mini.active {
-  background: rgba(45, 212, 191, 0.08);
-  border-color: rgba(45, 212, 191, 0.35);
-  box-shadow: 0 4px 18px rgba(45, 212, 191, 0.08);
+  background: rgba(45, 212, 191, 0.09);
+  border-color: rgba(45, 212, 191, 0.38);
+  box-shadow: 0 4px 20px rgba(45, 212, 191, 0.1);
 }
 .step-num-pill {
   width: 28px;
@@ -1748,7 +1749,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     <div class="reveal">
       <span class="eyebrow" data-i18n="eyebrow_install">Get Started</span>
       <h2 class="sec-title" data-i18n="install_title">Get synced tonight <span class="grad-text">in under 5 minutes</span></h2>
-      <p class="lead-text" data-i18n="install_lead">Deploy in minutes: one command creates your private Google project, and the guided web wizard finishes setup in your browser.</p>
+      <p class="lead-text" data-i18n="install_lead">Deploy in minutes: one command creates your private Google project, then the guided web wizard finishes setup in your browser.</p>
     </div>
 
     <!-- UNIFIED SETUP SHOWCASE -->
@@ -2383,7 +2384,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'foot_sync4': '兩階段防誤刪',
     'eyebrow_pains': '現實困境',
     'pains_title': '你的任務，從來就不只發生在 <span class="grad-text">同一個應用裡</span>',
-    'pains_lead': '現代人在跨生態工作中切換。靈感在哪浮現就在哪記下，但沒有即時同步，代辦事項只會被遺忘在不同的角落。',
+    'pains_lead': '現代人在跨生態工作中切換。靈感在哪浮現就在哪記下，若無即時同步，待辦事項只會遺忘在不同角落。',
     'pain1_h': 'Gemini 語音隨手記錄',
     'pain1_p': '「Hey Google，提醒我明天買咖啡。」語音進了 Google Tasks，但在 Windows 工作電腦前需要 Microsoft To Do 提醒？已完美搞定。',
     'pain2_h': 'Outlook 郵件隨手旗標',
@@ -2577,7 +2578,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'privacy_p': 'No external database, no SaaS middleware, no tracking cookies. Everything executes inside your private Google Apps Script. Open source under MIT, audited by GitHub CI and CodeQL static analysis.',
     'eyebrow_install': 'Get Started',
     'install_title': 'Get synced tonight <span class="grad-text">in under 5 minutes</span>',
-    'install_lead': 'Deploy in minutes: one command creates your private Google project, and the guided web wizard finishes setup in your browser.',
+    'install_lead': 'Deploy in minutes: one command creates your private Google project, then the guided web wizard finishes setup in your browser.',
     'wiz_s1_h': 'Run Setup Command',
     'wiz_s1_p': 'Open terminal and run <code>npx tasks-todo-sync init</code> to create your private project.',
     'wiz_s2_h': 'Deploy & Open Wizard',
