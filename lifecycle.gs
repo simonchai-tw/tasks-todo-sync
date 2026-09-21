@@ -1295,6 +1295,7 @@ function putMapping_(state, gTask, gListId, msTask, msListId) {
   if (previous && previous.fp) rec.fp = previous.fp;
   if (previous && previous.res) rec.res = previous.res;
   if (previous && previous.fc) rec.fc = previous.fc;
+  if (previous && previous.rem) rec.rem = previous.rem;
   state.g2m[gTask.id] = rec;
   state.m2g[msTask.id] = gTask.id;
 }

@@ -14,6 +14,9 @@
 !field-merge.gs
 !lifecycle.gs
 !lists.gs
+!time-bridge.gs
 !sync.gs
 !operations.gs
+!companion.gs
+!companion_auth.gs
 !appsscript.json

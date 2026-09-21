@@ -676,7 +676,12 @@ function setupWizardRunFirstSync() {
   }
 }
 
-function doGet() {
+function doGet(e) {
+  if (typeof Session !== 'undefined' && typeof Session.getActiveUser === 'function' && typeof Session.getEffectiveUser === 'function') {
+    if (Session.getActiveUser().getEmail() !== Session.getEffectiveUser().getEmail()) {
+      return HtmlService.createHtmlOutput('Forbidden');
+    }
+  }
   return HtmlService.createHtmlOutputFromFile('Setup')
     .setTitle('Tasks–To Do Sync — Easy Setup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
@@ -764,6 +769,9 @@ function syncAll() {
           if (state.taskCreateBatch) throw new Error('TASK_CREATE_RECOVERY_PENDING: create batch held; ordinary sync is fenced.');
         }
         if (SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) checkpointTaskCreateBatch_(state);
+      }
+      if (typeof timeBridgeRun_ === 'function') {
+        timeBridgeRun_(state, snap, startedAt, roundId);
       }
       reconcileMapped_(state, snap, startedAt, roundId, deletionProgress);
       deletionStateBeforeApply = captureTaskDeletionState_(state);

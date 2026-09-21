@@ -66,7 +66,7 @@ The private trigger runs every 10 minutes. Ordinary changes normally appear with
 | Create and edit tasks | Google ↔ Microsoft | Changes can begin on either side |
 | Complete and reopen | Google ↔ Microsoft | Completion state follows the task |
 | Notes | Google ↔ Microsoft | Plain-text projection |
-| Due dates | Google ↔ Microsoft | Date only; Google Tasks has no time-of-day field |
+| Due dates, times & reminders | Google ↔ Microsoft | Bidirectional: Microsoft reminder time ↔ Google Tasks notes marker `[TTS-TIME:HH:mm]` + dedicated Google Calendar projection |
 | Subtasks & checklists | Google ↔ Microsoft | Keep task hierarchies and checklist items aligned |
 | Personal lists | Google ↔ Microsoft | Eligible lists are discovered and paired automatically |
 | Delete tasks and lists | Google ↔ Microsoft | Enabled by default with confirmation and recovery records |

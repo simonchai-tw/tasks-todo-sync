@@ -10,7 +10,7 @@ These fields and operations are covered by the current implementation and automa
 | --- | --- | --- |
 | Title | Google ↔ Microsoft | Plain task title |
 | Notes | Google ↔ Microsoft | Plain-text projection; simple Microsoft rich text is converted to text |
-| Due date | Google ↔ Microsoft | Date only; time of day does not round-trip |
+| Due date, times & reminders | Google ↔ Microsoft | Time Bridge v2.4: Microsoft reminder time ↔ Google Tasks notes marker `[TTS-TIME:HH:mm]` + dedicated Google Calendar projection |
 | Completion status | Google ↔ Microsoft | Incomplete ↔ complete, including reopen |
 | Personal lists | Google ↔ Microsoft | Eligible paired lists; list names are projected |
 | Create, edit, and delete | Google ↔ Microsoft | Deletion is guarded by confirmation and recovery records |
@@ -22,7 +22,6 @@ These fields and operations are covered by the current implementation and automa
 
 The following may exist in a provider UI or payload but are not part of the verified cross-provider projection. They must not be treated as supported-field failures, and this list does not assert that either provider's API makes them impossible:
 
-- Microsoft reminders and reminder times;
 - recurrence (guarded by fail-closed contract gate `RECURRING_TASK_UNSUPPORTED` / `sendBothRecurrenceAlert_`);
 - categories, color tags, and other Microsoft-only metadata;
 - binary file attachments and raw attachment payloads;

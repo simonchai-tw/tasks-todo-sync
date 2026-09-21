@@ -45,6 +45,18 @@ function getSafetyConfig_() {
     throw new Error('SYNC_ABSENCE_TERMINAL_FLAG_INVALID: SYNC_ENABLE_ABSENCE_TERMINAL must be true or false.');
   }
   const enableAbsenceTerminal = enableAbsenceTerminalRaw === 'true';
+  const enableTimeBridgeRaw = String(p.getProperty('SYNC_TIME_BRIDGE') || '').trim().toLowerCase();
+  if (enableTimeBridgeRaw && enableTimeBridgeRaw !== 'true' && enableTimeBridgeRaw !== 'false') {
+    throw new Error('SYNC_TIME_BRIDGE_FLAG_INVALID: SYNC_TIME_BRIDGE must be true or false.');
+  }
+  const enableTimeBridge = enableTimeBridgeRaw === '' ? DEFAULT_SYNC_TIME_BRIDGE : enableTimeBridgeRaw === 'true';
+
+  const enableCalendarProjectionRaw = String(p.getProperty('SYNC_CALENDAR_PROJECTION') || '').trim().toLowerCase();
+  if (enableCalendarProjectionRaw && enableCalendarProjectionRaw !== 'true' && enableCalendarProjectionRaw !== 'false') {
+    throw new Error('SYNC_CALENDAR_PROJECTION_FLAG_INVALID: SYNC_CALENDAR_PROJECTION must be true or false.');
+  }
+  const enableCalendarProjection = enableCalendarProjectionRaw === '' ? DEFAULT_SYNC_CALENDAR_PROJECTION : enableCalendarProjectionRaw === 'true';
+
   const discoveryMode = String(
     p.getProperty('SYNC_LIST_DISCOVERY_MODE') || DEFAULT_LIST_DISCOVERY_MODE
   ).trim().toLowerCase();
@@ -84,6 +96,8 @@ function getSafetyConfig_() {
     enableSubtasks: enableSubtasks,
     enableNativeLinkedResources: enableNativeLinkedResources,
     absenceProbe: enableAbsenceTerminal,
+    enableTimeBridge: enableTimeBridge,
+    enableCalendarProjection: enableCalendarProjection,
     listDiscoveryMode: discoveryMode,
     excludedListNames: Array.from(new Set(excludedNames))
   };
@@ -91,7 +105,7 @@ function getSafetyConfig_() {
 
 function boundedSafetyConfigIssue_(error) {
   const code = String(error && error.message || error || '').match(
-    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID)\b/
+    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID|SYNC_TIME_BRIDGE_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_FLAG_INVALID)\b/
   );
   return 'SAFETY_CONFIGURATION_INVALID:' + (code ? code[1] : 'UNCLASSIFIED');
 }

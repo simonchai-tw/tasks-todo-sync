@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.6.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, and resource projection enabled.
 
+## 0.7.0 — 2026-09-21
+
+### Time Bridge v2.4 (Due Time & Reminder Sync with Google Calendar Projection)
+
+- **Bidirectional Due Time & Reminder Synchronization**:
+  - Bridges the architectural gap between Microsoft To Do's native reminder/due time support and Google Tasks' date-only API limitation.
+  - Splicing notes marker `[TTS-TIME:HH:mm]` (Spec §2.1): parses strict uppercase 24-hour time (`00:01`–`23:59`) from the first line of Google Tasks notes, automatically stripping the marker and preserving clean user notes.
+  - Projects 30-minute timed events with `start.dateTime` onto a dedicated secondary Google Calendar (`Tasks-ToDo-Sync`), making task due times visible on Google Calendar schedules.
+  - Deterministic SHA-256 event ID mapping with zero negative byte corruptions and automated completion cleanup (deletes calendar projection when task is completed or removed).
+  - Tri-State Field Ownership Protocol: Google-authored tasks with notes markers take precedence; Microsoft-authored tasks take precedence when `reminderDateTime` is updated in To Do.
+  - Fail-Closed Safety Knobs:
+    - `SYNC_TIME_BRIDGE` (default `true`): Master switch to enable/disable Time Bridge processing entirely.
+    - `SYNC_CALENDAR_PROJECTION` (default `true`): Toggle to enable/disable Google Calendar event projection while keeping To Do reminder synchronization active.
+- **Companion Webhook Service (`companion.gs`)**:
+  - Added dedicated companion dispatcher and endpoints for external automation and health monitoring.
+- **Google Gemini Integration Guide**:
+  - Added `docs/gemini-saved-info.md` containing prompt templates for Google Gemini Saved Info / Personalization to automatically generate `[TTS-TIME:HH:mm]` markers via natural voice/chat commands.
+- **Test Suite Expansion**:
+  - Expanded test coverage to 433 automated tests (100% PASS).
+
 ## 0.6.1 — 2026-09-16
 
 ### Streamlined resource projection formatting and tag labels

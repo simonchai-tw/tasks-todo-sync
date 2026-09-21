@@ -156,7 +156,7 @@ function ordinaryFieldFp_(proj, field) {
   return ordinaryFingerprintHex_(value == null ? '' : value);
 }
 
-function ordinaryMergeMappedFields_(baselineFp, googleProjection, microsoftProjection) {
+function ordinaryMergeMappedFields_(baselineFp, googleProjection, microsoftProjection, rec) {
   var toGoogle = {};
   var toMicrosoft = {};
   var convergedFields = [];
@@ -169,6 +169,10 @@ function ordinaryMergeMappedFields_(baselineFp, googleProjection, microsoftProje
     var field = ORDINARY_SHARED_FIELDS_[i];
     if (field === 'notes' && (googleProjection.notesOk === false || microsoftProjection.notesOk === false)) {
       skipped.push({ field: field, reason: 'NOTES_UNMERGEABLE' });
+      continue;
+    }
+    if (field === 'due' && rec && rec.rem && rec.rem.hasTime === true) {
+      skipped.push({ field: field, reason: 'TIME_BRIDGE_OWNED' });
       continue;
     }
     if (field === 'due' && (googleProjection.dueOk === false || microsoftProjection.dueOk === false)) {
@@ -265,6 +269,7 @@ function ordinaryAdvanceFingerprints_(rec, googleProjection, microsoftProjection
   var fields = (plan.convergedFields || []).concat(plan.initializedFields || []);
   for (i = 0; i < ORDINARY_SHARED_FIELDS_.length; i += 1) {
     var field = ORDINARY_SHARED_FIELDS_[i];
+    if (field === 'due' && rec && rec.rem && rec.rem.hasTime === true) continue;
     var g = ordinaryFieldFp_(googleProjection, field);
     var m = ordinaryFieldFp_(microsoftProjection, field);
     if (g && m && g === m) rec.fp[field] = g;
@@ -294,8 +299,20 @@ function step2bRecurrenceClassification_() {
 function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, safety) {
   var gProj = ordinaryProjectGoogle_(gTask, rec);
   var mProj = ordinaryProjectMicrosoft_(msTask, rec);
-  var plan = ordinaryMergeMappedFields_(rec.fp, gProj, mProj);
-  ordinaryStoreFieldConflicts_(rec, plan, gTask && gTask.id);
+  var plan = ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec);
+  var gId = gTask && gTask.id;
+  var timeBridgeJournalHeld = !!(
+    state && gId && (
+      (state.timeBridgeJournal && state.timeBridgeJournal.pairId === gId) ||
+      (Array.isArray(state.deadLetterJournal) && state.deadLetterJournal.some(function(j) { return j.pairId === gId; }))
+    )
+  );
+  if (timeBridgeJournalHeld) {
+    delete plan.toGoogle.notes;
+    delete plan.toMicrosoft.notes;
+    plan.skipped.push({ field: 'notes', reason: 'TIME_BRIDGE_JOURNAL_HELD' });
+  }
+  ordinaryStoreFieldConflicts_(rec, plan, gId);
   var gPayload = ordinaryGooglePatchFromPlan_(plan);
   var msPayload = ordinaryMicrosoftPatchFromPlan_(plan);
 
@@ -308,11 +325,11 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   // Bounded resource write journal, seeded from any prior entries so a restart can
   // still see what was last attempted/confirmed (req 2).
   var resJournal = (rec.res && Array.isArray(rec.res.journal)) ? rec.res.journal.slice() : [];
-  if ((Object.prototype.hasOwnProperty.call(gPayload, 'notes') || resources.writeGoogle) &&
+  if (!timeBridgeJournalHeld && (Object.prototype.hasOwnProperty.call(gPayload, 'notes') || resources.writeGoogle) &&
       notesWriteAllowed_(resources.gParseStatus) && !googleNotesWriteBlocked_(gTask)) {
     gPayload.notes = composeManagedNotes_(userNotesG, resources.googleBlock);
   }
-  if ((Object.prototype.hasOwnProperty.call(msPayload, 'body') || resources.writeMicrosoft) &&
+  if (!timeBridgeJournalHeld && (Object.prototype.hasOwnProperty.call(msPayload, 'body') || resources.writeMicrosoft) &&
       notesWriteAllowed_(resources.msParseStatus) && resources.microsoftBody) {
     msPayload.body = {
       contentType: resources.microsoftBody.contentType,

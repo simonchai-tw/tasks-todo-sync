@@ -6,6 +6,11 @@
         "userSymbol": "Tasks",
         "serviceId": "tasks",
         "version": "v1"
+      },
+      {
+        "userSymbol": "Calendar",
+        "serviceId": "calendar",
+        "version": "v3"
       }
     ],
     "libraries": [
@@ -20,11 +25,12 @@
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",
   "webapp": {
-    "access": "MYSELF",
+    "access": "ANYONE_ANONYMOUS",
     "executeAs": "USER_DEPLOYING"
   },
   "oauthScopes": [
     "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/script.external_request",
     "https://www.googleapis.com/auth/script.send_mail",
     "https://www.googleapis.com/auth/script.scriptapp",
