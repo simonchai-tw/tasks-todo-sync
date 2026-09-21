@@ -1,24 +1,24 @@
-# Google Gemini Saved Info (Personalization) for Tasks-ToDo-Sync
+# Google Gemini Saved Info (Personalization) for Tasks–To Do Sync
 
-> This prompt configures Google Gemini (Gemini App, Android "Hey Google", and Web) to automatically generate the required `[TTS-TIME:HH:mm]` marker in Google Tasks notes whenever a time-specific task is requested.
-
----
-
-## 🔍 Precondition Check (手動驗證 Gemini Tasks 工具)
-
-在套用個性化提示詞前，請先確認您的 Gemini 是否具備寫入 Google Tasks 備忘（Details / notes）與保留換行的能力：
-
-1. 對 Gemini 輸入測試指令：
-   > 「幫我在 Google Tasks 建立一個任務：測試任務，備忘寫第一行AAA，換行寫第二行BBB」
-2. 開啟 **Google Tasks App** 或網頁版，點開該任務：
-   - 檢查「詳細資料（Details）」是否成功包含 `AAA` 與 `BBB`，且換行保持完整。
-   - 若確認可正常寫入備忘與換行，即可安心設定下方的 Saved Info。
+> This configuration guide sets up Google Gemini (Gemini mobile app, Android "Hey Google", and web) to automatically append the required `[TTS-TIME:HH:mm]` marker in Google Tasks notes whenever a time-specific task is requested.
 
 ---
 
-## 📋 Recommended Production Prompt (Copy & Paste)
+## Precondition Check
 
-複製下方方框內的**完整文字**，貼入 Gemini 的 **Saved Info**（已儲存的資訊 / 記憶與個人化）：
+Before saving the personalization prompt, verify that your Google account has the **Google Workspace** extension enabled in Gemini and that it correctly preserves multiline notes when creating tasks:
+
+1. Send this test instruction to Gemini:
+   > *"Add a task to Google Tasks titled Test Task, with notes line 1 AAA, and on a new line BBB."*
+2. Open **Google Tasks** (mobile app or web) and inspect the created task:
+   - Verify that the **Details** field contains `AAA` and `BBB` separated by a newline.
+   - If multiline details are preserved, proceed with the configuration below.
+
+---
+
+## Production Personalization Prompt
+
+Copy the complete text block below and save it directly into Gemini's **Saved Info** (Memory / Personalization settings):
 
 ```text
 Whenever I ask you to create a Google Tasks task or reminder, in any language, a background script parses the task's Details (notes) field, so always fill Details through the task tool, even when you also set a native due time.
@@ -29,42 +29,43 @@ If I give no clock time (a date only, or vague words like morning or evening), D
 ```
 
 > [!TIP]
-> **切勿點擊「✨ 最佳化 / 魔法棒」重寫**：儲存後請直接保留原樣。魔法棒改寫容易將 `[TTS-TIME:HH:mm]` 當成雜訊抹除。若不慎按到，請務必回讀確認中括號與字串代碼依然完整。
+> **Do not use "Optimize / Rewrite"**: Save the prompt exactly as provided. AI rewriters frequently strip the strict `[TTS-TIME:HH:mm]` syntax. If accidentally rewritten, verify that the exact bracketed marker format is intact.
 
 ---
 
-## 📱 How to Configure in Gemini
+## Configuration Steps
 
-### Method 1: Via Gemini Settings (Recommended)
+### Option A: Via Gemini Settings (Recommended)
 1. Open the **Gemini App** (Android / iOS) or visit **[gemini.google.com](https://gemini.google.com)**.
 2. Tap your **Profile Picture** in the top right corner.
-3. Go to **Settings** → **Saved Info** (已儲存的資訊 / 記憶設定).
-4. Paste the prompt block above into the **Things to remember** field.
-5. Save directly without using AI rewrite.
+3. Select **Settings** → **Saved Info** (or *Personalization / Things to remember*).
+4. Paste the prompt block above into the text field.
+5. Save directly without applying AI rewrites.
 
-### Method 2: Direct Conversational Command
-Send this message directly to Gemini in any active chat:
+### Option B: Via Chat Command
+Send this message directly to Gemini in any active conversation:
 > *"Remember this preference: [Paste the prompt block above]"*
 
 Gemini will confirm: *"I've saved this preference to your info."*
 
 ---
 
-## 🧪 5-Case Acceptance Verification (驗收測試)
+## Verification Test Cases
 
-設定完成後，建議對 Gemini 發出以下 5 句語音或文字指令驗收輸出：
+After saving your preferences, test Gemini with the following 5 conversational requests to verify output compliance in Google Tasks:
 
-| 測試情境 | 測試指令 | 預期結果（Google Tasks 檢視） |
+| Scenario | Voice / Text Prompt | Expected Result in Google Tasks |
 | :--- | :--- | :--- |
-| **1. 下午時間** | 「明天下午 3 點半提醒我繳費」 | 第一行 Details：`[TTS-TIME:15:30]`，標題為「繳費」 |
-| **2. 個位數小時零補位** | 「早上 9 點 5 分開會」 | 第一行 Details：`[TTS-TIME:09:05]`（不可漏補 0） |
-| **3. 午夜邊界防禦** | 「半小時後提醒我」（於 23:35 測試） | 日期跨至隔天，時間非 `00:00`（如 `[TTS-TIME:00:05]`） |
-| **4. 模糊詞純日期** | 「明天早上買蛋」 | Details **完全為空**（不設 marker、不猜測時間） |
-| **5. 時間 + 附帶備忘** | 「後天晚上七點半，附註帶發票」 | Line 1: `[TTS-TIME:19:30]`<br>Line 2: *(空行)*<br>Line 3: `帶發票` |
+| **1. Afternoon Time** | *"Remind me to pay bills tomorrow at 3:30 pm"* | Line 1: `[TTS-TIME:15:30]`, Title: *Pay bills* |
+| **2. Single-Digit Hour** | *"Meeting at 9:05 am tomorrow"* | Line 1: `[TTS-TIME:09:05]` (zero-padded) |
+| **3. Midnight Boundary** | *"Remind me in 30 minutes"* (tested at 23:35) | Due date rolls over to next day; time formatted as `[TTS-TIME:00:05]` |
+| **4. Date-Only Without Clock Time** | *"Remind me to buy eggs tomorrow"* | Details completely empty (no marker or guessed time) |
+| **5. Time with Additional Notes** | *"Dinner at 7:30 pm on Friday, bring receipt"* | Line 1: `[TTS-TIME:19:30]`<br>Line 2: *(blank line)*<br>Line 3: *bring receipt* |
 
 ---
 
-## ⚠️ Notes & Operational Invariants
-1. **Tool Requirement**: 確保 Gemini 已開啟 **Google Tasks 擴充功能**（`設定` → `擴充功能` → `Google Workspace`）。
-2. **Marker Lifecycle**: Details 中的 `[TTS-TIME:HH:mm]` 標記僅為暫存。Tasks-ToDo-Sync 在下個週期（0–10 分鐘內）同步時，會設定 Microsoft To Do 鬧鐘與 Google 日曆事件，並**自動切除該標記行與相連的空行**，維持乾淨的備忘。
-3. **Spec Alignment**: 本提示詞與 Time Bridge Spec v2.4 雙向互鎖（包含拒絕 `00:00`、Fail-Closed Regex `([01]\d|2[0-3])`、Whole-Notes check 防重複標記）。
+## Operational Notes & Lifecycle
+
+1. **Extension Requirement**: Ensure the **Google Workspace** extension is toggled on in Gemini Settings (**Settings → Extensions → Google Workspace**).
+2. **Automated Splicing**: The `[TTS-TIME:HH:mm]` marker in Google Tasks notes is temporary. During the next synchronization cycle (0–10 minutes), Tasks–To Do Sync parses the time, sets the Microsoft To Do reminder, projects the Google Calendar event, and **automatically splices the marker line and trailing blank line**, leaving completely clean notes.
+3. **Fail-Closed Grammar**: The prompt aligns strictly with Time Bridge Spec v2.4 (24-hour uppercase formatting, strict bounds `00:01`–`23:59`, and whole-notes uniqueness checks).

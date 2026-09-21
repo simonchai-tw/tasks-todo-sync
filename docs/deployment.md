@@ -82,7 +82,7 @@ Create the app registration in a Microsoft Entra tenant you can administer. The 
 5. Run `showRedirectUri()`. Add the displayed address in Entra **Authentication → Web → Redirect URI**.
 6. Run `startAdvancedAuthorization()`, open its URL, and sign in to Microsoft. `startAuthorization()` is also mode-aware and follows the active configuration.
 
-Google Tasks due dates are date-only. Microsoft due-time components do not round-trip, so choose the project time zone deliberately.
+Google Tasks natively stores date-only due dates. With Time Bridge enabled (default), task due times and Microsoft To Do reminders synchronize bidirectionally.
 
 ## Rotate an Advanced-mode Microsoft client secret
 
@@ -96,6 +96,23 @@ If the tenant UI or policy permits it, create secrets with a 24-month expiry and
 6. If the trigger was removed, run `createTrigger()` again. After successful verification, delete the old Entra secret.
 
 Rotation does not change the client ID, redirect URI, mappings, tombstones, move or deletion journals, Google authorization, or required Graph permissions. If the old secret has already expired, follow the same procedure; synchronization remains paused until the new authorization succeeds.
+
+## Time Bridge: Due times, reminders, and calendar projection
+
+Google Tasks natively supports due dates without a time-of-day component. Starting in `v0.7.0`, **Time Bridge** bridges this architectural gap:
+
+1. **Microsoft → Google**: When a task in Microsoft To Do has a reminder time (`reminderDateTime`), Time Bridge projects a corresponding 30-minute timed event (`start.dateTime`) onto a dedicated secondary Google Calendar titled `Tasks-ToDo-Sync`.
+2. **Google → Microsoft**: Tasks authored in Google Tasks can include an optional temporary time marker on the very first line of their notes (e.g., `[TTS-TIME:15:30]`). Time Bridge parses this marker, schedules the exact reminder in Microsoft To Do, projects the Google Calendar event, and automatically splices the marker out of Google Tasks notes.
+3. **Voice & Assistant Capture**: To automatically generate `[TTS-TIME:HH:mm]` markers when creating tasks via voice or chat (e.g., Android "Hey Google", Gemini mobile app, or Gemini web), see the [Google Gemini Saved Info Guide](gemini-saved-info.md).
+
+### Configuration knobs
+
+Time Bridge includes two fail-closed configuration properties in **Project Settings → Script Properties**:
+
+| Key | Default | Description |
+| --- | :---: | --- |
+| `SYNC_TIME_BRIDGE` | `true` | Master switch for Time Bridge processing. Set to `false` to disable all time and reminder synchronization. |
+| `SYNC_CALENDAR_PROJECTION` | `true` | When `true`, projects timed tasks to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false`, synchronizes Microsoft To Do reminder times without writing events to Google Calendar. |
 
 ## First validation and scheduling
 
