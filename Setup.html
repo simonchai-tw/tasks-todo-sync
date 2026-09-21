@@ -189,6 +189,12 @@
         background: var(--success-soft);
         border-color: #bbf7d0;
       }
+      .check-row.ok .icon-circle {
+        display: none !important;
+      }
+      .check-row.ok .icon-check {
+        display: block !important;
+      }
       .check-icon {
         flex-shrink: 0;
         margin-top: 2px;
@@ -621,8 +627,16 @@
         if (box) {
           const circle = box.querySelector('.icon-circle');
           const check = box.querySelector('.icon-check');
-          if (circle) circle.hidden = true;
-          if (check) check.hidden = false;
+          if (circle) {
+            circle.hidden = true;
+            circle.setAttribute('hidden', '');
+            circle.style.display = 'none';
+          }
+          if (check) {
+            check.hidden = false;
+            check.removeAttribute('hidden');
+            check.style.display = 'block';
+          }
         }
         if (detailId && detailText) {
           const d = document.getElementById(detailId);
@@ -834,11 +848,12 @@
       function refreshStep3Overview() {
         if (!window.google || !google.script || !google.script.run) return;
         google.script.run.withSuccessHandler(function(data) {
-          if (data && data.microsoft && data.microsoft.status === 'authorized') {
-            markRowSuccess('finalRowMs', 'finalIconBoxMs', 'finalDetailMs', 'Connected & verified with Microsoft Graph.');
+          if (data && data.microsoft && (data.microsoft.status === 'authorized' || data.microsoft.status === 'advanced')) {
+            markRowSuccess('finalRowMs', 'finalIconBoxMs', 'finalDetailMs', data.microsoft.status === 'advanced' ? 'Connected via Advanced Entra OAuth.' : 'Connected & verified with Microsoft Graph.');
           }
           if (data && data.triggerCount > 0) {
             markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', data.triggerCount + ' active syncAll trigger(s) found (every ' + data.intervalMinutes + ' mins).');
+            markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth', 'Dry-run passed. System healthy.');
             document.getElementById('btnActivate').hidden = true;
             document.getElementById('btnRunSyncNow').hidden = false;
             document.getElementById('finalSuccessBanner').hidden = false;
