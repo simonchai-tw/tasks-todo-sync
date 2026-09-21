@@ -1,21 +1,21 @@
-# v0.6.1 engineering audit
+# v0.7.0 engineering audit
 
-Audit scope: 0.6.1 — 2026-09-16
+Audit scope: 0.7.0 — 2026-09-21
 
-The canonical 17-file Apps Script runtime, modernized 3-step setup wizard, subtask and checklist synchronization engine, clean managed resource projection protocol, and formal scheduler invariants described below are included in this release. Their automated and real-account evidence is recorded here.
+The canonical 18-file Apps Script runtime, Time Bridge v2.4 (due time and reminder synchronization with dedicated Google Calendar projection), modernized 3-step setup wizard, subtask and checklist synchronization engine, clean managed resource projection protocol, and formal scheduler invariants described below are included in this release. Their automated and real-account evidence is recorded here.
 
 Supported environment: initial installation and source updates require a Windows, macOS, or Linux desktop/laptop with Node.js 22+, a terminal, and a modern browser. Chromebook Linux is best effort. npm installation is not supported on phones; the Microsoft connection wizard remains mobile-responsive for reauthorization. The [field compatibility matrix](field-compatibility.md) is the canonical source for field boundaries.
 
 ## Release decision
 
-`v0.6.1` is a stable personal, single-operator synchronization release. It includes the canonical 17-file Apps Script runtime, a modernized 3-step setup wizard, bidirectional subtask and checklist synchronization with three-way field merge and conflict isolation, managed resource projection with clean tag labels, compressed and integrity-checked state, backward-compatible migration, guarded deletion with live absence probes, recovery journals, bounded task creates, tombstones, bounded diagnostics, destination-first cross-list moves, and both Personal Device Code and Advanced Entra Microsoft authorization modes. Fresh projects enable automatic list discovery, task deletion, list deletion, task moves, subtask synchronization, and resource projection; existing explicit Script Properties are preserved.
+`v0.7.0` is a stable personal, single-operator synchronization release. It includes the canonical 18-file Apps Script runtime, Time Bridge v2.4 (due time and reminder synchronization with dedicated Google Calendar projection), a modernized 3-step setup wizard, bidirectional subtask and checklist synchronization with three-way field merge and conflict isolation, managed resource projection with clean tag labels, compressed and integrity-checked state, backward-compatible migration, guarded deletion with live absence probes, recovery journals, bounded task creates, tombstones, bounded diagnostics, destination-first cross-list moves, and both Personal Device Code and Advanced Entra Microsoft authorization modes. Fresh projects enable automatic list discovery, task deletion, list deletion, task moves, subtask synchronization, resource projection, and Time Bridge; existing explicit Script Properties are preserved.
 
-The core implementation is covered by 417 automated tests (100% PASS), CI, and CodeQL. Recorded bidirectional real-account checks cover personal setup wizard onboarding, task deletion, list deletion, cross-list moves, subtask sync, resource projection, and task creation in the maintainer's private deployment, culminating in clean 0-task-residue full reset verification. Local deterministic validation also exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. The deterministic 600-pair validation is provider-free; the separate bounded real-account observation below does not establish a universal provider or Apps Script runtime guarantee.
+The core implementation is covered by 427 automated tests (100% PASS), CI, and CodeQL. Recorded bidirectional real-account checks cover personal setup wizard onboarding, task deletion, list deletion, cross-list moves, subtask sync, resource projection, Time Bridge live end-to-end sync (splicing `[TTS-TIME:15:30]`, Microsoft To Do reminder setting, Google Calendar projection, and completion cleanup), and task creation in the maintainer's private deployment, culminating in clean 0-task-residue full reset verification. Local deterministic validation also exercises 600 tracked task pairs across synchronization, deletion, movement, recovery, pagination, and long-content scenarios. The deterministic 600-pair validation is provider-free; the separate bounded real-account observation below does not establish a universal provider or Apps Script runtime guarantee.
 
 ## Scope verification
 
 - CLI time-zone handling parses and updates manifest JSON, so non-`Asia/Taipei` IANA zones do not depend on formatting.
-- The 17-file Apps Script runtime is load-order safe: verified across canonical, reverse, and deterministic shuffled VM load orders without duplicate globals or order-dependent initialization bugs.
+- The 18-file Apps Script runtime is load-order safe: verified across canonical, reverse, and deterministic shuffled VM load orders without duplicate globals or order-dependent initialization bugs.
 - An incomplete run discards only current-round proof and retains the previous successful task/list-deletion baseline.
 - Restore reads a separately committed successful generation, never an intra-round checkpoint. An upgraded deployment needs one verified successful sync first; legacy state without verifiable evidence fails closed.
 - Granular three-way field merge (`field-merge.gs`) isolates changes across `title`, `notes`, `due`, `status`, and `importance`. Metadata-only edits leave unrelated fields untouched, while concurrent opposing edits freeze safely into a conflict state (`TRUE_FIELD_CONFLICT`) rather than silently overwriting data.
@@ -127,9 +127,20 @@ The measured model and implementation boundaries include an 8 KiB per-property v
 
 Normal fresh state does not store task titles, notes, or bodies in the mapping store. Long notes affect provider payload size and runtime, not the mapping store itself. Legacy journals and raw state exports can still contain sensitive material and must remain private.
 
+## Time Bridge and Google Calendar projection boundary
+
+Google Tasks natively supports due dates without a time-of-day component. Time Bridge v2.4 bridges this architectural gap:
+
+1. **Google Tasks Notes Marker Splicing**: Tasks authored with a strict `[TTS-TIME:HH:mm]` marker on the first line of notes (Spec §2.1) are parsed, mapped to Microsoft To Do reminders, and projected to Google Calendar. Synchronizer runs atomically splice out the marker line and trailing blank line, keeping notes clean.
+2. **Dedicated Secondary Google Calendar Projection**: Timed tasks are projected as 30-minute events (`start.dateTime`) onto a dedicated secondary Google Calendar (`Tasks-ToDo-Sync`). The primary personal calendar remains unpolluted.
+3. **Deterministic Event IDs**: SHA-256 digests mapped into 32-character lowercase hex guarantee idempotent writes and collision-free lifecycle management without negative-byte corruption.
+4. **Automated Completion Cleanup**: When a task is marked complete or deleted, its projected Google Calendar event is immediately deleted, and the state reference is cleared.
+5. **Fail-Closed Safety Knobs**: `SYNC_TIME_BRIDGE` (default `true`) and `SYNC_CALENDAR_PROJECTION` (default `true`) allow complete disablement or calendar-only suppression without code modification.
+6. **Empirical Verification**: Empirical probe on live Google account confirmed that Google Tasks UI overlay does not project tasks as standard `vevent` objects in the Calendar API (`Calendar.CalendarList` contains no Tasks calendar, and `Calendar.Events.list('primary')` contains 0 matching tasks). This confirms that dedicated secondary calendar projection is the only robust, standard-compliant projection mechanism.
+
 ## Evidence reviewed
 
-- **417 automated tests** (100% PASS), CI, CodeQL, static checks (`scripts/validate.mjs`), package dry-run validation (`scripts/validate-package.mjs`), and the deterministic 600-pair VM/capacity run were recorded for the release worktree. CodeQL uses GitHub Default setup, so no repository-owned CodeQL workflow file is expected.
+- **427 automated tests** (100% PASS), CI, CodeQL, static checks (`scripts/validate.mjs`), package dry-run validation (`scripts/validate-package.mjs`), and the deterministic 600-pair VM/capacity run were recorded for the release worktree. CodeQL uses GitHub Default setup, so no repository-owned CodeQL workflow file is expected.
 - Bidirectional real-account validation covered Personal Device Code authorization, modernized 3-step setup wizard onboarding, supported task fields, subtasks/checklists, managed resource projection, task deletion, list deletion, cross-list movement, state rollback, live absence probes, and 0-task-residue total reset verification. The published observations omit private mappings, provider IDs, task contents, project identifiers, credentials, and Apps Script version numbers.
 - Release publication and deployment execution are separate from source inspection; this audit does not infer evidence that was not observed.
 

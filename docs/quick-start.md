@@ -25,7 +25,7 @@ SYNC_ALLOW_LIST_DELETIONS=true
 SYNC_ALLOW_TASK_MOVES=true
 ```
 
-Existing explicit Script Properties are preserved. Google Tasks due dates are date-only; choose the project time zone deliberately because a Microsoft due-time component does not round-trip.
+Existing explicit Script Properties are preserved. With Time Bridge enabled (default), task due times and Microsoft To Do reminders synchronize bidirectionally with dedicated Google Calendar projection; see the [deployment guide](deployment.md#time-bridge-due-times-reminders-and-calendar-projection).
 
 ## 2. Open your private setup page
 

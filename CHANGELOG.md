@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.6.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, and resource projection enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.7.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, resource projection, and Time Bridge (due time and reminder synchronization) enabled.
 
 ## 0.7.0 — 2026-09-21
 

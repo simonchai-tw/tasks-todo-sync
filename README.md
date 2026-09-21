@@ -83,7 +83,7 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The synchronization engine is covered by 417 automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md).
+The synchronization engine is covered by 427 automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md).
 
 ## Get started
 
@@ -117,6 +117,7 @@ Follow the **[quick start](docs/quick-start.md)** for the guided walkthrough, or
 | [Quick start](docs/quick-start.md) | The shortest personal setup path |
 | [Deployment guide](docs/deployment.md) | Personal and Advanced Microsoft authorization, Apps Script, upgrades, and rollback |
 | [Engineering audit](docs/audit.md) | Verified behavior, limitations, and deferred work |
+| [Google Gemini personalization](docs/gemini-saved-info.md) | Voice and assistant capture for due times and reminders |
 | [Security policy](SECURITY.md) | Reporting a vulnerability privately |
 | [Changelog](CHANGELOG.md) | Release history |
 
