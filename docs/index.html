@@ -2691,6 +2691,24 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       history.replaceState(null, '', window.location.pathname + window.location.search);
     } catch (err) {}
   }
+
+  // Dynamically fetch and display latest version from npm registry
+  try {
+    fetch('https://registry.npmjs.org/tasks-todo-sync/latest')
+      .then(function(res) {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then(function(data) {
+        if (data && data.version) {
+          var badges = document.querySelectorAll('.badge.ver');
+          badges.forEach(function(badge) {
+            badge.innerHTML = '<i class="badge-dot"></i>v' + data.version;
+          });
+        }
+      })
+      .catch(function() {});
+  } catch (e) {}
 })();
 </script>
 </body>
