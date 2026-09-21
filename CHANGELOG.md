@@ -17,12 +17,10 @@ Historical entries below describe each release at the time it shipped, including
   - Fail-Closed Safety Knobs:
     - `SYNC_TIME_BRIDGE` (default `true`): Master switch to enable/disable Time Bridge processing entirely.
     - `SYNC_CALENDAR_PROJECTION` (default `true`): Toggle to enable/disable Google Calendar event projection while keeping To Do reminder synchronization active.
-- **Companion Webhook Service (`companion.gs`)**:
-  - Added dedicated companion dispatcher and endpoints for external automation and health monitoring.
 - **Google Gemini Integration Guide**:
   - Added `docs/gemini-saved-info.md` containing prompt templates for Google Gemini Saved Info / Personalization to automatically generate `[TTS-TIME:HH:mm]` markers via natural voice/chat commands.
 - **Test Suite Expansion**:
-  - Expanded test coverage to 433 automated tests (100% PASS).
+  - Expanded test coverage to 427 automated tests (100% PASS).
 
 ## 0.6.1 — 2026-09-16
 

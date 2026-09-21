@@ -17,6 +17,4 @@
 !time-bridge.gs
 !sync.gs
 !operations.gs
-!companion.gs
-!companion_auth.gs
 !appsscript.json

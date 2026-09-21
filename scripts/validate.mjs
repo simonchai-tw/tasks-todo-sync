@@ -57,37 +57,22 @@ for (const { filename, source } of gasSources) {
   }
 }
 const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
-assert(publicEntrypoints.length === 55, `Expected 55 public entrypoints, found ${publicEntrypoints.length}`);
-assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs' || filename === 'companion.gs'),
-  'All public and compatibility entrypoints must remain in Code.gs or companion.gs');
-
-const doGets = topLevelFunctions.filter(([name]) => name === 'doGet');
-assert(doGets.length === 1, `Expected exactly 1 doGet function, found ${doGets.length}`);
-assert(doGets[0][1] === 'Code.gs', 'doGet must be defined in Code.gs');
-
-const doPosts = topLevelFunctions.filter(([name]) => name === 'doPost');
-assert(doPosts.length === 1, `Expected exactly 1 doPost function, found ${doPosts.length}`);
-assert(doPosts[0][1] === 'companion.gs', 'doPost must be defined in companion.gs');
-
-const codeGsSource = gasSources.find((item) => item.filename === 'Code.gs')?.source || '';
-assert(codeGsSource.includes('Session.getActiveUser().getEmail()') &&
-       codeGsSource.includes('Session.getEffectiveUser().getEmail()'),
-  'doGet must enforce owner gate comparing getActiveUser and getEffectiveUser');
+assert(publicEntrypoints.length === 53, `Expected 53 public entrypoints, found ${publicEntrypoints.length}`);
+assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs'),
+  'All public and compatibility entrypoints must remain in Code.gs');
 
 function claspGasAllowlist(text) {
   return text.split(/\r?\n/)
-    .filter((line) => /^![^/]+\.gs$/.test(line) && line !== '!companion_auth.gs')
+    .filter((line) => /^![^/]+\.gs$/.test(line))
     .map((line) => line.slice(1))
     .sort();
 }
 const canonicalGasFiles = [...GAS_SOURCE_FILES].sort();
-assert(canonicalGasFiles.length === 19, `Expected 19 canonical .gs files, found ${canonicalGasFiles.length}`);
+assert(canonicalGasFiles.length === 18, `Expected 18 canonical .gs files, found ${canonicalGasFiles.length}`);
 assert(JSON.stringify(claspGasAllowlist(rootClaspignore)) === JSON.stringify(canonicalGasFiles),
   'Root .claspignore GAS allowlist must match canonical deployable set');
 assert(JSON.stringify(claspGasAllowlist(packagedClaspignore)) === JSON.stringify(canonicalGasFiles),
   'Packaged .claspignore GAS allowlist must match canonical deployable set');
-assert(rootClaspignore.includes('!companion_auth.gs'), 'Root .claspignore must permit companion_auth.gs');
-assert(packagedClaspignore.includes('!companion_auth.gs'), 'Packaged .claspignore must permit companion_auth.gs');
 assert(!rootClaspignore.split(/\r?\n/).includes('!Setup.html'),
   'Root private .claspignore must not deploy Setup.html');
 assert(packagedClaspignore.split(/\r?\n/).includes('!Setup.html'),
@@ -229,8 +214,7 @@ if (!oauth2 || oauth2.version !== '43' || oauth2.developmentMode !== false) {
   throw new Error('OAuth2 library must be pinned to version 43 with developmentMode=false');
 }
 
-assert(manifest.webapp?.access === 'ANYONE_ANONYMOUS' || manifest.webapp?.access === 'MYSELF',
-  'setup web app access must be ANYONE_ANONYMOUS or MYSELF');
+assert(manifest.webapp?.access === 'MYSELF', 'setup web app access must remain MYSELF');
 assert(manifest.webapp?.executeAs === 'USER_DEPLOYING',
   'setup web app must execute as USER_DEPLOYING');
 assert(code.includes("const MS_PERSONAL_CLIENT_ID_ = '1139ef4a-297c-4c4f-b414-6393aec2ee31';"),

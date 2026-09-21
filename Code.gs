@@ -676,12 +676,7 @@ function setupWizardRunFirstSync() {
   }
 }
 
-function doGet(e) {
-  if (typeof Session !== 'undefined' && typeof Session.getActiveUser === 'function' && typeof Session.getEffectiveUser === 'function') {
-    if (Session.getActiveUser().getEmail() !== Session.getEffectiveUser().getEmail()) {
-      return HtmlService.createHtmlOutput('Forbidden');
-    }
-  }
+function doGet() {
   return HtmlService.createHtmlOutputFromFile('Setup')
     .setTitle('Tasks–To Do Sync — Easy Setup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
