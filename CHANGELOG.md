@@ -2,7 +2,38 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.7.0` projects use automatic list discovery with task deletion, list deletion, cross-list task moves, subtask sync, resource projection, and Time Bridge (due time and reminder synchronization) enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.7.5` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
+
+## 0.7.5 — 2026-09-23
+
+### Cross-time-zone date-only due fix (WO-5)
+
+- **Microsoft mailbox time zone discovery**: the device-code and Advanced OAuth scope now includes `MailboxSettings.Read`. The engine reads the mailbox time zone from Microsoft Graph and requests Graph render due values in that authored zone (`Prefer: outlook.timezone`), so date-only dues arrive as predictable local midnights. Requires one fresh Microsoft authorization after upgrading; falls back to the project time zone when the mailbox has never saved a time zone or the scope is missing (v0.7.0 behavior).
+- **Explicit due routing**: `googleDue_` now treats a midnight value with no UTC offset as a floating date (the calendar date is taken as-is) and everything else as a real instant projected into the project time zone, with the fail-closed unknown-zone gate preserved. Date-only dues no longer shift a day when the project time zone is west of the account zone (e.g. `America/New_York`).
+
+### Deletion and data-integrity guards
+
+- **Time Bridge `NONE` marker** (WO-1): `[TTS-TIME:NONE]` is now a clear-time intent — the Microsoft date is kept, `hasTime` and reminder ownership are released locally, and no epoch (`1970-01-01`) payload is ever written to either side. Documented in the deployment guide.
+- **List-deletion guard chain** (WO-3): pagination now rejects malformed provider pages loudly instead of returning a silently short inventory (WO-3a); list-inventory completeness is computed from a default-list canary instead of being hardcoded true (WO-3b); the missing side of a pair is re-read by id before any list deletion finalizes, and a resurrected list blocks the deletion with `LIST_DELETE_MISSING_SIDE_RESURRECTED` (WO-3c).
+- **Time Bridge knob OFF** (WO-7): disabling `SYNC_TIME_BRIDGE` now releases `hasTime` so ordinary field merge re-owns the due field, instead of freezing it out of the merge forever.
+- **Excluded list names** (WO-10): the exclusion lookup uses a null-prototype map, so a list literally named `constructor` is no longer phantom-excluded.
+
+### Reliability
+
+- **Google 403 quota errors** (WO-6): `rateLimitExceeded` / `quotaExceeded` / `userRateLimitExceeded` (and `RESOURCE_EXHAUSTED`) now ride the 429 backoff path instead of aborting the round on the first attempt. A bare 403 stays fatal.
+- **List isolation** (WO-8): a 404 while fetching one Microsoft list's tasks isolates that list instead of aborting the whole round with a `ReferenceError`.
+- **Recurrence alert hygiene** (WO-12): the both-recurrence alert collapses newlines in task titles and reports opaque id previews instead of raw provider ids.
+
+### Observability and release tooling
+
+- **Field-conflict visibility** (WO-11): `healthCheck()` and `inspectSyncState()` now report a bounded `fieldConflicts` count (quarantined conflicts were previously invisible to operators).
+- **Release validation** (WO-14): `scripts/validate.mjs` now pins the four `PUBLIC_SETUP_DEFAULTS` install-time values.
+- **Docs accuracy** (WO-13): the audit no longer claims that fresh projects enable subtask synchronization; subtasks are opt-in via `SYNC_ENABLE_SUBTASKS=true`.
+- **Setup wizard** (first released here; fixed on main after v0.7.0 shipped): step-3 checkmark icons toggle correctly — the pre-fix code relied on the SVG `hidden` property alone, which some browsers ignore.
+
+### Test suite
+
+- Expanded test coverage to 445 automated tests (100% PASS locally), including regressions for every item above and a fail-closed harness default for the pre-PATCH notes re-read (WO-9).
 
 ## 0.7.0 — 2026-09-21
 

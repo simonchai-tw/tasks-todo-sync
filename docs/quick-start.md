@@ -25,7 +25,9 @@ SYNC_ALLOW_LIST_DELETIONS=true
 SYNC_ALLOW_TASK_MOVES=true
 ```
 
-Existing explicit Script Properties are preserved. With Time Bridge enabled (default), task due times and Microsoft To Do reminders synchronize bidirectionally with dedicated Google Calendar projection; see the [deployment guide](deployment.md#time-bridge-due-times-reminders-and-calendar-projection).
+Existing explicit Script Properties are preserved. With Time Bridge enabled (default), task due times and Microsoft To Do reminders synchronize bidirectionally; the dedicated Google Calendar projection is opt-in via `SYNC_CALENDAR_PROJECTION=true`. See the [deployment guide](deployment.md#time-bridge-due-times-reminders-and-calendar-projection).
+
+Upgrading an existing installation? Complete one fresh Microsoft authorization after updating (the scope set gains `MailboxSettings.Read`); see [Reauthorize Personal mode](deployment.md#reauthorize-personal-mode).
 
 ## 2. Open your private setup page
 

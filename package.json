@@ -1,6 +1,6 @@
 {
   "name": "tasks-todo-sync",
-  "version": "0.7.0",
+  "version": "0.7.5",
   "private": false,
   "description": "Self-hosted, bidirectional sync between Google Tasks and Microsoft To Do that runs on Google Apps Script.",
   "keywords": [
