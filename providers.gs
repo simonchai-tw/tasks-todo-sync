@@ -215,7 +215,23 @@ function getAllPages_(firstUrl, fetcher, itemField, tokenMode) {
     }
     seen[url] = true;
     pageCount += 1;
-    const page = fetcher(url) || {};
+    const page = fetcher(url);
+    // WO-3a: a malformed page must be loud.  A silently short inventory is
+    // exactly the input that the list-deletion guards would otherwise trust,
+    // and the relationship readers in this file already throw on malformed
+    // pages; this ports that check to the generic paginator.
+    if (!page || typeof page !== 'object' || Array.isArray(page)) {
+      throw new Error('PAGINATION_MALFORMED_PAGE: page is not an object.');
+    }
+    if (page[itemField] === undefined) {
+      // Google Tasks omits `items` on empty pages (legitimate); Microsoft
+      // Graph always serializes `value`, so absence there is malformed.
+      if (tokenMode !== 'google') {
+        throw new Error('PAGINATION_MALFORMED_PAGE: ' + itemField + ' is missing.');
+      }
+    } else if (!Array.isArray(page[itemField])) {
+      throw new Error('PAGINATION_MALFORMED_PAGE: ' + itemField + ' must be an array.');
+    }
     items = items.concat(page[itemField] || []);
     if (tokenMode === 'google') {
       const token = page.nextPageToken;

@@ -1262,6 +1262,24 @@ test('Google and Graph pagination fail closed for repeated cursors, page caps, a
   }
 });
 
+test('WO-3a: pagination rejects malformed pages instead of returning a silently short inventory', () => {
+  const { context } = loadContext();
+  // Graph mode: value is mandatory (OData collections always serialize it).
+  assert.throws(() => context.getAllPages_('u', () => null, 'value', 'graph'), /PAGINATION_MALFORMED_PAGE: page is not an object/);
+  assert.throws(() => context.getAllPages_('u', () => ({}), 'value', 'graph'), /PAGINATION_MALFORMED_PAGE: value is missing/);
+  assert.throws(() => context.getAllPages_('u', () => ({ value: 'x' }), 'value', 'graph'), /PAGINATION_MALFORMED_PAGE: value must be an array/);
+  assert.throws(() => context.getAllPages_('u', () => [], 'value', 'graph'), /PAGINATION_MALFORMED_PAGE: page is not an object/);
+  // Google mode: items may be absent on an empty page, but a wrong type is malformed.
+  const googleEmpty = context.getAllPages_('u', () => ({}), 'items', 'google');
+  assert.equal(googleEmpty.length, 0, 'absent items must be tolerated as an empty page');
+  assert.throws(() => context.getAllPages_('u', () => null, 'items', 'google'), /PAGINATION_MALFORMED_PAGE/);
+  assert.throws(() => context.getAllPages_('u', () => ({ items: 5 }), 'items', 'google'), /PAGINATION_MALFORMED_PAGE: items must be an array/);
+  // Happy paths stay intact.
+  const happy = context.getAllPages_('u', () => ({ value: [{ id: 'a' }] }), 'value', 'graph');
+  assert.equal(happy.length, 1);
+  assert.equal(happy[0].id, 'a');
+});
+
 test('state-save preflight counts the full property store and never writes partial generations', () => {
   const nearLimitValues = {};
   for (let i = 0; i < 54; i += 1) nearLimitValues['other_' + i] = 'x'.repeat(8000);
