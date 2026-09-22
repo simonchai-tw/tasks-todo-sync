@@ -450,6 +450,45 @@ test('SYNC_TIME_BRIDGE="false" disables Time Bridge entirely (knob verification)
   assert.equal(calendarEvents[eventId], undefined);
 });
 
+test('WO-7: knob OFF clears hasTime so field-merge re-owns due', () => {
+  const { c } = loadContext();
+  c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'false');
+
+  const safety = c.getSafetyConfig_();
+  assert.equal(safety.enableTimeBridge, false);
+
+  const state = c.newState_();
+  state.listMap = { 'g-list': 'ms-list' };
+  // Pre-populate a record that was previously hasTime=true from an earlier bridge run
+  state.g2m['g-task-wo7'] = {
+    msId: 'ms-task-wo7', gListId: 'g-list', msListId: 'ms-list',
+    fp: {}, rem: { hasTime: true, ms: true, msAt: '2026-10-01T07:30:00.000Z' }
+  };
+  state.m2g['ms-task-wo7'] = 'g-task-wo7';
+
+  const gTask = { id: 'g-task-wo7', title: 'WO7', notes: '', due: '2026-10-01T00:00:00.000Z', status: 'needsAction' };
+  const msTask = { id: 'ms-task-wo7', dueDateTime: { dateTime: '2026-10-01T07:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: false, status: 'notStarted' };
+  const snap = { gTasksById: { 'g-task-wo7': gTask }, msTasksById: { 'ms-task-wo7': msTask }, safety: safety };
+
+  // No calendar or MS patch calls expected (knob OFF = local-only clearing)
+  let msPatched = false;
+  c.updateMsTask_ = () => { msPatched = true; return msTask; };
+
+  c.timeBridgeRun_(state, snap, Date.now(), 'round-wo7');
+
+  // hasTime must be cleared so field-merge re-owns due
+  assert.equal(state.g2m['g-task-wo7'].rem.hasTime, false, 'hasTime must be cleared when knob is OFF');
+  assert.equal(state.g2m['g-task-wo7'].rem.ms, undefined, 'ms ownership must be released when knob is OFF');
+  assert.equal(msPatched, false, 'No MS PATCH should be issued when knob is OFF');
+
+  // Confirm merge plan now includes due (no longer TIME_BRIDGE_OWNED skip)
+  const gProj = c.ordinaryProjectGoogle_(gTask, state.g2m['g-task-wo7']);
+  const mProj = c.ordinaryProjectMicrosoft_(msTask, state.g2m['g-task-wo7']);
+  const plan = c.ordinaryMergeMappedFields_(state.g2m['g-task-wo7'].fp, gProj, mProj, state.g2m['g-task-wo7']);
+  assert.ok(!plan.skipped.some((s) => s.field === 'due' && s.reason === 'TIME_BRIDGE_OWNED'),
+    'Field merge must not skip due when knob is OFF');
+});
+
 test('SYNC_CALENDAR_PROJECTION="false" preserves reminder sync but skips Google Calendar projection', () => {
   const { c, calendarEvents } = loadContext();
   c.PropertiesService.getScriptProperties().setProperty('SYNC_CALENDAR_PROJECTION', 'false');

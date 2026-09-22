@@ -603,7 +603,21 @@ function timeBridgeGetOrCreateCalendar_(syncTimeZone) {
 
 function timeBridgeRun_(state, snap, startedAt, roundId) {
   var safety = getSafetyConfig_();
-  if (!safety.enableTimeBridge) return;
+  if (!safety.enableTimeBridge) {
+    // WO-7: Even when the knob is OFF, release hasTime so that ordinary field-merge
+    // re-owns the due field. Do NOT delete calendar events on this path (consistent
+    // with the existing no-batch-delete-on-disable rule).
+    var g2m = state.g2m || {};
+    Object.keys(g2m).forEach(function(gId) {
+      var rec = g2m[gId];
+      if (rec && rec.rem && rec.rem.hasTime) {
+        rec.rem.hasTime = false;
+        rec.rem.ms = undefined;
+        delete rec.rem.msAt;
+      }
+    });
+    return;
+  }
 
   var syncTimeZone = syncTimeZone_();
   var nowMs = Date.now();
