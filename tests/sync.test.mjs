@@ -2356,6 +2356,30 @@ test('Graph 429 retry honors Retry-After and returns success without a real wait
   assert.equal(fetches[0].options.headers.Authorization, 'Bearer test-token');
 });
 
+test('WO-8: a 404 while fetching Microsoft tasks isolates the list instead of aborting the round', () => {
+  const { context } = loadContext({
+    scriptValues: { SYNC_GOOGLE_LIST_IDS: 'g-one', SYNC_ALLOW_DELETIONS: 'false' }
+  });
+  const state = context.newState_();
+  state.listMap['g-one'] = 'ms-one';
+  context.getGLists_ = () => [{ id: 'g-one', title: 'Custom' }];
+  context.getMsLists_ = () => [{ id: 'ms-one', displayName: 'Custom MS', isOwner: true, isShared: false, wellknownListName: 'none' }];
+  context.getGTasks_ = () => [];
+  context.getMsTasks_ = (id) => {
+    if (id === 'ms-one') throw new Error('HTTP 404: gone');
+    return [];
+  };
+  context.alertListFaultsIfAny_ = () => {};
+  const errors = [];
+  context.console = { log: () => {}, warn: () => {}, error: (m) => errors.push(String(m)) };
+
+  const snap = context.buildSnapshot_(state, Date.now());
+  assert.equal(snap.inventoryComplete, false, 'the 404 marks the task inventory incomplete');
+  assert.ok(state.listFaults.ms['ms-one'], 'the faulted list is isolated');
+  assert.ok(errors.some((m) => m.indexOf('list isolated') >= 0),
+    'the isolation log line renders without a ReferenceError');
+});
+
 test('WO-6: Google 403 quota errors ride the transient backoff path and recover', () => {
   const sleeps = [];
   const fetches = [];

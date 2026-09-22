@@ -507,7 +507,10 @@ function buildSnapshot_(state, startedAt) {
           gListId: gListId,
           gListTitle: gList ? (gList.title || '(Untitled list)') : ''
         });
-        console.error('[ListFault] Got 404 while fetching Microsoft tasks; list isolated: ' + listLabel_(msListId, msList && msList.displayName));
+        // WO-8: msList was never declared in this scope, so this very line
+        // threw a ReferenceError AFTER markListFault_ and turned a designed
+        // per-list isolation into a whole-round abort.
+        console.error('[ListFault] Got 404 while fetching Microsoft tasks; list isolated: ' + listLabel_(msListId, null));
         continue;
       }
       throw e;
