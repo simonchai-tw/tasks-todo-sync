@@ -59,6 +59,8 @@ Personal mode supports personal Microsoft accounts and requests only delegated `
 
 On the setup page, click **Connect**. The page displays a short `user_code`, Microsoft's official verification address, and an expiry. Microsoft's current Device Code endpoint returns `https://www.microsoft.com/link`; the implementation also accepts Microsoft's legacy `https://microsoft.com/devicelogin` and `https://www.microsoft.com/devicelogin` addresses. Click **Open Microsoft sign-in** and continue only when the displayed HTTPS address exactly matches one of those official Microsoft URLs. Enter the code and complete Microsoft consent. Return to the setup page; it polls at Microsoft's required interval and reports completion without displaying OAuth tokens or the private `device_code`.
 
+From v0.7.5 the consent screen lists a second permission line, **Mail box settings** (`MailboxSettings.Read`), next to the existing **To-Do tasks** line. Microsoft's consent page may render only the first item with a visible checkmark; this is Microsoft's rendering, and accepting the consent grants the listed permissions (verified on a live test account: the granted scope record included `MailboxSettings.Read` after accepting this screen).
+
 If you prefer the Apps Script editor instead of the web page, run `startAuthorization()` to begin or resume the same Personal flow, then follow the bounded address and one-time code in the execution log. Do not copy property values or provider responses into bug reports.
 
 Authorization is transactional: the active mode changes to `personal_device` only after a complete token response, including a refresh token, has been stored. A cancelled, declined, expired, or failed attempt leaves an existing Advanced installation active.
@@ -66,6 +68,8 @@ Authorization is transactional: the active mode changes to `personal_device` onl
 ### Reauthorize Personal mode
 
 Normal access-token renewal is automatic and does not require a secret rotation. If Microsoft consent is revoked, the refresh token becomes invalid, or `setupStatus()` reports `MICROSOFT_PERSONAL_AUTH_REQUIRED`, open the private web-app URL and connect again. The sync remains stopped until authorization succeeds. To abandon only an in-progress code, click **Cancel** or run `cancelPersonalMicrosoftAuthorization()`; this does not erase a working authorization. Click **Disconnect** or run `forgetPersonalMicrosoftAuthorization()` only when you intentionally want to remove the stored Personal-mode tokens. It does not delete Advanced Script Properties.
+
+After upgrading to v0.7.5 or later, complete one fresh Microsoft authorization: the requested scope set now includes `MailboxSettings.Read`, and a token from an older authorization does not carry it. The sync engine falls back safely either way — if the mailbox has never saved a time zone, or the scope is missing, the request keeps using the project time zone exactly like v0.7.4. To activate the cross-time-zone date fix, set a time zone once in Outlook on the web settings (a mailbox that never saved one reports none to Microsoft Graph).
 
 After source updates that change the setup page, open **Deploy → Manage deployments**, edit the private web-app deployment to use the new version, and click **Deploy**. Preserve **Execute as: Me** and **Who has access: Only myself**.
 
@@ -76,7 +80,7 @@ Create the app registration in a Microsoft Entra tenant you can administer. The 
 > **No Entra tenant yet?** A new Outlook.com, Hotmail, or Live account may not have access to **App registrations**. First create or join a tenant by following [Microsoft's Entra tenant setup guide](https://learn.microsoft.com/en-us/entra/fundamentals/create-new-tenant). Microsoft may require identity verification, including a phone number or payment method, during account setup. Tasks–To Do Sync uses Entra only to configure OAuth; it does not deploy or require paid Azure compute resources.
 
 1. Choose the personal-account audience, or organization-and-personal only when both are required.
-2. Add delegated Microsoft Graph permission `Tasks.ReadWrite` only. Do not add application permissions or `User.Read`; `offline_access` is requested by the program's OAuth flow.
+2. Add delegated Microsoft Graph permissions `Tasks.ReadWrite` and `MailboxSettings.Read`. Do not add application permissions or `User.Read`; `offline_access` is requested by the program's OAuth flow.
 3. Create a client secret and copy its **Value**, not its ID. Keep it private.
 4. In Apps Script **Project Settings → Script Properties**, add `MS_AUTH_MODE=advanced_entra`, `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, and optionally `MS_TENANT_ID` and `ALERT_EMAIL`.
 5. Run `showRedirectUri()`. Add the displayed address in Entra **Authentication → Web → Redirect URI**.
