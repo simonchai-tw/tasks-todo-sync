@@ -140,6 +140,21 @@ for (const [name, expected] of [
 ]) {
   assert(declarations.get(name) === expected, `${name} must remain ${expected}`);
 }
+
+// WO-14: PUBLIC_SETUP_DEFAULTS is what the setup wizard actually writes for
+// new installs; a silent drift there changes user-visible behavior with no
+// test to catch it.  The four install-time defaults are pinned here.
+const publicSetupDefaultsMatch = code.match(/const\s+PUBLIC_SETUP_DEFAULTS\s*=\s*\{[\s\S]*?\n\};/);
+assert(publicSetupDefaultsMatch, 'PUBLIC_SETUP_DEFAULTS must remain defined in globals.gs');
+for (const [name, expected] of [
+  ['SYNC_LIST_DISCOVERY_MODE', "'auto'"],
+  ['SYNC_ALLOW_DELETIONS', "'true'"],
+  ['SYNC_ALLOW_LIST_DELETIONS', "'true'"],
+  ['SYNC_ALLOW_TASK_MOVES', "'true'"]
+]) {
+  assert(new RegExp(`${name}\\s*:\\s*${expected}(?:,\\s*)?$`, 'm').test(publicSetupDefaultsMatch[0]),
+    `PUBLIC_SETUP_DEFAULTS.${name} must remain ${expected}`);
+}
 assert(/const\s+MOVE_EXTENSION_NAME\s*=\s*['"]com\.tasksTodoSync\.move['"]/.test(code),
   'move extension name must remain stable');
 assert(/const\s+MOVE_EXTENSION_IDS\s*=\s*\[[\s\S]*?MOVE_EXTENSION_NAME/.test(code)
