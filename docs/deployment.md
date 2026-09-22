@@ -112,7 +112,7 @@ Time Bridge includes two fail-closed configuration properties in **Project Setti
 | Key | Default | Description |
 | --- | :---: | --- |
 | `SYNC_TIME_BRIDGE` | `true` | Master switch for Time Bridge processing. Set to `false` to disable all time and reminder synchronization. |
-| `SYNC_CALENDAR_PROJECTION` | `true` | When `true`, projects timed tasks to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false`, synchronizes Microsoft To Do reminder times without writing events to Google Calendar. |
+| `SYNC_CALENDAR_PROJECTION` | `false` | When `true`, projects timed tasks to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false` (default), synchronizes Microsoft To Do reminder times without writing events to Google Calendar. |
 
 ## First validation and scheduling
 

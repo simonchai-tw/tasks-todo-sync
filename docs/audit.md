@@ -135,7 +135,7 @@ Google Tasks natively supports due dates without a time-of-day component. Time B
 2. **Dedicated Secondary Google Calendar Projection**: Timed tasks are projected as 30-minute events (`start.dateTime`) onto a dedicated secondary Google Calendar (`Tasks-ToDo-Sync`). The primary personal calendar remains unpolluted.
 3. **Deterministic Event IDs**: SHA-256 digests mapped into 32-character lowercase hex guarantee idempotent writes and collision-free lifecycle management without negative-byte corruption.
 4. **Automated Completion Cleanup**: When a task is marked complete or deleted, its projected Google Calendar event is immediately deleted, and the state reference is cleared.
-5. **Fail-Closed Safety Knobs**: `SYNC_TIME_BRIDGE` (default `true`) and `SYNC_CALENDAR_PROJECTION` (default `true`) allow complete disablement or calendar-only suppression without code modification.
+5. **Fail-Closed Safety Knobs**: `SYNC_TIME_BRIDGE` (default `true`) and `SYNC_CALENDAR_PROJECTION` (default `false`) allow complete disablement or calendar-only suppression without code modification. Calendar projection is opt-in from v0.7.5.
 6. **Empirical Verification**: Empirical probe on live Google account confirmed that Google Tasks UI overlay does not project tasks as standard `vevent` objects in the Calendar API (`Calendar.CalendarList` contains no Tasks calendar, and `Calendar.Events.list('primary')` contains 0 matching tasks). This confirms that dedicated secondary calendar projection is the only robust, standard-compliant projection mechanism.
 
 ## Evidence reviewed

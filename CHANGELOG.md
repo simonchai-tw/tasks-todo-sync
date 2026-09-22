@@ -16,7 +16,7 @@ Historical entries below describe each release at the time it shipped, including
   - Tri-State Field Ownership Protocol: Google-authored tasks with notes markers take precedence; Microsoft-authored tasks take precedence when `reminderDateTime` is updated in To Do.
   - Fail-Closed Safety Knobs:
     - `SYNC_TIME_BRIDGE` (default `true`): Master switch to enable/disable Time Bridge processing entirely.
-    - `SYNC_CALENDAR_PROJECTION` (default `true`): Toggle to enable/disable Google Calendar event projection while keeping To Do reminder synchronization active.
+    - `SYNC_CALENDAR_PROJECTION` (default `true` in v0.7.0, changed to `false` in v0.7.5): Toggle to enable/disable Google Calendar event projection while keeping To Do reminder synchronization active.
 - **Google Gemini Integration Guide**:
   - Added `docs/gemini-saved-info.md` containing prompt templates for Google Gemini Saved Info / Personalization to automatically generate `[TTS-TIME:HH:mm]` markers via natural voice/chat commands.
 - **Test Suite Expansion**:
