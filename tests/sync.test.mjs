@@ -2356,6 +2356,26 @@ test('Graph 429 retry honors Retry-After and returns success without a real wait
   assert.equal(fetches[0].options.headers.Authorization, 'Bearer test-token');
 });
 
+test('WO-12: the both-recurrence alert body is single-line-safe and ID-opaque', () => {
+  const { context } = loadContext();
+  let sentBody = '';
+  context.sendMailAlert_ = (subject, body) => { sentBody = String(body); return true; };
+  const sent = context.sendBothRecurrenceAlert_({
+    title: 'Pay bills\nCC: someone <evil@attacker.invalid>',
+    gId: 'RAW-GOOGLE-ID-123',
+    msId: 'RAW-MS-ID-456',
+    marker: '[TTS-REC:demo]'
+  });
+  assert.equal(sent, true);
+  assert.equal(sentBody.indexOf('\nCC:') >= 0, false, 'title newlines must be collapsed');
+  assert.ok(sentBody.indexOf('Pay bills CC: someone') >= 0, 'title text survives on a single line');
+  assert.equal(sentBody.indexOf('RAW-GOOGLE-ID-123') >= 0, false, 'raw Google id must not appear');
+  assert.equal(sentBody.indexOf('RAW-MS-ID-456') >= 0, false, 'raw Microsoft id must not appear');
+  assert.ok(sentBody.indexOf('google-task_') >= 0 && sentBody.indexOf('microsoft-task_') >= 0,
+    'opaque id previews are used instead');
+  assert.ok(sentBody.indexOf('[TTS-REC:demo]') >= 0, 'the marker stays visible');
+});
+
 test('WO-11: field-merge conflict isolation is visible to operators in healthCheck and inspect output', () => {
   const { context } = loadContext({
     scriptApp: { getOAuthToken: () => 'test-token', getProjectTriggers: () => [] }

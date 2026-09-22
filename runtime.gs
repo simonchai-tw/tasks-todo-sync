@@ -315,12 +315,14 @@ function sendBothRecurrenceAlert_(info) {
     console.warn('[Recurrence] Both-recurrence alert is still in its cooldown period; email skipped.');
     return false;
   }
-  const title = (info && info.title) || '(Untitled)';
+  // WO-12: titles are user content and may contain newlines that would spoof
+  // the report layout; raw provider IDs never belong in operator mail.
+  const title = String((info && info.title) || '(Untitled)').replace(/[\r\n]+/g, ' ');
   const body = 'A mapped task carries recurrence on BOTH sides, which the sync engine cannot carry.\n' +
     'Keep recurrence on ONE side only; the other side should be a plain task.\n\n' +
     'Task: ' + title + '\n' +
-    'Google task id: ' + ((info && info.gId) || '(unknown)') + '\n' +
-    'Microsoft task id: ' + ((info && info.msId) || '(unknown)') + '\n' +
+    'Google task id: ' + ((info && info.gId) ? previewOpaqueId_('google-task', info.gId) : '(unknown)') + '\n' +
+    'Microsoft task id: ' + ((info && info.msId) ? previewOpaqueId_('microsoft-task', info.msId) : '(unknown)') + '\n' +
     'Marker: ' + ((info && info.marker) || '(unknown)') + '\n\n' +
     'The mapping was left in place and nothing was deleted. ' +
     'Turn off recurrence on one side, then run dryRunReport().';
