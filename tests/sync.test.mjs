@@ -5797,6 +5797,64 @@ test('list remote journal is per-pair, stops after a non-idempotent failure, and
   assert.ok(recovery.listTombstones.g['g-c']);
 });
 
+test('WO-3b: incomplete list inventory fails the delete gate with LIST_DELETE_PAIR_INVENTORY_INCOMPLETE', () => {
+  const { context } = loadContext();
+  const state = listDeletionState(context);
+  const pair = listDeletionPair(context);
+  const snap = listDeletionSnapshot(pair, { listInventoryComplete: false });
+  assert.equal(context.hasCompleteListDeletionInventoryForPair_(state, snap, pair), false,
+    'the gate must see the computed false, not a hardcoded true');
+  const evidence = context.listDeletionTaskEvidence_(state, snap, pair);
+  assert.equal(evidence.ok, false);
+  assert.equal(evidence.reason, 'LIST_DELETE_PAIR_INVENTORY_INCOMPLETE');
+  const candidate = context.listDeletionCandidateInput_(state,
+    Object.assign({}, snap, { safety: { allowListDeletions: true, listDiscoveryMode: 'auto', googleListIds: [], excludedListNames: [] } }), pair);
+  assert.equal(candidate.ok, false, 'no delete path may proceed on incomplete inventory');
+});
+
+test('WO-3b: buildSnapshot_ computes listInventoryComplete from the enumeration canary', () => {
+  const { context } = loadContext({
+    scriptValues: {
+      SYNC_GOOGLE_LIST_IDS: 'g-one',
+      SYNC_ALLOW_DELETIONS: 'false'
+    }
+  });
+  const state = context.newState_();
+  state.listMap['g-one'] = 'ms-one';
+  context.getGTasks_ = () => [];
+  context.getMsTasks_ = () => [];
+  context.alertListFaultsIfAny_ = () => {};
+  context.createGList_ = (title) => ({ id: 'g-created-' + title });
+  context.createMsList_ = (title) => ({ id: 'ms-created-' + title });
+  const msList = { id: 'ms-one', displayName: 'Custom', isOwner: true, isShared: false, wellknownListName: 'none' };
+
+  // Healthy enumeration on both sides -> computed true.
+  context.getGLists_ = () => [{ id: 'g-one', title: 'Custom' }];
+  context.getMsLists_ = () => [msList];
+  assert.equal(context.buildSnapshot_(state, Date.now()).listInventoryComplete, true);
+
+  // A Microsoft account always owns at least one list, so an empty
+  // enumeration is a silently short inventory and must not claim completeness.
+  context.getMsLists_ = () => [];
+  assert.equal(context.buildSnapshot_(state, Date.now()).listInventoryComplete, false,
+    'an empty Microsoft enumeration must not claim list-inventory completeness');
+
+  // Auto mode keeps the stricter canary: the Google default list must be in
+  // the fetched enumeration (missing default aborts via AUTO_DEFAULT_LIST_LOOKUP_FAILED).
+  const autoContext = loadContext({ scriptValues: { SYNC_LIST_DISCOVERY_MODE: 'auto', SYNC_ALLOW_DELETIONS: 'false' } }).context;
+  autoContext.getGDefaultList_ = () => ({ id: 'g-default', title: 'Tasks' });
+  autoContext.getGLists_ = () => [{ id: 'g-default', title: 'Tasks' }];
+  autoContext.getMsLists_ = () => [msList];
+  autoContext.getGTasks_ = () => [];
+  autoContext.getMsTasks_ = () => [];
+  autoContext.alertListFaultsIfAny_ = () => {};
+  autoContext.createGList_ = (title) => ({ id: 'g-created-' + title });
+  autoContext.createMsList_ = (title) => ({ id: 'ms-created-' + title });
+  assert.equal(autoContext.buildSnapshot_(autoContext.newState_(), Date.now()).listInventoryComplete, true);
+  autoContext.getGLists_ = () => [{ id: 'g-one', title: 'Lost default' }];
+  assert.throws(() => autoContext.buildSnapshot_(autoContext.newState_(), Date.now()), /AUTO_DEFAULT_LIST_LOOKUP_FAILED/);
+});
+
 test('pre-delete revalidation re-reads complete inventories, survivor metadata, and survivor tasks', () => {
   const { context } = loadContext();
   const state = listDeletionState(context);

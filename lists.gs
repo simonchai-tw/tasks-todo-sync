@@ -518,6 +518,15 @@ function buildSnapshot_(state, startedAt) {
   if (Object.keys(state.listFaults.g).length || Object.keys(state.listFaults.ms).length) {
     inventoryComplete = false;
   }
+  // WO-3b: list-inventory completeness is computed, not asserted.  The list
+  // enumeration is exhaustive or throws (PAGINATION_*), so the residual risk
+  // is a silently short inventory; the default-list canary detects the most
+  // dangerous truncation (the default list missing from what was fetched),
+  // and an empty Microsoft enumeration is equally suspect because an account
+  // always owns at least one list.
+  const listInventoryComplete =
+    (!gDefaultList || allGLists.some(function(list) { return list.id === gDefaultList.id; })) &&
+    msLists.length > 0;
   return {
     gLists: gLists,
     msLists: msLists,
@@ -530,7 +539,7 @@ function buildSnapshot_(state, startedAt) {
     moveExtensionInventoryListIds: moveExtensionInventoryListIds,
     activeGListIds: activeGListIds,
     inventoryComplete: inventoryComplete,
-    listInventoryComplete: true,
+    listInventoryComplete: listInventoryComplete,
     allGLists: allGLists,
     googleDefaultList: gDefaultList,
     listLifecycle: listLifecycle,
