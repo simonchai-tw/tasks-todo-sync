@@ -92,6 +92,9 @@ test('no write intent is produced when the plan writes nothing', () => {
 
 test('the write intent is persisted BEFORE the provider call, then confirmed by readback', () => {
   const c = load();
+  // WO-9: the pre-PATCH notes re-read now requires explicit provider stubs.
+  c.getGTask_ = () => gTaskWithLink();
+  c.getMsTask_ = () => msTaskPlain();
   const state = mkState(c);
   const rec = state.g2m['g-task'];
   const events = [];
@@ -119,6 +122,9 @@ test('the write intent is persisted BEFORE the provider call, then confirmed by 
 
 test('a failed write keeps the intent and never advances the confirmed fingerprint', () => {
   const c = load();
+  // WO-9: explicit provider reads for the pre-PATCH re-read.
+  c.getGTask_ = () => gTaskWithLink();
+  c.getMsTask_ = () => msTaskPlain();
   const state = mkState(c);
   const rec = state.g2m['g-task'];
   c.persistSyncState_ = () => {};
@@ -135,6 +141,9 @@ test('a failed write keeps the intent and never advances the confirmed fingerpri
 
 test('a readback that lost the block keeps the intent instead of trusting the write', () => {
   const c = load();
+  // WO-9: explicit provider reads for the pre-PATCH re-read.
+  c.getGTask_ = () => gTaskWithLink();
+  c.getMsTask_ = () => msTaskPlain();
   const state = mkState(c);
   const rec = state.g2m['g-task'];
   c.persistSyncState_ = () => {};

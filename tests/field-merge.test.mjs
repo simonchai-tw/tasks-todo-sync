@@ -157,6 +157,10 @@ test('one-side notes change keeps the owned managed resource block on the PATCH 
   const blockFp = c.managedBlockFingerprint_(block);
 
   const msTarget = pair(c, { res: { msBlockFp: blockFp } });
+  // WO-9: the harness default no longer fakes the pre-PATCH notes re-read;
+  // state explicitly that the provider still holds the inventory-read task.
+  c.getGTask_ = () => ({ ...msTarget.gTask });
+  c.getMsTask_ = () => ({ ...msTarget.msTask });
   const { gPatches, msPatches } = stubWrites(c);
   msTarget.msTask.body = { contentType: 'text', content: 'note\n\n' + block };
   msTarget.msTask.linkedResources = [];
@@ -172,6 +176,9 @@ test('one-side notes change keeps the owned managed resource block on the PATCH 
   assert.equal(msPatches[0].body.content, composedMs);
 
   const gTarget = pair(c, { res: { gBlockFp: blockFp } });
+  // WO-9: explicit provider reads for this target too.
+  c.getGTask_ = () => ({ ...gTarget.gTask });
+  c.getMsTask_ = () => ({ ...gTarget.msTask });
   const gWrites = stubWrites(c);
   gTarget.gTask.notes = 'note\n\n' + block;
   gTarget.msTask.linkedResources = [];

@@ -145,12 +145,17 @@ test('a one-sided success is preserved as a partial fact', () => {
   let msWrites = 0;
   c.updateGTask_ = (listId, taskId, payload) => { gWrites += 1; return { id: taskId, ...payload }; };
   c.updateMsTask_ = () => { msWrites += 1; throw new Error('HTTP 400: title is required'); };
+  // WO-9: the pre-PATCH notes re-read now hits explicit provider stubs; the
+  // provider still holds exactly what this round's snapshot read.
+  const snap = mkSnap('edited-on-microsoft', 'edited-on-google');
+  c.getGTask_ = (listId, taskId) => ({ ...snap.gTasksById[taskId] });
+  c.getMsTask_ = (listId, taskId) => ({ ...snap.msTasksById[taskId] });
 
   // Microsoft's title changed and Google's notes changed, so both sides have a
   // payload: Google is written first, then Microsoft refuses the payload.  A 400
   // is pair-scoped, so the round continues and the partial fact must be recorded.
   assert.doesNotThrow(() => c.reconcileMapped_(
-    state, mkSnap('edited-on-microsoft', 'edited-on-google'), Date.now(), 'round-1', {}
+    state, snap, Date.now(), 'round-1', {}
   ));
 
   const entry = state.mutationJournal['g-task'];
