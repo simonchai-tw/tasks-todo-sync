@@ -2356,6 +2356,47 @@ test('Graph 429 retry honors Retry-After and returns success without a real wait
   assert.equal(fetches[0].options.headers.Authorization, 'Bearer test-token');
 });
 
+test('WO-6: Google 403 quota errors ride the transient backoff path and recover', () => {
+  const sleeps = [];
+  const fetches = [];
+  const responses = [
+    httpResponse(403, JSON.stringify({ error: { code: 403, message: 'Rate limit exceeded.', errors: [{ reason: 'rateLimitExceeded' }] } })),
+    httpResponse(200, JSON.stringify({ items: [] }))
+  ];
+  const { context } = loadContext({
+    utilities: { sleep: (ms) => sleeps.push(ms) },
+    scriptApp: { getOAuthToken: () => 'test-token' },
+    urlFetchApp: {
+      fetch(url, options) {
+        fetches.push({ url, options });
+        return responses.shift();
+      }
+    }
+  });
+  const result = context.gFetch_('/users/@me/lists?maxResults=100');
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { items: [] });
+  assert.equal(fetches.length, 2, 'a quota 403 is retried and then succeeds');
+  assert.equal(sleeps.length, 1, 'the retry uses the same backoff path as 429');
+  assert.equal(context.isQuotaRateLimit403_(403, JSON.stringify({ error: { reason: 'userRateLimitExceeded' } })), true);
+  assert.equal(context.isQuotaRateLimit403_(403, JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED' } })), true);
+  assert.equal(context.isQuotaRateLimit403_(403, 'not json'), false);
+  assert.equal(context.isQuotaRateLimit403_(500, JSON.stringify({ error: { reason: 'rateLimitExceeded' } })), false);
+
+  const fatalFetches = [];
+  const fatal = loadContext({
+    utilities: { sleep: () => {} },
+    scriptApp: { getOAuthToken: () => 'test-token' },
+    urlFetchApp: {
+      fetch(url) {
+        fatalFetches.push(url);
+        return httpResponse(403, JSON.stringify({ error: { code: 403, message: 'The caller does not have permission' } }));
+      }
+    }
+  });
+  assert.throws(() => fatal.context.gFetch_('/users/@me/lists'), /HTTP 403/);
+  assert.equal(fatalFetches.length, 1, 'a non-quota 403 stays fatal on the first attempt');
+});
+
 test('Graph exhausted 429 retries throw after HTTP_MAX_RETRIES plus one attempts without real waits', () => {
   const sleeps = [];
   let fetches = 0;

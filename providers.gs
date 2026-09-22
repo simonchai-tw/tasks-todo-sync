@@ -94,7 +94,8 @@ function fetchJsonWithRetry_(url, options, authKind) {
       sendReauthorizationAlert_();
       throw new Error('HTTP 401: Microsoft authorization requires reauthorization.');
     }
-    const transient = code === 429 || code === 408 || (code >= 500 && code < 600);
+    const transient = code === 429 || code === 408 || (code >= 500 && code < 600) ||
+      isQuotaRateLimit403_(code, text);
     lastError = buildProviderHttpError_(code, text);
     if (!transient || attempt === HTTP_MAX_RETRIES || noRetry) throw lastError;
     const retryAfter = parseRetryAfterMs_(response);
@@ -196,6 +197,27 @@ function graphFetch_(url, options) {
 
 function gFetch_(path, options) {
   return fetchJsonWithRetry_(GTASKS_BASE + path, options, 'google');
+}
+
+// WO-6: Google signals quota pressure as 403 with a quota reason, not as 429.
+// A bare 403 stays non-transient (it is usually a permissions problem); only
+// the quota reasons ride the 429 backoff path.  RESOURCE_EXHAUSTED is the
+// newer error shape for the same condition.
+function isQuotaRateLimit403_(code, text) {
+  if (code !== 403 || !text) return false;
+  const quotaReasons = ['rateLimitExceeded', 'quotaExceeded', 'userRateLimitExceeded'];
+  try {
+    const parsed = JSON.parse(text);
+    const error = parsed && typeof parsed === 'object' ? parsed.error : null;
+    if (!error || typeof error !== 'object') return false;
+    if (typeof error.reason === 'string' && quotaReasons.indexOf(error.reason) >= 0) return true;
+    if (error.status === 'RESOURCE_EXHAUSTED') return true;
+    return Array.isArray(error.errors) && error.errors.some(function(item) {
+      return !!item && typeof item.reason === 'string' && quotaReasons.indexOf(item.reason) >= 0;
+    });
+  } catch (e) {
+    return false;
+  }
 }
 
 function getAllPages_(firstUrl, fetcher, itemField, tokenMode) {
