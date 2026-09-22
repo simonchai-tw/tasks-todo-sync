@@ -1291,6 +1291,10 @@ function inspectSyncState() {
     taskDeletion: taskDeletionObservability_(state, safety),
     taskMoves: taskMoveObservability_(state),
     listDeletion: listDeletionObservability_(state, safety),
+    // WO-11: field-merge conflict isolation was previously invisible to
+    // operators (ordinaryObservability_ had zero callers).  The count is
+    // bounded reason-free data (a number), safe for the inspect report.
+    fieldConflicts: ordinaryObservability_(state).fieldConflicts,
     googleListFaults: Object.keys(state.listFaults.g).length,
     microsoftListFaults: Object.keys(state.listFaults.ms).length,
     roundFence: roundFence
@@ -1637,6 +1641,9 @@ function healthCheck() {
     taskMoves: taskMoves,
     subtasks: subtasks,
     listDeletion: listDeletion,
+    // WO-11: isolated field-merge conflicts become operator-visible.  A count
+    // only; conflicts are already quarantined and never surfaced as raw IDs.
+    fieldConflicts: loaded.corrupt ? 0 : ordinaryObservability_(state).fieldConflicts,
     // These are bounded reason codes, deliberately not IDs or names.  Keeping
     // both directional codes visible makes a one-sided reservation diagnosable
     // without exposing task/list contents in a health report.

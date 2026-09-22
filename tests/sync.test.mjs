@@ -2356,6 +2356,30 @@ test('Graph 429 retry honors Retry-After and returns success without a real wait
   assert.equal(fetches[0].options.headers.Authorization, 'Bearer test-token');
 });
 
+test('WO-11: field-merge conflict isolation is visible to operators in healthCheck and inspect output', () => {
+  const { context } = loadContext({
+    scriptApp: { getOAuthToken: () => 'test-token', getProjectTriggers: () => [] }
+  });
+  const state = context.newState_();
+  state.g2m['g-a'] = { fp: {}, fc: { notes: 'GOOGLE_NEWER' } };
+  state.g2m['g-b'] = { fp: {}, fc: { notes: 'GOOGLE_NEWER', title: 'MS_NEWER' } };
+  state.g2m['g-c'] = { fp: {} };
+  assert.equal(context.ordinaryObservability_(state).fieldConflicts, 3);
+
+  context.microsoftAuth_ = () => ({ hasAccess: () => true, mode: 'personal_device' });
+  context.loadStateForInspection_ = () => ({ corrupt: false, state: state });
+  const report = context.healthCheck();
+  assert.equal(report.fieldConflicts, 3, 'healthCheck must surface the conflict count');
+  assert.equal(report.issues.some((issue) => String(issue).indexOf('conflict') >= 0), false,
+    'quarantined conflicts are visibility data, not a health failure');
+
+  const logs = [];
+  context.console = { log: (m) => logs.push(String(m)), warn: () => {}, error: () => {} };
+  context.inspectSyncState();
+  const inspect = JSON.parse(logs[logs.length - 1]);
+  assert.equal(inspect.fieldConflicts, 3, 'inspectSyncState must surface the conflict count');
+});
+
 test('WO-10: a list literally named constructor is not phantom-excluded by prototype inheritance', () => {
   const { context } = loadContext();
   const safety = { excludedListNames: ['Something Else'] };
