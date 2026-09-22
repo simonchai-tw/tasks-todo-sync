@@ -305,17 +305,21 @@ test('timeBridgeRun_ executes full end-to-end flow with Google notes splice and 
   };
   state.m2g['ms-task'] = 'g-task';
 
+  // Use tomorrow's date so the fixture is always in the future (WO-2: prevents time-bomb).
+  const tomorrow = new Date(Date.now() + 25 * 60 * 60 * 1000);
+  const tomorrowDateOnly = tomorrow.toISOString().slice(0, 10); // YYYY-MM-DD
+
   const gTask = {
     id: 'g-task',
     title: 'Pay bills',
     notes: '[TTS-TIME:15:30]\n\nBring checkbook.',
-    due: '2026-09-22T00:00:00.000Z',
+    due: tomorrowDateOnly + 'T00:00:00.000Z',
     status: 'needsAction'
   };
   const msTask = {
     id: 'ms-task',
     title: 'Pay bills',
-    dueDateTime: { dateTime: '2026-09-22T00:00:00', timeZone: 'UTC' },
+    dueDateTime: { dateTime: tomorrowDateOnly + 'T00:00:00', timeZone: 'UTC' },
     isReminderOn: false,
     status: 'notStarted'
   };
@@ -348,7 +352,7 @@ test('timeBridgeRun_ executes full end-to-end flow with Google notes splice and 
 
   // Verify MS was patched with local due and reminder
   assert.ok(msPatched, 'Microsoft task must be updated');
-  assert.equal(msPatched.dueDateTime.dateTime, '2026-09-22T15:30:00');
+  assert.equal(msPatched.dueDateTime.dateTime, tomorrowDateOnly + 'T15:30:00');
   assert.equal(msPatched.isReminderOn, true);
 
   // Verify Google Task notes had marker spliced out cleanly
@@ -454,6 +458,10 @@ test('SYNC_CALENDAR_PROJECTION="false" preserves reminder sync but skips Google 
   assert.equal(safety.enableTimeBridge, true);
   assert.equal(safety.enableCalendarProjection, false);
 
+  // Use tomorrow's date so the fixture is always in the future (WO-2: prevents time-bomb).
+  const tomorrow = new Date(Date.now() + 25 * 60 * 60 * 1000);
+  const tomorrowDateOnly = tomorrow.toISOString().slice(0, 10); // YYYY-MM-DD
+
   const state = c.newState_();
   state.listMap = { 'g-list': 'ms-list' };
   state.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
@@ -463,13 +471,13 @@ test('SYNC_CALENDAR_PROJECTION="false" preserves reminder sync but skips Google 
     id: 'g-task',
     title: 'No cal test',
     notes: '[TTS-TIME:15:30]\nBring checkbook.',
-    due: '2026-09-22T00:00:00.000Z',
+    due: tomorrowDateOnly + 'T00:00:00.000Z',
     status: 'needsAction'
   };
   const msTask = {
     id: 'ms-task',
     title: 'No cal test',
-    dueDateTime: { dateTime: '2026-09-22T00:00:00', timeZone: 'Asia/Taipei' },
+    dueDateTime: { dateTime: tomorrowDateOnly + 'T00:00:00', timeZone: 'Asia/Taipei' },
     isReminderOn: false,
     status: 'notStarted'
   };
