@@ -992,6 +992,20 @@ function buildListDeletionRevalidation_(state, record, safety) {
   const lifecycle = classifyListLifecycle_(state, allGLists, allMsLists, gDefault, safety);
   const pair = lifecycle.byKey[listPairKey_(record.gListId, record.msListId)] || null;
   if (!pair) return { ok: false, reason: 'LIST_DELETE_MAPPING_CHANGED' };
+  // WO-3c: the missing side is re-read by id before anything is deleted.  A
+  // truncated inventory is the one input that can fake a "missing" list; the
+  // direct probe turns that into a loud block instead of a deletion.  A 404
+  // here is the expected proof of absence; a live list is a resurrection.
+  if (pair.status === 'google_missing' || pair.status === 'both_missing') {
+    if (directListOrNull_(getGList_, pair.gListId)) {
+      return { ok: false, reason: 'LIST_DELETE_MISSING_SIDE_RESURRECTED' };
+    }
+  }
+  if (pair.status === 'microsoft_missing' || pair.status === 'both_missing') {
+    if (directListOrNull_(getMsList_, pair.msListId)) {
+      return { ok: false, reason: 'LIST_DELETE_MISSING_SIDE_RESURRECTED' };
+    }
+  }
   let directGoogle = null;
   let directMicrosoft = null;
   if (pair.gLive) {

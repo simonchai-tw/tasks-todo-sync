@@ -5563,7 +5563,7 @@ test('syncAll treats a proven Microsoft-missing auto pair as lifecycle evidence,
     return gCustom;
   };
   context.getMsList_ = (id) => {
-    assert.notEqual(id, 'ms-list');
+    if (id === 'ms-list') return null; // WO-3c: the by-id absence probe confirms it is still gone.
     return msDefault;
   };
   context.deleteGList_ = (id) => {
@@ -5872,6 +5872,7 @@ test('pre-delete revalidation re-reads complete inventories, survivor metadata, 
     id: 'ms-list', displayName: 'Custom', isOwner: true, isShared: false, wellknownListName: 'none'
   }]; };
   context.getGDefaultList_ = () => ({ id: 'g-default', title: 'Tasks' });
+  context.getGList_ = () => { reads.push('g-direct-missing'); return null; };
   context.getMsList_ = () => { reads.push('ms-direct'); return {
     id: 'ms-list', displayName: 'Custom', isOwner: true, isShared: false, wellknownListName: 'none'
   }; };
@@ -5880,7 +5881,61 @@ test('pre-delete revalidation re-reads complete inventories, survivor metadata, 
     allowListDeletions: true, listDiscoveryMode: 'auto'
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(reads, ['g-inventory', 'ms-inventory', 'ms-direct', 'ms-tasks']);
+  assert.deepEqual(reads, ['g-inventory', 'ms-inventory', 'g-direct-missing', 'ms-direct', 'ms-tasks']);
+});
+
+test('WO-3c: a missing-side list that reappears by id blocks the deletion', () => {
+  const { context } = loadContext();
+  const state = listDeletionState(context);
+  const pairKey = context.listPairKey_('g-list', 'ms-list');
+  const record = {
+    ...listDeletionPair(context), taskPairs: [], taskFingerprint: '[]', missingSide: 'google',
+    gFingerprint: state.listPairMeta[pairKey].gFingerprint,
+    msFingerprint: state.listPairMeta[pairKey].msFingerprint,
+    survivorFingerprint: state.listPairMeta[pairKey].msFingerprint,
+    deletable: true
+  };
+  const reads = [];
+  context.getGLists_ = () => { reads.push('g-inventory'); return [{ id: 'g-default', title: 'Tasks' }]; };
+  context.getMsLists_ = () => { reads.push('ms-inventory'); return [{ id: 'ms-list', displayName: 'Custom', isOwner: true, isShared: false, wellknownListName: 'none' }]; };
+  context.getGDefaultList_ = () => ({ id: 'g-default', title: 'Tasks' });
+  // The inventory said the Google side was missing, but the by-id probe finds
+  // it alive: a truncated inventory must never end in a deletion.
+  context.getGList_ = () => { reads.push('g-direct-missing'); return { id: 'g-list', title: 'Custom' }; };
+  context.getMsList_ = () => { reads.push('ms-direct'); return { id: 'ms-list', displayName: 'Custom' }; };
+  context.getMsTasks_ = () => { reads.push('ms-tasks'); return []; };
+  const result = context.buildListDeletionRevalidation_(state, record, {
+    allowListDeletions: true, listDiscoveryMode: 'auto'
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'LIST_DELETE_MISSING_SIDE_RESURRECTED');
+  assert.deepEqual(reads, ['g-inventory', 'ms-inventory', 'g-direct-missing'],
+    'no survivor reads or task reads may happen after a resurrection block');
+});
+
+test('WO-3c: both-missing pairs probe both sides by id and proceed on 404s', () => {
+  const { context } = loadContext();
+  const state = listDeletionState(context);
+  const pairKey = context.listPairKey_('g-list', 'ms-list');
+  const record = {
+    ...listDeletionPair(context, { status: 'both_missing' }), taskPairs: [], taskFingerprint: '[]', missingSide: 'both',
+    gFingerprint: state.listPairMeta[pairKey].gFingerprint,
+    msFingerprint: state.listPairMeta[pairKey].msFingerprint,
+    survivorFingerprint: state.listPairMeta[pairKey].msFingerprint,
+    deletable: true
+  };
+  const reads = [];
+  context.getGLists_ = () => [{ id: 'g-default', title: 'Tasks' }];
+  context.getMsLists_ = () => [];
+  context.getGDefaultList_ = () => ({ id: 'g-default', title: 'Tasks' });
+  context.getGList_ = () => { reads.push('g-direct-missing'); return null; };
+  context.getMsList_ = () => { reads.push('ms-direct-missing'); return null; };
+  const result = context.buildListDeletionRevalidation_(state, record, {
+    allowListDeletions: true, listDiscoveryMode: 'auto'
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(reads, ['g-direct-missing', 'ms-direct-missing'],
+    'both sides are probed by id before a both-missing deletion can proceed');
 });
 
 test('list deletion never reuses stale eligibility after exclusion or observed Microsoft downgrade', () => {
