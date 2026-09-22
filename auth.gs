@@ -637,6 +637,6 @@ function microsoftService_() {
     .setPropertyStore(PropertiesService.getUserProperties())
     .setCache(CacheService.getUserCache())
     .setLock(LockService.getUserLock())
-    .setScope('Tasks.ReadWrite offline_access')
+    .setScope(MS_PERSONAL_SCOPE_)
     .setParam('prompt', 'consent');
 }

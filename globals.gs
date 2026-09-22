@@ -1,5 +1,8 @@
 const GTASKS_BASE = 'https://tasks.googleapis.com/tasks/v1';
 const MS_TODO_BASE = 'https://graph.microsoft.com/v1.0/me/todo/lists';
+// The zone a Microsoft value was authored in.  Reading it lets the engine ask
+// Graph to render date-only dues as local midnight (WO-5 request half).
+const MS_MAILBOX_TIME_ZONE_URL_ = 'https://graph.microsoft.com/v1.0/me/mailboxSettings/timeZone';
 const MS_AUTH_MODE_PROPERTY_ = 'MS_AUTH_MODE';
 const MS_AUTH_MODE_PERSONAL_ = 'personal_device';
 const MS_AUTH_MODE_ADVANCED_ = 'advanced_entra';
@@ -7,7 +10,7 @@ const MS_AUTH_MODE_ADVANCED_ = 'advanced_entra';
 // is a personal-account-only public client and has no secret or redirect URI.
 const MS_PERSONAL_CLIENT_ID_ = '1139ef4a-297c-4c4f-b414-6393aec2ee31';
 const MS_PERSONAL_AUTHORITY_ = 'https://login.microsoftonline.com/consumers/oauth2/v2.0';
-const MS_PERSONAL_SCOPE_ = 'Tasks.ReadWrite offline_access';
+const MS_PERSONAL_SCOPE_ = 'Tasks.ReadWrite MailboxSettings.Read offline_access';
 const MS_PERSONAL_DEVICE_SESSION_KEY_ = 'MS_PERSONAL_DEVICE_SESSION_V1';
 const MS_PERSONAL_ACCESS_TOKEN_KEY_ = 'MS_PERSONAL_ACCESS_TOKEN';
 const MS_PERSONAL_REFRESH_TOKEN_KEY_ = 'MS_PERSONAL_REFRESH_TOKEN';

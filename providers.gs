@@ -675,18 +675,37 @@ function googleDue_(msDue) {
   const parsed = parseMicrosoftDateTime_(msDue.dateTime);
   const syncTimeZone = resolveTimeZone_(syncTimeZone_());
   if (!parsed || !syncTimeZone) return null;
-  let instant;
-  if (parsed.hasOffset) {
-    const normalized = parsed.raw
-      .replace(/z$/i, 'Z')
-      .replace(/(\.\d{3})\d+(?=(?:Z|[+-]\d{2}:?\d{2})$)/, '$1');
-    instant = new Date(normalized);
-  } else {
+
+  // A Microsoft due value is either a floating calendar date or an instant,
+  // and the payload shape says which:
+  //
+  //   * No offset marker + exactly midnight — the shape Graph gives a
+  //     date-only task when the value is rendered in the zone the date was
+  //     authored in.  The due date is the date the user picked, parsed.date.
+  //     Routing midnight through an instant and back into the sync time zone
+  //     shifts it one calendar day whenever the rendering zone differs from
+  //     the sync zone (a negative-UTC-offset project zone sees the previous
+  //     day), so the date is taken verbatim.
+  //   * Anything else — an offset marker, or a non-midnight local time — is a
+  //     real instant and is projected into the sync time zone.
+  if (!parsed.hasOffset) {
+    // The Microsoft time zone must resolve before any date is derived: an
+    // unsupported zone stays fail-closed (null) so the existing Google due
+    // is preserved rather than overwritten with a guess.
     const microsoftTimeZone = resolveTimeZone_(msDue.timeZone);
     if (!microsoftTimeZone) return null;
-    instant = instantFromMicrosoftLocalDateTime_(parsed, microsoftTimeZone);
+    if (parsed.hour === 0 && parsed.minute === 0 && parsed.second === 0) {
+      return validDateOnly_(parsed.date) ? parsed.date + 'T00:00:00.000Z' : null;
+    }
+    const day = dateInTimeZone_(
+      instantFromMicrosoftLocalDateTime_(parsed, microsoftTimeZone), syncTimeZone);
+    return day ? day + 'T00:00:00.000Z' : null;
   }
-  const day = dateInTimeZone_(instant, syncTimeZone);
+
+  const normalized = parsed.raw
+    .replace(/z$/i, 'Z')
+    .replace(/(\.\d{3})\d+(?=(?:Z|[+-]\d{2}:?\d{2})$)/, '$1');
+  const day = dateInTimeZone_(new Date(normalized), syncTimeZone);
   return day ? day + 'T00:00:00.000Z' : null;
 }
 
@@ -696,6 +715,34 @@ function msDue_(googleDue) {
   return day && timeZone ? { dateTime: day + 'T00:00:00', timeZone: timeZone } : null;
 }
 
+// Per-execution memo for msAuthoredTimeZone_: undefined = not attempted yet,
+// null = attempted and unavailable, string = resolved IANA zone.
+let msAuthoredTimeZoneMemo_;
+
+// The time zone the Microsoft account authors its values in (its mailbox
+// time zone).  Graph renders date-only dues as local midnight in that zone,
+// so asking for it in the Prefer header is what guarantees the midnight
+// shape googleDue_ relies on (WO-5 request half).  Fail-soft everywhere:
+// no MailboxSettings.Read grant (pre-re-consent tokens) or any read error
+// yields null and callers fall back to the sync time zone.
+function msAuthoredTimeZone_() {
+  if (msAuthoredTimeZoneMemo_ !== undefined) return msAuthoredTimeZoneMemo_;
+  msAuthoredTimeZoneMemo_ = null;
+  try {
+    const grantedScope = String(PropertiesService.getUserProperties()
+      .getProperty(MS_PERSONAL_GRANTED_SCOPE_KEY_) || '').toLowerCase();
+    if (grantedScope.indexOf('mailboxsettings.read') === -1) return msAuthoredTimeZoneMemo_;
+    const raw = graphFetch_(MS_MAILBOX_TIME_ZONE_URL_);
+    const value = raw && typeof raw === 'object'
+      ? String(raw.value || '')
+      : String(raw || '');
+    msAuthoredTimeZoneMemo_ = resolveTimeZone_(value);
+  } catch (e) {
+    msAuthoredTimeZoneMemo_ = null;
+  }
+  return msAuthoredTimeZoneMemo_;
+}
+
 function microsoftTaskRequestOptions_(options) {
   const timeZone = resolveTimeZone_(syncTimeZone_());
   if (!timeZone) {
@@ -703,7 +750,10 @@ function microsoftTaskRequestOptions_(options) {
   }
   const request = Object.assign({}, options || {});
   request.headers = Object.assign({}, request.headers || {});
-  request.headers.Prefer = 'outlook.timezone="' + timeZone + '"';
+  // Render in the zone the values were authored in when it is known, so a
+  // date-only due keeps its local-midnight shape; otherwise the sync time
+  // zone (previous behaviour).
+  request.headers.Prefer = 'outlook.timezone="' + (msAuthoredTimeZone_() || timeZone) + '"';
   return request;
 }
 

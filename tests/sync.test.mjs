@@ -415,7 +415,7 @@ test('Personal Device Flow begins with bounded public output and reuses an unexp
   assert.equal(calls[0].url, 'https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode');
   const request = new URLSearchParams(calls[0].options.payload);
   assert.equal(request.get('client_id'), '1139ef4a-297c-4c4f-b414-6393aec2ee31');
-  assert.equal(request.get('scope'), 'Tasks.ReadWrite offline_access');
+  assert.equal(request.get('scope'), 'Tasks.ReadWrite MailboxSettings.Read offline_access');
   assert.equal(JSON.stringify(first).includes('private-device-code'), false);
   assert.equal(userStore.values.MS_PERSONAL_DEVICE_SESSION_V1.includes('private-device-code'), true);
 });
@@ -2213,6 +2213,56 @@ test('converts no-offset Graph due values through their supplied time zone', () 
   );
 });
 
+test('WO-5: authored-zone midnight renders as the picked date in any project zone', () => {
+  // Regression for WO-5.  Graph renders a date-only task as local midnight
+  // with no offset marker in the zone the date was authored in.  The pre-fix
+  // code routed that midnight through an instant and back into the project
+  // time zone, landing one calendar day early whenever the project zone sat
+  // west of the authored zone.  Session.getScriptTimeZone() supplies the
+  // project zone here; the payload timeZone is the zone the value was
+  // authored/rendered in.
+  const { context } = loadContext({ scriptTimeZone: 'America/New_York' });
+
+  // Authored in UTC: 2026-09-25T00:00:00Z is 2026-09-24 20:00 in New York, so
+  // the pre-fix code projected 2026-09-24.
+  assert.equal(
+    context.googleDue_({ dateTime: '2026-09-25T00:00:00', timeZone: 'UTC' }),
+    '2026-09-25T00:00:00.000Z',
+    'UTC-authored midnight must not shift to 2026-09-24'
+  );
+
+  // Authored east of the project zone: Taipei midnight is 2026-09-24 12:00 in
+  // New York, so the pre-fix code projected 2026-09-24.
+  assert.equal(
+    context.googleDue_({ dateTime: '2026-09-25T00:00:00', timeZone: 'Taipei Standard Time' }),
+    '2026-09-25T00:00:00.000Z',
+    'Taipei-authored midnight must not shift to 2026-09-24'
+  );
+
+  // Authored in the project zone itself stays correct (control: this case was
+  // already correct before the fix).
+  assert.equal(
+    context.googleDue_({ dateTime: '2026-09-25T00:00:00', timeZone: 'Eastern Standard Time' }),
+    '2026-09-25T00:00:00.000Z',
+    'New-York-authored midnight must stay 2026-09-25'
+  );
+
+  // Fail-closed is unchanged: the zone must resolve before any date is derived.
+  assert.equal(
+    context.googleDue_({ dateTime: '2026-09-25T00:00:00', timeZone: 'Invalid Time Zone' }),
+    null,
+    'unsupported zone must stay fail-closed'
+  );
+
+  // Timed values still project through the sync zone: 2026-09-25 00:30 UTC is
+  // 2026-09-24 20:30 in New York.
+  assert.equal(
+    context.googleDue_({ dateTime: '2026-09-25T00:30:00', timeZone: 'UTC' }),
+    '2026-09-24T00:00:00.000Z',
+    'timed values must keep projecting through the project zone'
+  );
+});
+
 test('uses Utilities to project offset instants when running in Apps Script', () => {
   const calls = [];
   const { context } = loadContext({
@@ -2499,6 +2549,44 @@ test('rejects null, malformed RFC3339, and invalid time-zone due values', () => 
   const { context: invalidProjectZone } = loadContext({ scriptTimeZone: 'Invalid Time Zone' });
   assert.equal(invalidProjectZone.msDue_('2026-08-21T00:00:00.000Z'), null);
   assert.throws(() => invalidProjectZone.getMsTasks_('list-id'), /SYNC_TIME_ZONE_INVALID/);
+});
+
+test('microsoftTaskRequestOptions_ renders in the authored zone when the MailboxSettings grant is present', () => {
+  const { context } = loadContext({
+    userValues: { MS_PERSONAL_GRANTED_SCOPE: 'Tasks.ReadWrite MailboxSettings.Read offline_access' },
+    scriptTimeZone: 'Asia/Taipei'
+  });
+  let graphCalls = 0;
+  context.graphFetch_ = () => {
+    graphCalls += 1;
+    return 'Taipei Standard Time';
+  };
+  const request = context.microsoftTaskRequestOptions_();
+  assert.equal(graphCalls, 1);
+  assert.equal(request.headers.Prefer, 'outlook.timezone="Asia/Taipei"');
+  // The zone is memoized for the execution: a second request must not refetch.
+  context.microsoftTaskRequestOptions_();
+  assert.equal(graphCalls, 1);
+});
+
+test('microsoftTaskRequestOptions_ falls back to the sync zone without the MailboxSettings grant', () => {
+  // Pre-re-consent tokens carry no MailboxSettings.Read grant: discovery must
+  // not even be attempted, and behaviour stays exactly as before.
+  const { context } = loadContext({ scriptTimeZone: 'Asia/Taipei' });
+  context.graphFetch_ = () => { throw new Error('graph must not be called'); };
+  const request = context.microsoftTaskRequestOptions_();
+  assert.equal(request.headers.Prefer, 'outlook.timezone="Asia/Taipei"');
+});
+
+test('msAuthoredTimeZone_ is fail-soft on Graph errors and falls back to the sync zone', () => {
+  const { context } = loadContext({
+    userValues: { MS_PERSONAL_GRANTED_SCOPE: 'Tasks.ReadWrite MailboxSettings.Read offline_access' },
+    scriptTimeZone: 'America/New_York'
+  });
+  context.graphFetch_ = () => { throw new Error('HTTP 403: Access is denied.'); };
+  assert.equal(context.msAuthoredTimeZone_(), null);
+  const request = context.microsoftTaskRequestOptions_();
+  assert.equal(request.headers.Prefer, 'outlook.timezone="America/New_York"');
 });
 
 test('round-trips date-only due values without changing their next sync payload', () => {
