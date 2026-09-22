@@ -235,11 +235,13 @@ function timeBridgeEvaluateOwnership_(rec, msTask, nowUtcMs) {
 function timeBridgeComputeIntent_(T, nowMs, syncTimeZone, rec, isNone) {
   rec.rem = rec.rem || {};
   if (isNone) {
+    // NONE: clear-time intent — keep the existing date on MS, clear hasTime and
+    // reminder locally only.  Never emit a 1970 epoch payload to either side.
     return {
-      duePayload: { dateTime: '1970-01-01T00:00:00', timeZone: 'UTC', isDateOnly: true },
+      duePayload: null,
       releaseOwnership: rec.rem.ms === true,
       acquireOwnership: false,
-      targetInstantMs: 0,
+      targetInstantMs: null,
       clearHasTime: true
     };
   }
@@ -306,7 +308,9 @@ function timeBridgeComputeIntent_(T, nowMs, syncTimeZone, rec, isNone) {
   if (isPastDate) {
     return {
       duePayload: duePayload,
-      reminderPayload: ms === true ? { dateTime: '1970-01-01T00:00:00', timeZone: 'UTC', isReminderOn: false } : undefined,
+      // Release ownership without emitting a 1970 epoch sentinel dateTime.
+      // Just set isReminderOn: false; Microsoft accepts this without a dateTime.
+      reminderPayload: ms === true ? { isReminderOn: false } : undefined,
       targetInstantMs: T,
       acquireOwnership: false,
       releaseOwnership: ms === true
@@ -322,7 +326,11 @@ function timeBridgeComputeIntent_(T, nowMs, syncTimeZone, rec, isNone) {
 }
 
 function timeBridgeMsMatchesIntent_(msTask, intent, syncTimeZone) {
-  if (!msTask || !intent || !intent.duePayload) return false;
+  if (!msTask || !intent) return false;
+  // NONE intent (clearHasTime with no duePayload): no MS patch is needed.
+  // The "match" is trivially true so we skip the MS PATCH entirely.
+  if (intent.clearHasTime && !intent.duePayload) return true;
+  if (!intent.duePayload) return false;
   if (intent.clearHasTime) {
     if (!msTask.dueDateTime || !msTask.dueDateTime.dateTime) return false;
     var match = String(msTask.dueDateTime.dateTime).match(/T(\d{2}):(\d{2}):(\d{2})/);
@@ -398,11 +406,13 @@ function timeBridgeExecuteJournalStep_(state, gTask, msTask, gListId, msListId, 
         }
       }
       try {
-        var updatedMs = updateMsTask_(msListId, rec.msId, msPatchPayload, journal.msEtag ? { 'If-Match': journal.msEtag } : undefined);
+        // WO-4: updateMsTask_ takes 3 parameters; the former 4th If-Match arg was
+        // dead (msEtag was declared in state schema but never assigned anywhere).
+        var updatedMs = updateMsTask_(msListId, rec.msId, msPatchPayload);
         journal.stage = 'MS_VERIFIED';
         if (intent.acquireOwnership) {
           rec.rem.ms = true;
-          rec.rem.msAt = updatedMs && updatedMs.reminderDateTime ? updatedMs.reminderDateTime.dateTime : new Date(intent.targetInstantMs).toISOString();
+          rec.rem.msAt = updatedMs && updatedMs.reminderDateTime ? updatedMs.reminderDateTime.dateTime : new Date(intent.targetInstantMs || 0).toISOString();
         } else if (intent.releaseOwnership) {
           rec.rem.ms = undefined;
           delete rec.rem.msAt;

@@ -514,3 +514,81 @@ test('SYNC_CALENDAR_PROJECTION="false" preserves reminder sync but skips Google 
   assert.equal(state.g2m['g-task'].rem.e, undefined);
 });
 
+test('WO-1: NONE intent produces no 1970 epoch duePayload and clears hasTime without MS PATCH', () => {
+  const { c } = loadContext();
+
+  // timeBridgeComputeIntent_ NONE path must return null duePayload
+  const rec = { rem: { ms: true } };
+  const intent = c.timeBridgeComputeIntent_(0, Date.now(), 'Asia/Taipei', rec, true);
+  assert.equal(intent.duePayload, null, 'NONE must produce null duePayload, not 1970 epoch');
+  assert.equal(intent.targetInstantMs, null, 'NONE must produce null targetInstantMs');
+  assert.equal(intent.clearHasTime, true);
+  assert.equal(intent.releaseOwnership, true, 'NONE with ms=true releases ownership');
+  assert.equal(intent.acquireOwnership, false);
+  assert.ok(!JSON.stringify(intent).includes('1970'), 'NONE intent must not contain any 1970 sentinel');
+
+  // timeBridgeMsMatchesIntent_ must return true for NONE (skip MS patch)
+  const msTask = { id: 'ms-task', dueDateTime: { dateTime: '2026-10-01T00:00:00', timeZone: 'Asia/Taipei' } };
+  const matches = c.timeBridgeMsMatchesIntent_(msTask, intent, 'Asia/Taipei');
+  assert.equal(matches, true, 'NONE intent must match (no MS patch needed)');
+});
+
+test('WO-1: past-date release reminderPayload contains no 1970 dateTime', () => {
+  const { c } = loadContext();
+
+  // Past date: 28h ago
+  const pastMs = Date.now() - 28 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const tz = 'Asia/Taipei';
+
+  const rec = { rem: { ms: true, msAt: new Date(pastMs).toISOString() } };
+  const intent = c.timeBridgeComputeIntent_(pastMs, nowMs, tz, rec, false);
+
+  if (intent.reminderPayload) {
+    assert.ok(!JSON.stringify(intent.reminderPayload).includes('1970'),
+      'Past-date reminderPayload must not contain 1970 epoch sentinel');
+    assert.equal(intent.reminderPayload.isReminderOn, false);
+    assert.equal(intent.reminderPayload.dateTime, undefined,
+      'Past-date release reminderPayload must omit dateTime entirely');
+  }
+});
+
+test('WO-4: updateMsTask_ is called with exactly 3 arguments (no dead If-Match arg)', () => {
+  const { c, calendarEvents } = loadContext();
+  const state = c.newState_();
+  state.listMap = { 'g-list': 'ms-list' };
+  state.g2m['g-task-etag'] = {
+    msId: 'ms-task-etag', gListId: 'g-list', msListId: 'ms-list',
+    fp: {}, rem: { ms: undefined }
+  };
+  state.m2g['ms-task-etag'] = 'g-task-etag';
+
+  const tomorrow = new Date(Date.now() + 25 * 60 * 60 * 1000);
+  const tomorrowDateOnly = tomorrow.toISOString().slice(0, 10);
+
+  const gTask = {
+    id: 'g-task-etag', title: 'Etag test',
+    notes: '[TTS-TIME:10:00]\nNote.',
+    due: tomorrowDateOnly + 'T00:00:00.000Z',
+    status: 'needsAction'
+  };
+  const msTask = {
+    id: 'ms-task-etag', title: 'Etag test',
+    dueDateTime: { dateTime: tomorrowDateOnly + 'T00:00:00', timeZone: 'Asia/Taipei' },
+    isReminderOn: false, status: 'notStarted'
+  };
+
+  let updateArgCount = 0;
+  c.updateMsTask_ = (...args) => { updateArgCount = args.length; return msTask; };
+  c.updateGTask_ = () => gTask;
+  c.getGTask_ = () => gTask;
+
+  const snap = {
+    gTasksById: { 'g-task-etag': gTask },
+    msTasksById: { 'ms-task-etag': msTask },
+    safety: {}
+  };
+  c.timeBridgeRun_(state, snap, Date.now(), 'round-etag');
+
+  assert.equal(updateArgCount, 3, 'updateMsTask_ must be called with exactly 3 args (no dead If-Match)');
+});

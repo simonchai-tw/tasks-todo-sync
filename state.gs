@@ -1847,16 +1847,26 @@ function assertTimeBridgeJournal_(journal, label) {
   if (!validTimeBridgeJournalStage_(journal.stage)) throw new Error('STATE_MALFORMED: ' + label + '.stage is invalid; overwrite refused.');
   if (!Number.isInteger(journal.retryCount) || journal.retryCount < 0) throw new Error('STATE_MALFORMED: ' + label + '.retryCount is invalid; overwrite refused.');
   if (!isStateObject_(journal.intent)) throw new Error('STATE_MALFORMED: ' + label + '.intent must be an object; overwrite refused.');
-  assertKnownObjectKeys_(journal.intent, ['duePayload', 'reminderPayload', 'targetInstantMs', 'fallbackInstantMs', 'acquireOwnership', 'releaseOwnership', 'exactMarkerLine'], label + '.intent', 'STATE_MALFORMED');
-  if (!isStateObject_(journal.intent.duePayload) || typeof journal.intent.duePayload.dateTime !== 'string' || typeof journal.intent.duePayload.timeZone !== 'string') {
-    throw new Error('STATE_MALFORMED: ' + label + '.intent.duePayload is invalid; overwrite refused.');
-  }
-  if (journal.intent.reminderPayload !== undefined && journal.intent.reminderPayload !== null) {
-    if (!isStateObject_(journal.intent.reminderPayload) || typeof journal.intent.reminderPayload.dateTime !== 'string' || typeof journal.intent.reminderPayload.timeZone !== 'string' || typeof journal.intent.reminderPayload.isReminderOn !== 'boolean') {
-      throw new Error('STATE_MALFORMED: ' + label + '.intent.reminderPayload is invalid; overwrite refused.');
+  assertKnownObjectKeys_(journal.intent, ['duePayload', 'reminderPayload', 'targetInstantMs', 'fallbackInstantMs', 'acquireOwnership', 'releaseOwnership', 'exactMarkerLine', 'clearHasTime'], label + '.intent', 'STATE_MALFORMED');
+  // duePayload may be null for NONE intent (clear-time, no MS patch).
+  if (journal.intent.duePayload !== null) {
+    if (!isStateObject_(journal.intent.duePayload) || typeof journal.intent.duePayload.dateTime !== 'string' || typeof journal.intent.duePayload.timeZone !== 'string') {
+      throw new Error('STATE_MALFORMED: ' + label + '.intent.duePayload is invalid; overwrite refused.');
     }
   }
-  if (!Number.isFinite(journal.intent.targetInstantMs)) throw new Error('STATE_MALFORMED: ' + label + '.intent.targetInstantMs is invalid; overwrite refused.');
+  if (journal.intent.reminderPayload !== undefined && journal.intent.reminderPayload !== null) {
+    // reminderPayload may omit dateTime/timeZone when isReminderOn is false (WO-1 past-date release).
+    if (!isStateObject_(journal.intent.reminderPayload) || typeof journal.intent.reminderPayload.isReminderOn !== 'boolean') {
+      throw new Error('STATE_MALFORMED: ' + label + '.intent.reminderPayload is invalid; overwrite refused.');
+    }
+    if (journal.intent.reminderPayload.isReminderOn) {
+      if (typeof journal.intent.reminderPayload.dateTime !== 'string' || typeof journal.intent.reminderPayload.timeZone !== 'string') {
+        throw new Error('STATE_MALFORMED: ' + label + '.intent.reminderPayload is invalid (isReminderOn=true requires dateTime/timeZone); overwrite refused.');
+      }
+    }
+  }
+  // targetInstantMs may be null for NONE intent.
+  if (journal.intent.targetInstantMs !== null && !Number.isFinite(journal.intent.targetInstantMs)) throw new Error('STATE_MALFORMED: ' + label + '.intent.targetInstantMs is invalid; overwrite refused.');
   if (journal.intent.fallbackInstantMs !== undefined && journal.intent.fallbackInstantMs !== null && !Number.isFinite(journal.intent.fallbackInstantMs)) {
     throw new Error('STATE_MALFORMED: ' + label + '.intent.fallbackInstantMs is invalid; overwrite refused.');
   }

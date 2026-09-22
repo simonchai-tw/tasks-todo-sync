@@ -209,3 +209,14 @@ Legacy URI-encoded state is read compatibly and migrates to gzip+Base64 with cod
 - [ ] Two staging `syncAll()` runs and `dryRunReport()` were reviewed with no unexpected changes.
 - [ ] Trigger cadence, deletion safeguards, move-journal recovery, state migration, and rollback boundaries are understood.
 - [ ] The [engineering audit](audit.md) was reviewed for evidence and limitations.
+
+## Time Bridge marker reference
+
+The Time Bridge reads a single marker on the first line of a Google Task's notes field.
+
+| Marker | Behavior |
+| --- | --- |
+| `[TTS-TIME:HH:MM]` | Set the Microsoft To Do due time and reminder to `HH:MM` in the project time zone. Also projects a 30-minute Google Calendar event. `00:00` is rejected (ambiguous with date-only midnight). |
+| `[TTS-TIME:NONE]` | **Clear-time intent.** Keeps the existing date on Microsoft To Do unchanged. Clears `hasTime` and releases Time Bridge reminder ownership locally only. No Microsoft PATCH is issued; no epoch (1970) date is ever written. The marker is spliced out of the notes after processing. |
+
+Full-width brackets (`［`, `］`) and full-width colon (`：`) are accepted. The marker must appear on line 1; a marker on any subsequent line is rejected fail-closed.
