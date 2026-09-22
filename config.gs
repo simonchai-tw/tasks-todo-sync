@@ -139,7 +139,11 @@ function normalizeListName_(value) {
 }
 
 function excludedListNameSet_(safety) {
-  const excluded = {};
+  // WO-10: a plain {} inherits Object.prototype, so a list literally named
+  // "constructor" looked up as excluded['constructor'] hit the inherited
+  // constructor function and was silently treated as excluded.  A null
+  // prototype keeps the lookup purely own-key.
+  const excluded = Object.create(null);
   (safety.excludedListNames || []).forEach(function(name) {
     excluded[normalizeListName_(name)] = true;
   });

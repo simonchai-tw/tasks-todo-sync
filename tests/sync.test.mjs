@@ -2356,6 +2356,20 @@ test('Graph 429 retry honors Retry-After and returns success without a real wait
   assert.equal(fetches[0].options.headers.Authorization, 'Bearer test-token');
 });
 
+test('WO-10: a list literally named constructor is not phantom-excluded by prototype inheritance', () => {
+  const { context } = loadContext();
+  const safety = { excludedListNames: ['Something Else'] };
+  // With a plain {} the lookup excluded['constructor'] returned the inherited
+  // Object.prototype.constructor and the list was silently locked out.
+  assert.equal(context.isAutoEligibleGoogleList_({ id: 'g-c', title: 'constructor' }, safety), true);
+  assert.equal(context.isAutoEligibleMicrosoftList_({ id: 'ms-c', displayName: 'constructor', isOwner: true, isShared: false, wellknownListName: 'none' }, safety), true);
+  const set = context.excludedListNameSet_(safety);
+  assert.equal(set['constructor'], undefined);
+  // Real exclusions still apply in every direction.
+  assert.equal(context.isAutoEligibleGoogleList_({ id: 'g-x', title: 'something  else' }, safety), false);
+  assert.equal(context.isAutoEligibleGoogleList_({ id: 'g-y', title: 'Something Else' }, safety), false);
+});
+
 test('WO-8: a 404 while fetching Microsoft tasks isolates the list instead of aborting the round', () => {
   const { context } = loadContext({
     scriptValues: { SYNC_GOOGLE_LIST_IDS: 'g-one', SYNC_ALLOW_DELETIONS: 'false' }
