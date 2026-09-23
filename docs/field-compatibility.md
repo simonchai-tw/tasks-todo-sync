@@ -10,7 +10,7 @@ These fields and operations are covered by the current implementation and automa
 | --- | --- | --- |
 | Title | Google ↔ Microsoft | Plain task title |
 | Notes | Google ↔ Microsoft | Plain-text projection; simple Microsoft rich text is converted to text |
-| Due date, times & reminders | Google ↔ Microsoft | Time Bridge v2.4: Microsoft reminder time ↔ Google Tasks notes marker `[TTS-TIME:HH:mm]` + dedicated Google Calendar projection |
+| Due date, times & reminders | Google ↔ Microsoft | Time Bridge: the canonical time record is `{ date, time }` state-side (wall clock only). Microsoft due/reminder ↔ Google Tasks notes marker `[TTS-TIME:HH:mm]` + optional dedicated Google Calendar projection. |
 | Completion status | Google ↔ Microsoft | Incomplete ↔ complete, including reopen |
 | Personal lists | Google ↔ Microsoft | Eligible paired lists; list names are projected |
 | Create, edit, and delete | Google ↔ Microsoft | Deletion is guarded by confirmation and recovery records |

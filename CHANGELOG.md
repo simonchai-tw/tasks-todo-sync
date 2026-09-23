@@ -2,7 +2,39 @@
 
 All notable changes to this project are documented here.
 
-Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.7.5` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
+Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
+
+## 0.8.0 — 2026-09-23
+
+### Time Bridge v3.0 — canonical time record and idempotent renderers
+
+- **Time becomes a first-class citizen of sync state**: each mapped pair carries `rec.td = { date, time|null }` — wall clock only, never an instant and never a time zone, so the cross-time-zone class of defects has no structural cause. The `[TTS-TIME:HH:mm]` marker is now an *intake ticket*: it is parsed into the record, and then spliced out; after that, state is the truth. The marker grammar and the Gemini/voice capture flow are unchanged.
+- **Marker parsing, Microsoft writes, and calendar projection are independent, idempotent renderers** that converge on the record through fingerprints. The five-stage Time Bridge journal, its dead-letter table, the `rec.rem.ms` / `msAt` ownership tri-state, the surrender triggers, and the trigger2/trigger3/trigger4 event detectors are **deleted**; their semantics are covered by fingerprint comparison in the ordinary merge, by the Microsoft renderer adopting a hand-set Microsoft time, and by recomputing `fp.notes` from the final spliced string.
+- **`due` has a single owner again**: the ordinary three-way merge owns the due date and the whole `{date, time}` unit; the Microsoft renderer owns the time and the reminder. The former Time Bridge ownership carve-out is gone, which structurally removes the WO-7 class of bug (a `due` frozen out of the merge).
+
+### Reminder policy: one rule instead of three conditions (R-1)
+
+- **`max(due instant, now + 20 minutes)`**, in the project time zone, and no alarm at all when that moment would land on a different calendar day than the task date. The 23:35 cutoff and the 23:55 cap are deleted. Deliberate behaviour change: a task dated today whose time has passed now alarms at 23:5x instead of not ringing; nothing ever writes an epoch (1970) sentinel.
+
+### Failure handling replaces the journal (R-4)
+
+- **Per-renderer retry ladder**: each renderer records `rec.td.retry.<name> = { fails, lastFailAt, quarantined }`. The first failures retry every round, then once a day, and after the slow lane also fails the pair moves to the drawer (`quarantined`) and the operator receives **one aggregated, de-identified notification** (24h alert cooldown). Editing the task's marker or date, or changing its date, revives the pair from a clean slate. The old unattended dead-letter drawer is emptied on the first upgrade round — entries in it may only have been transient failures.
+
+### New knob: `SYNC_CALENDAR_PROJECTION_REMINDER` (R-2, default `true`)
+
+- **Silent projection**: with the knob set to `false`, a projected event still occupies its calendar slot but carries no popup reminder. Intended for users whose Microsoft To Do alarm already covers the task (for example iPhone users with Apple Reminders connected to Microsoft and Apple Calendar subscribed to Google, who currently receive both notifications). Flipping the knob re-converges existing events one by one through the event fingerprint; the reminders-on fingerprint is byte-identical to v0.7.5, so upgrading does not re-patch existing events.
+
+### Fixes found while refactoring
+
+- **Dead-letter state validation (latent since v0.7.x)**: the dead-letter entry validator applied the plain journal key whitelist, so any state that had ever produced a dead-letter entry failed its own next load with `STATE_MALFORMED`. No release had written one, so it was never observed. The whitelist now accepts `failedAt` / `reason`, and the tables are cleared by the first v0.8.0 round.
+
+### Migration
+
+- **State-only, no user-visible change**: a v0.7.5 state loads unchanged. The first v0.8.0 round rebuilds `rec.td` from the Microsoft side (due time first, otherwise a hand-set reminder) and drops the legacy keys; the projection fingerprints `e` / `eFp` are preserved so already-projected events are not recreated. No new configuration is required.
+
+### Test suite
+
+- **459 automated tests passing (100% PASS locally)**, including new suites for intake, the renderers and the retry ladder, the `{date, time}` merge unit, the projection reminder knob, and the v0.7.5 → v0.8.0 migration. Tests for the deleted mechanisms were replaced one for one; each replacement is named after the mechanism that now covers the behaviour.
 
 ## 0.7.5 — 2026-09-23
 

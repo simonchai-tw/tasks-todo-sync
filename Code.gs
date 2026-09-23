@@ -769,6 +769,11 @@ function syncAll() {
         timeBridgeRun_(state, snap, startedAt, roundId);
       }
       reconcileMapped_(state, snap, startedAt, roundId, deletionProgress);
+      // The Calendar renderer runs after the merge: the merge decides the due
+      // date, and the projection reads the converged rec.td (§3.8).
+      if (typeof timeBridgeRunRenderersAfterMerge_ === 'function') {
+        timeBridgeRunRenderersAfterMerge_(state, snap, startedAt, roundId);
+      }
       deletionStateBeforeApply = captureTaskDeletionState_(state);
       applyConfirmedTaskDeletions_(state, snap, roundId, deletionProgress);
       applyConfirmedListDeletions_(state, snap, roundId, listDeletionProgress, deletionProgress);

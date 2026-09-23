@@ -1,9 +1,18 @@
-/* Time Bridge engine (Spec v2.4 Frozen Baseline)
- *
- * Bridges Google Tasks (date-only) with Microsoft To Do (dateTimeTimeZone)
- * and Google Calendar (30-minute event projection).
+/* Time Bridge engine (v0.8.0 — canonical time record + idempotent renderers)
+ * Time lives in state as rec.td = { date, time|null, v } (wall clock only, never
+ * an instant or a zone).  The [TTS-TIME:HH:mm] marker is an intake ticket: parsed
+ * into rec.td, then spliced out.  Microsoft writes and Calendar projection are
+ * idempotent renderers; `due` belongs to the ordinary three-way merge.
+ * Round shape (§3.8): timeBridgeRun_ (intake/splice/Microsoft renderer) →
+ * ordinaryReconcileMapped_ (the merge owns the DATE) →
+ * timeBridgeRunRenderersAfterMerge_ (td.date sync + Calendar renderer).  The
+ * Microsoft renderer must precede the merge because the merge fingerprints the
+ * whole {date,time} unit, and the date sync must follow it or a stale td.date
+ * would write the user's Microsoft date edit back away.
  * All top-level declarations end with _ to preserve publicEntrypoints === 53.
  */
+
+/* Digest, marker and time-zone helpers (behaviour unchanged since v0.7.x). */
 
 function timeBridgeDeterministicEventId_(pairId) {
   var raw = String(pairId || '') + '|time_bridge';
@@ -23,8 +32,13 @@ function timeBridgeDeterministicEventId_(pairId) {
   return hex.slice(0, 32);
 }
 
-function timeBridgeEventFingerprint_(title, startIso, endIso) {
+function timeBridgeEventFingerprint_(title, startIso, endIso, reminderMode) {
   var raw = String(title || '') + '|' + String(startIso || '') + '|' + String(endIso || '');
+  // The reminders-on variant keeps the historical fingerprint byte for byte so an
+  // upgrading installation does not re-patch every projected event; only the
+  // silent variant adds a component, so flipping the knob re-converges events
+  // one by one through the ordinary fingerprint comparison.
+  if (reminderMode === 'silent') raw += '|silent';
   return ordinaryFingerprintHex_(raw);
 }
 
@@ -47,11 +61,7 @@ function timeBridgeParseNotesMarker_(notes) {
   if (!match) return { markerValid: false };
 
   if (match[3] && match[3].toUpperCase() === 'NONE') {
-    return {
-      markerValid: true,
-      isNone: true,
-      exactMarkerLine: line1
-    };
+    return { markerValid: true, isNone: true, exactMarkerLine: line1 };
   }
 
   var hh = match[1];
@@ -61,28 +71,19 @@ function timeBridgeParseNotesMarker_(notes) {
     return { markerValid: false, midnightRejected: true };
   }
 
-  return {
-    markerValid: true,
-    isNone: false,
-    hh: hh,
-    mm: mm,
-    exactMarkerLine: line1
-  };
+  return { markerValid: true, isNone: false, hh: hh, mm: mm, exactMarkerLine: line1 };
 }
 
+/* Migration helper only: does this Microsoft due payload carry a real time? */
 function timeBridgeDueHasTime_(dueDateTime, syncTimeZone) {
   if (!dueDateTime || !dueDateTime.dateTime) return false;
   var raw = String(dueDateTime.dateTime);
   var match = raw.match(/T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?/);
   if (!match) return false;
-
   var h = parseInt(match[1], 10);
   var m = parseInt(match[2], 10);
   var s = parseInt(match[3], 10);
-  // (a) Must have non-midnight in payload timezone
   if (h === 0 && m === 0 && s === 0) return false;
-
-  // (b) Must have non-midnight in syncTimeZone
   try {
     var instantMs = timeBridgeParseDateTimeZoneMs_(dueDateTime);
     var localHms = timeBridgeFormatHmsInTimeZone_(instantMs, syncTimeZone);
@@ -119,12 +120,12 @@ function timeBridgeFormatHmsInTimeZone_(instantMs, timeZone) {
     minute: '2-digit',
     second: '2-digit'
   });
-  var parts = formatter.formatToParts(date);
+  var partsIntl = formatter.formatToParts(date);
   var h = 0, m = 0, s = 0;
-  for (var i = 0; i < parts.length; i += 1) {
-    if (parts[i].type === 'hour') h = parseInt(parts[i].value, 10);
-    if (parts[i].type === 'minute') m = parseInt(parts[i].value, 10);
-    if (parts[i].type === 'second') s = parseInt(parts[i].value, 10);
+  for (var i = 0; i < partsIntl.length; i += 1) {
+    if (partsIntl[i].type === 'hour') h = parseInt(partsIntl[i].value, 10);
+    if (partsIntl[i].type === 'minute') m = parseInt(partsIntl[i].value, 10);
+    if (partsIntl[i].type === 'second') s = parseInt(partsIntl[i].value, 10);
   }
   return { h: h, m: m, s: s };
 }
@@ -134,12 +135,7 @@ function timeBridgeFormatYmdInTimeZone_(instantMs, timeZone) {
   if (typeof Utilities !== 'undefined' && Utilities && typeof Utilities.formatDate === 'function') {
     return Utilities.formatDate(date, timeZone, 'yyyy-MM-dd');
   }
-  var formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  });
+  var formatter = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
   return formatter.format(date);
 }
 
@@ -170,12 +166,9 @@ function timeBridgeWallClockToUtcMs_(localIso, timeZone) {
     var curYmd = timeBridgeFormatYmdInTimeZone_(guessMs, timeZone);
     var curHms = timeBridgeFormatHmsInTimeZone_(guessMs, timeZone);
     var curParts = curYmd.split('-');
-    var curYear = parseInt(curParts[0], 10);
-    var curMonth = parseInt(curParts[1], 10);
-    var curDay = parseInt(curParts[2], 10);
-
     var targetTotalSec = Date.UTC(targetY, targetM - 1, targetD, targetH, targetMin, targetSec) / 1000;
-    var curTotalSec = Date.UTC(curYear, curMonth - 1, curDay, curHms.h, curHms.m, curHms.s) / 1000;
+    var curTotalSec = Date.UTC(parseInt(curParts[0], 10), parseInt(curParts[1], 10) - 1, parseInt(curParts[2], 10),
+      curHms.h, curHms.m, curHms.s) / 1000;
     var diffSec = targetTotalSec - curTotalSec;
     if (diffSec === 0) return guessMs;
     guessMs += diffSec * 1000;
@@ -189,304 +182,9 @@ function timeBridgeSpliceNotesMarker_(notes, exactMarkerLine) {
   var lines = text.split(/\r?\n/);
   if (!lines.length) return '';
   if (lines[0] !== exactMarkerLine) return text;
-
   lines.shift();
-  if (lines.length > 0 && lines[0] === '') {
-    lines.shift();
-  }
+  if (lines.length > 0 && lines[0] === '') lines.shift();
   return lines.join('\n');
-}
-
-function timeBridgeEvaluateOwnership_(rec, msTask, nowUtcMs) {
-  rec.rem = rec.rem || {};
-  var ms = rec.rem.ms;
-  var isReminderOn = !!(msTask && msTask.isReminderOn);
-  var reminderDt = msTask && msTask.reminderDateTime;
-  var reminderInstantMs = reminderDt ? timeBridgeParseDateTimeZoneMs_(reminderDt) : NaN;
-
-  // 1. Consumed Reminder Rule
-  if (ms === true && !isReminderOn && (!reminderDt || isNaN(reminderInstantMs) || reminderInstantMs <= nowUtcMs)) {
-    rec.rem.ms = undefined;
-    delete rec.rem.msAt;
-    return;
-  }
-
-  // 2. Surrender Triggers (SKIPPED if completed)
-  var completed = !!(msTask && msTask.status === 'completed');
-  if (ms === true && !completed) {
-    // Trigger 1: user actively turned off an unexpired reminder in the future
-    if (!isReminderOn && !isNaN(reminderInstantMs) && reminderInstantMs > nowUtcMs) {
-      rec.rem.ms = false;
-      delete rec.rem.msAt;
-      return;
-    }
-    // Trigger 2: user actively altered reminder timestamp (tolerance <= 60s)
-    if (isReminderOn && rec.rem.msAt && !isNaN(reminderInstantMs)) {
-      var msAtMs = Date.parse(rec.rem.msAt);
-      if (!isNaN(msAtMs) && Math.abs(reminderInstantMs - msAtMs) > 60000) {
-        rec.rem.ms = false;
-        delete rec.rem.msAt;
-        return;
-      }
-    }
-  }
-}
-
-function timeBridgeComputeIntent_(T, nowMs, syncTimeZone, rec, isNone) {
-  rec.rem = rec.rem || {};
-  if (isNone) {
-    // NONE: clear-time intent — keep the existing date on MS, clear hasTime and
-    // reminder locally only.  Never emit a 1970 epoch payload to either side.
-    return {
-      duePayload: null,
-      releaseOwnership: rec.rem.ms === true,
-      acquireOwnership: false,
-      targetInstantMs: null,
-      clearHasTime: true
-    };
-  }
-
-  var wLocalYmd = timeBridgeFormatYmdInTimeZone_(nowMs, syncTimeZone);
-  var wLocalHms = timeBridgeFormatHmsInTimeZone_(nowMs, syncTimeZone);
-  var tYmd = timeBridgeFormatYmdInTimeZone_(T, syncTimeZone);
-  var tHhMm = timeBridgeFormatHhMmInTimeZone_(T, syncTimeZone);
-  var duePayload = {
-    dateTime: tYmd + 'T' + tHhMm + ':00',
-    timeZone: timeBridgeResolveWindowsTimeZone_(syncTimeZone)
-  };
-
-  var ms = rec.rem.ms;
-  var isFuture = T > nowMs;
-  var isToday = tYmd === wLocalYmd;
-  var isPastDate = T <= nowMs && tYmd < wLocalYmd;
-
-  if (isFuture) {
-    var canAcquire = ms !== false;
-    var reminderPayload = canAcquire ? {
-      dateTime: new Date(T).toISOString().replace(/\.\d{3}Z$/, ''),
-      timeZone: 'UTC',
-      isReminderOn: true
-    } : undefined;
-    return {
-      duePayload: duePayload,
-      reminderPayload: reminderPayload,
-      targetInstantMs: T,
-      acquireOwnership: canAcquire && ms === undefined,
-      releaseOwnership: false
-    };
-  }
-
-  if (isToday) {
-    var wTotalMin = wLocalHms.h * 60 + wLocalHms.m;
-    var cutoffMin = 23 * 60 + 35; // 23:35
-    var canRemind = wTotalMin < cutoffMin && (ms === true || ms === undefined);
-    var reminderPayload = undefined;
-    var fallbackMs = undefined;
-    var acquire = false;
-
-    if (canRemind) {
-      var candidateFallback = nowMs + 20 * 60 * 1000;
-      var todayMaxMs = timeBridgeWallClockToUtcMs_(tYmd + 'T23:55:00', syncTimeZone);
-      fallbackMs = Math.min(candidateFallback, todayMaxMs);
-      reminderPayload = {
-        dateTime: new Date(fallbackMs).toISOString().replace(/\.\d{3}Z$/, ''),
-        timeZone: 'UTC',
-        isReminderOn: true
-      };
-      acquire = ms === undefined;
-    }
-    return {
-      duePayload: duePayload,
-      reminderPayload: reminderPayload,
-      targetInstantMs: T,
-      fallbackInstantMs: fallbackMs,
-      acquireOwnership: acquire,
-      releaseOwnership: false
-    };
-  }
-
-  if (isPastDate) {
-    return {
-      duePayload: duePayload,
-      // Release ownership without emitting a 1970 epoch sentinel dateTime.
-      // Just set isReminderOn: false; Microsoft accepts this without a dateTime.
-      reminderPayload: ms === true ? { isReminderOn: false } : undefined,
-      targetInstantMs: T,
-      acquireOwnership: false,
-      releaseOwnership: ms === true
-    };
-  }
-
-  return {
-    duePayload: duePayload,
-    targetInstantMs: T,
-    acquireOwnership: false,
-    releaseOwnership: false
-  };
-}
-
-function timeBridgeMsMatchesIntent_(msTask, intent, syncTimeZone) {
-  if (!msTask || !intent) return false;
-  // NONE intent (clearHasTime with no duePayload): no MS patch is needed.
-  // The "match" is trivially true so we skip the MS PATCH entirely.
-  if (intent.clearHasTime && !intent.duePayload) return true;
-  if (!intent.duePayload) return false;
-  if (intent.clearHasTime) {
-    if (!msTask.dueDateTime || !msTask.dueDateTime.dateTime) return false;
-    var match = String(msTask.dueDateTime.dateTime).match(/T(\d{2}):(\d{2}):(\d{2})/);
-    return !!match && match[1] === '00' && match[2] === '00';
-  }
-
-  var targetInstantMs = intent.targetInstantMs;
-  var targetYmd = timeBridgeFormatYmdInTimeZone_(targetInstantMs, syncTimeZone);
-  var targetHhMm = timeBridgeFormatHhMmInTimeZone_(targetInstantMs, syncTimeZone);
-
-  if (!msTask.dueDateTime) return false;
-  var msDueInstantMs = timeBridgeParseDateTimeZoneMs_(msTask.dueDateTime);
-  if (isNaN(msDueInstantMs)) return false;
-  var msDueYmd = timeBridgeFormatYmdInTimeZone_(msDueInstantMs, syncTimeZone);
-  var msDueHhMm = timeBridgeFormatHhMmInTimeZone_(msDueInstantMs, syncTimeZone);
-
-  if (msDueYmd !== targetYmd || msDueHhMm !== targetHhMm) return false;
-
-  var targetReminder = intent.reminderPayload;
-  if (!targetReminder) {
-    return true;
-  }
-
-  var msIsReminderOn = !!msTask.isReminderOn;
-  if (msIsReminderOn !== targetReminder.isReminderOn) return false;
-  if (!targetReminder.isReminderOn) return true;
-
-  if (!msTask.reminderDateTime) return false;
-  var msReminderMs = timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime);
-  var targetReminderMs = intent.fallbackInstantMs || targetInstantMs;
-  return !isNaN(msReminderMs) && Math.abs(msReminderMs - targetReminderMs) <= 60000;
-}
-
-function timeBridgeExecuteJournalStep_(state, gTask, msTask, gListId, msListId, syncTimeZone) {
-  var journal = state.timeBridgeJournal;
-  if (!journal) return;
-
-  var pairId = journal.pairId;
-  var rec = state.g2m && state.g2m[pairId];
-  rec.rem = rec.rem || {};
-
-  // 1. MS stage
-  if (journal.stage === 'INTENT_PERSISTED' || journal.stage === 'MS_PATCHED') {
-    var intent = journal.intent;
-    var msMatches = timeBridgeMsMatchesIntent_(msTask, intent, syncTimeZone);
-
-    if (msMatches) {
-      journal.stage = 'MS_VERIFIED';
-      if (intent.acquireOwnership) {
-        rec.rem.ms = true;
-        rec.rem.msAt = msTask && msTask.reminderDateTime ? msTask.reminderDateTime.dateTime : new Date(intent.targetInstantMs).toISOString();
-      } else if (intent.releaseOwnership) {
-        rec.rem.ms = undefined;
-        delete rec.rem.msAt;
-        if (intent.clearHasTime) rec.rem.hasTime = false;
-      }
-      persistSyncState_(state);
-    } else {
-      var msPatchPayload = {};
-      if (intent.duePayload) {
-        msPatchPayload.dueDateTime = {
-          dateTime: intent.duePayload.dateTime,
-          timeZone: intent.duePayload.timeZone
-        };
-      }
-      if (intent.reminderPayload) {
-        msPatchPayload.isReminderOn = intent.reminderPayload.isReminderOn;
-        if (intent.reminderPayload.isReminderOn) {
-          msPatchPayload.reminderDateTime = {
-            dateTime: intent.reminderPayload.dateTime,
-            timeZone: intent.reminderPayload.timeZone
-          };
-        }
-      }
-      try {
-        // WO-4: updateMsTask_ takes 3 parameters; the former 4th If-Match arg was
-        // dead (msEtag was declared in state schema but never assigned anywhere).
-        var updatedMs = updateMsTask_(msListId, rec.msId, msPatchPayload);
-        journal.stage = 'MS_VERIFIED';
-        if (intent.acquireOwnership) {
-          rec.rem.ms = true;
-          rec.rem.msAt = updatedMs && updatedMs.reminderDateTime ? updatedMs.reminderDateTime.dateTime : new Date(intent.targetInstantMs || 0).toISOString();
-        } else if (intent.releaseOwnership) {
-          rec.rem.ms = undefined;
-          delete rec.rem.msAt;
-          if (intent.clearHasTime) rec.rem.hasTime = false;
-        }
-        persistSyncState_(state);
-      } catch (e) {
-        journal.retryCount = (journal.retryCount || 0) + 1;
-        if (journal.retryCount >= 3) {
-          timeBridgeMoveToDeadLetter_(state, journal, 'MS_PATCH_EXHAUSTED: ' + String(e.message || e));
-          return;
-        }
-        persistSyncState_(state);
-        throw e;
-      }
-    }
-  }
-
-  // 2. Google stage
-  if (journal.stage === 'MS_VERIFIED' || journal.stage === 'GOOGLE_PATCHED') {
-    if (!journal.intent.exactMarkerLine) {
-      journal.stage = 'GOOGLE_VERIFIED';
-      persistSyncState_(state);
-    } else {
-      try {
-        var freshG = getGTask_(gListId, pairId);
-        var currentNotes = freshG && freshG.notes ? String(freshG.notes) : '';
-        if (currentNotes.indexOf(journal.intent.exactMarkerLine) < 0) {
-          journal.stage = 'GOOGLE_VERIFIED';
-          persistSyncState_(state);
-        } else {
-          var splicedNotes = timeBridgeSpliceNotesMarker_(currentNotes, journal.intent.exactMarkerLine);
-          updateGTask_(gListId, pairId, { notes: splicedNotes });
-          if (rec.fp && typeof rec.fp === 'object') {
-            rec.fp.notes = ordinaryFingerprintHex_(timeBridgeSpliceNotesMarker_(rec.fp.notes, journal.intent.exactMarkerLine));
-          }
-          journal.stage = 'GOOGLE_VERIFIED';
-          persistSyncState_(state);
-        }
-      } catch (e) {
-        journal.retryCount = (journal.retryCount || 0) + 1;
-        if (journal.retryCount >= 3) {
-          timeBridgeMoveToDeadLetter_(state, journal, 'GOOGLE_PATCH_EXHAUSTED: ' + String(e.message || e));
-          return;
-        }
-        persistSyncState_(state);
-        throw e;
-      }
-    }
-  }
-
-  // 3. Committed
-  if (journal.stage === 'GOOGLE_VERIFIED') {
-    state.timeBridgeJournal = null;
-    persistSyncState_(state);
-  }
-}
-
-function timeBridgeMoveToDeadLetter_(state, journal, reason) {
-  state.deadLetterJournal = state.deadLetterJournal || [];
-  state.deadLetterJournal.push(Object.assign({}, journal, {
-    failedAt: new Date().toISOString(),
-    reason: reason || 'UNKNOWN'
-  }));
-  if (state.deadLetterJournal.length > TIME_BRIDGE_DEAD_LETTER_JOURNAL_MAX) {
-    state.deadLetterJournal.splice(0, state.deadLetterJournal.length - TIME_BRIDGE_DEAD_LETTER_JOURNAL_MAX);
-  }
-  var rec = state.g2m && state.g2m[journal.pairId];
-  if (rec) {
-    rec.rem = rec.rem || {};
-    rec.rem.markerOrphaned = true;
-  }
-  state.timeBridgeJournal = null;
-  persistSyncState_(state);
 }
 
 function timeBridgeCalendarHttpStatus_(e) {
@@ -501,12 +199,357 @@ function timeBridgeCalendarHttpStatus_(e) {
   return providerHttpStatus_(e);
 }
 
-function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, endIso, syncTimeZone, rec) {
-  rec.rem = rec.rem || {};
-  var deterministicId = timeBridgeDeterministicEventId_(pairId);
-  var targetFp = timeBridgeEventFingerprint_(title, startIso, endIso);
+/* The Microsoft due payload as wall clock.  Graph renders the payload in the
+ * authored zone (WO-5: the request carries Prefer: outlook.timezone), so an
+ * offset-free payload already IS the wall clock; a payload carrying an instant
+ * is projected into the authored zone instead.  Midnight means date-only
+ * (time: null). */
+function timeBridgeMsDueWallClock_(dueDateTime, authoredTimeZone) {
+  if (!dueDateTime || !dueDateTime.dateTime) return null;
+  var raw = String(dueDateTime.dateTime);
+  var date = null;
+  var time = null;
+  if (/z$/i.test(raw) || /[+-]\d{2}:?\d{2}$/.test(raw)) {
+    var ms = Date.parse(raw);
+    if (isNaN(ms)) return null;
+    date = timeBridgeFormatYmdInTimeZone_(ms, authoredTimeZone);
+    time = timeBridgeFormatHhMmInTimeZone_(ms, authoredTimeZone);
+  } else {
+    var m = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+    if (!m) return null;
+    date = m[1];
+    time = m[2] + ':' + m[3];
+  }
+  return { date: date, time: time === '00:00' ? null : time };
+}
 
-  if (rec.rem.e === deterministicId && rec.rem.eFp === targetFp) return;
+/* The zone Microsoft payloads are authored in (WO-5 mailbox discovery), falling
+ * back to the project time zone exactly like v0.7.x did before the scope
+ * existed. */
+function timeBridgeAuthoredTimeZone_(syncTimeZone) {
+  var authored = (typeof msAuthoredTimeZone_ === 'function') ? msAuthoredTimeZone_() : null;
+  return authored || syncTimeZone;
+}
+
+function timeBridgeIsoSeconds_(ms) {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, '');
+}
+
+function timeBridgeTdKey_(td) {
+  if (!td) return null;
+  return String(td.date || '') + 'T' + (td.time || '');
+}
+
+/* R-4 failure ladder (§3.4.5): rec.td.retry.<name> = { fails, lastFailAt, quarantined }. */
+
+function timeBridgeRetryBucket_(rec, name) {
+  if (!rec || !rec.td) return null;
+  rec.td.retry = rec.td.retry || {};
+  var bucket = rec.td.retry[name];
+  if (!bucket || typeof bucket !== 'object') {
+    bucket = { fails: 0, lastFailAt: null, quarantined: false };
+    rec.td.retry[name] = bucket;
+  }
+  if (typeof bucket.fails !== 'number' || !isFinite(bucket.fails) || bucket.fails < 0) bucket.fails = 0;
+  bucket.quarantined = bucket.quarantined === true;
+  return bucket;
+}
+
+function timeBridgeRetryIsQuarantined_(rec, name) {
+  var bucket = rec && rec.td && rec.td.retry ? rec.td.retry[name] : null;
+  return !!(bucket && bucket.quarantined === true);
+}
+
+/* Quarantined pairs are skipped; once past the full-speed bound the renderer
+ * only tries once per slow-lane interval. */
+function timeBridgeRetryDue_(rec, name, nowMs) {
+  var bucket = rec && rec.td && rec.td.retry ? rec.td.retry[name] : null;
+  if (!bucket) return true;
+  if (bucket.quarantined === true) return false;
+  if ((bucket.fails || 0) <= TIME_BRIDGE_RETRY_FULL_SPEED_MAX) return true;
+  var last = bucket.lastFailAt ? Date.parse(bucket.lastFailAt) : NaN;
+  if (isNaN(last)) return true;
+  return (nowMs - last) >= TIME_BRIDGE_RETRY_SLOW_LANE_INTERVAL_MS;
+}
+
+function timeBridgeRetryRecordSuccess_(rec, name) {
+  if (!rec || !rec.td || !rec.td.retry || !rec.td.retry[name]) return;
+  delete rec.td.retry[name];
+  if (!Object.keys(rec.td.retry).length) delete rec.td.retry;
+}
+
+/* Returns { quarantined } — true only on the transition into the drawer, which
+ * is what a single aggregated notification is sent for. */
+function timeBridgeRetryRecordFailure_(rec, name, nowMs) {
+  var bucket = timeBridgeRetryBucket_(rec, name);
+  if (!bucket) return { quarantined: false };
+  bucket.fails = (bucket.fails || 0) + 1;
+  bucket.lastFailAt = new Date(nowMs).toISOString();
+  if (bucket.quarantined === true) return { quarantined: false };
+  if (bucket.fails > TIME_BRIDGE_RETRY_FULL_SPEED_MAX + TIME_BRIDGE_RETRY_SLOW_LANE_MAX) {
+    bucket.quarantined = true;
+    return { quarantined: true };
+  }
+  return { quarantined: false };
+}
+
+/* A user edit on the pair (marker or date) starts a fresh attempt. */
+function timeBridgeRetryRevive_(rec) {
+  if (rec && rec.td && rec.td.retry) delete rec.td.retry;
+}
+
+function timeBridgeBoundedErrorCode_(e) {
+  var status = timeBridgeCalendarHttpStatus_(e);
+  if (status) return 'HTTP_' + status;
+  var msg = String((e && e.message) || e || 'UNKNOWN').replace(/\s+/g, ' ');
+  return msg.slice(0, 60);
+}
+
+/* §3.2 Intake — the only place a marker is read; writes rec.td, no API. */
+
+function timeBridgeIntakePair_(rec, gTask, msTask, syncTimeZone, nowMs, authoredTimeZone) {
+  var parsed = timeBridgeParseNotesMarker_(gTask && gTask.notes);
+  if (!parsed.markerValid) return parsed;
+  var gDue = ordinaryCanonicalDueFromGoogle_(gTask);
+  var msWall = timeBridgeMsDueWallClock_(msTask && msTask.dueDateTime, authoredTimeZone);
+  var fallbackDate = (rec.td && rec.td.date) || (msWall && msWall.date) || gDue ||
+    timeBridgeFormatYmdInTimeZone_(nowMs, syncTimeZone);
+
+  var next;
+  if (parsed.isNone) {
+    // NONE is a clear-time intent: the record keeps the date but the time goes,
+    // and `clear` tells the Microsoft renderer to wipe the leftover reminder
+    // (which is OURS from a previous round, not a user edit).
+    next = { date: fallbackDate, time: null, v: 1, clear: true };
+  } else {
+    next = { date: gDue || timeBridgeFormatYmdInTimeZone_(nowMs, syncTimeZone), time: parsed.hh + ':' + parsed.mm, v: 1 };
+  }
+  if (timeBridgeTdKey_(rec.td) !== timeBridgeTdKey_(next) || !!rec.td === false) {
+    rec.td = next;
+    timeBridgeRetryRevive_(rec);
+  }
+  return parsed;
+}
+
+function timeBridgeIntake_(state, snap, syncTimeZone, nowMs, authoredTimeZone) {
+  var count = 0;
+  Object.keys((state && state.g2m) || {}).forEach(function(gId) {
+    var rec = state.g2m[gId];
+    if (!rec || !rec.msId) return;
+    var gTask = snap.gTasksById[gId];
+    var msTask = snap.msTasksById[rec.msId];
+    if (!gTask || !msTask) return;
+    var parsed = timeBridgeIntakePair_(rec, gTask, msTask, syncTimeZone, nowMs, authoredTimeZone);
+    if (parsed && parsed.markerValid) count += 1;
+  });
+  return count;
+}
+
+/* §3.3 Splice renderer — idempotent; a failure keeps the marker and retries. */
+
+function timeBridgeSpliceRenderer_(state, snap, syncTimeZone, nowMs) {
+  var spliced = 0;
+  Object.keys((state && state.g2m) || {}).forEach(function(gId) {
+    var rec = state.g2m[gId];
+    if (!rec || !rec.msId) return;
+    var gTask = snap.gTasksById[gId];
+    if (!gTask) return;
+    var parsed = timeBridgeParseNotesMarker_(gTask.notes);
+    if (!parsed.markerValid || !parsed.exactMarkerLine) return;
+    if (!timeBridgeRetryDue_(rec, 'splice', nowMs)) return;
+    try {
+      var fresh = getGTask_(rec.gListId, gId);
+      var notes = fresh && fresh.notes != null ? String(fresh.notes) : '';
+      if (notes.indexOf(parsed.exactMarkerLine) >= 0) {
+        var finalNotes = timeBridgeSpliceNotesMarker_(notes, parsed.exactMarkerLine);
+        updateGTask_(rec.gListId, gId, { notes: finalNotes });
+        if (rec.fp && typeof rec.fp === 'object') {
+          // Recompute from the final string — a single source of truth instead
+          // of patching the old fingerprint (§3.3).
+          rec.fp.notes = ordinaryFingerprintHex_(finalNotes);
+        }
+        spliced += 1;
+      }
+      timeBridgeRetryRecordSuccess_(rec, 'splice');
+    } catch (e) {
+      console.warn('[TimeBridge] Splice failed for a pair: ' + timeBridgeBoundedErrorCode_(e));
+      timeBridgeRetryRecordFailure_(rec, 'splice', nowMs);
+    }
+  });
+  return spliced;
+}
+
+/* §3.4 Microsoft renderer — due time + reminder (R-1 single-rule policy). */
+
+/* target = { wall, dateTime, timeZone, isReminderOn, reminderDateTime, reminderInstantMs }
+ * Live-account fact (2026-09-23 probe): the Microsoft To Do API stores the due as
+ * a DATE only — any time component in dueDateTime is dropped, whatever zone label
+ * it carries.  So the due is always midnight and the TIME lives in the reminder,
+ * following the R-1 alarm rule. */
+function timeBridgeMsTarget_(td, syncTimeZone, nowMs, authoredTimeZone) {
+  if (!td || !td.date) return null;
+  var target = {
+    wall: td.date + 'T00:00:00',
+    dateTime: td.date + 'T00:00:00',
+    timeZone: timeBridgeResolveWindowsTimeZone_(authoredTimeZone || syncTimeZone),
+    isReminderOn: false,
+    reminderDateTime: null,
+    reminderInstantMs: null
+  };
+  if (!td.time) return target;
+  // R-1: the alarm is max(task instant, now + 20 minutes); when that instant
+  // falls on a different calendar day than the task date it is not set at all
+  // (never ring after midnight for a task dated today).
+  var dueInstantMs = timeBridgeWallClockToUtcMs_(td.date + 'T' + td.time + ':00', syncTimeZone);
+  var candidate = Math.max(dueInstantMs, nowMs + 20 * 60 * 1000);
+  if (!isFinite(candidate)) return target;
+  if (timeBridgeFormatYmdInTimeZone_(candidate, syncTimeZone) !== td.date) return target;
+  target.isReminderOn = true;
+  target.reminderInstantMs = candidate;
+  target.reminderDateTime = { dateTime: timeBridgeIsoSeconds_(candidate), timeZone: 'UTC' };
+  return target;
+}
+
+function timeBridgeMsMatchesTarget_(msTask, target, authoredTimeZone) {
+  if (!msTask || !target || !msTask.dueDateTime) return false;
+  // Compare wall clocks (authored zone) rather than raw payload strings: Graph
+  // may append fractional seconds, and a payload carrying an instant must still
+  // compare equal when it lands on the same wall clock.
+  var observed = timeBridgeMsDueWallClock_(msTask.dueDateTime, authoredTimeZone);
+  if (!observed) return false;
+  if (observed.date !== target.dateTime.slice(0, 10)) return false;
+  // The Microsoft due is always date-only (the API drops the time component).
+  if (observed.time !== null) return false;
+  if (!!msTask.isReminderOn !== target.isReminderOn) return false;
+  if (!target.isReminderOn) return true;
+  if (!msTask.reminderDateTime) return false;
+  var msReminderMs = timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime);
+  return !isNaN(msReminderMs) && Math.abs(msReminderMs - target.reminderInstantMs) <= 60000;
+}
+
+/* Adopt a Microsoft-side time the user set by hand (the only other authoring
+ * surface for a time on a task).  The reminder is the primary signal — the due
+ * payload never carries a time (the API drops it).  Our own writes converge to
+ * the same value, so a difference means the user edited it. */
+function timeBridgeMsAdoptObservation_(rec, msTask, syncTimeZone, authoredTimeZone) {
+  if (!rec || !rec.td) return false;
+  // A pending NONE clear means the leftover reminder is ours to wipe, never a
+  // user edit to adopt.
+  if (rec.td.clear === true) return false;
+  var adopted = null;
+  if (msTask && msTask.isReminderOn && msTask.reminderDateTime) {
+    var reminderMs = timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime);
+    if (!isNaN(reminderMs)) {
+      adopted = {
+        date: timeBridgeFormatYmdInTimeZone_(reminderMs, syncTimeZone),
+        time: timeBridgeFormatHhMmInTimeZone_(reminderMs, syncTimeZone)
+      };
+    }
+  } else {
+    var observed = timeBridgeMsDueWallClock_(msTask && msTask.dueDateTime, authoredTimeZone);
+    if (observed && observed.time) adopted = { date: observed.date, time: observed.time };
+  }
+  if (!adopted) return false;
+  if (timeBridgeTdKey_(rec.td) === timeBridgeTdKey_(adopted)) return false;
+  rec.td = { date: adopted.date, time: adopted.time, v: 1 };
+  timeBridgeRetryRevive_(rec);
+  return true;
+}
+
+function timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZone) {
+  var patched = 0;
+  var quarantined = [];
+  Object.keys((state && state.g2m) || {}).forEach(function(gId) {
+    var rec = state.g2m[gId];
+    if (!rec || !rec.msId || !rec.td) return;
+    // Date-only pairs without a pending clear are left entirely alone: the
+    // reminder on such a task belongs to the user, not to the engine.
+    var pendingClear = rec.td.clear === true;
+    if (!rec.td.time && !pendingClear) return;
+    var msTask = snap.msTasksById[rec.msId];
+    if (!msTask) return;
+    // While a due conflict is unresolved the merge owns the outcome: writing a
+    // due here would pick a side silently.
+    if (rec.fc && rec.fc.due) return;
+    if (!timeBridgeRetryDue_(rec, 'ms', nowMs)) return;
+    // A pending NONE clear means the leftover reminder is OURS from a previous
+    // round — it must be wiped, never adopted back as a user edit.
+    if (!pendingClear && timeBridgeMsAdoptObservation_(rec, msTask, syncTimeZone, authoredTimeZone)) return;
+    var target = timeBridgeMsTarget_(rec.td, syncTimeZone, nowMs, authoredTimeZone);
+    if (!target) return;
+    var observed = timeBridgeMsDueWallClock_(msTask.dueDateTime, authoredTimeZone);
+    var dueOk = !!observed && observed.date === rec.td.date && observed.time === null;
+    var reminderOk = !!msTask.isReminderOn === target.isReminderOn &&
+      (!target.isReminderOn || (!!msTask.reminderDateTime &&
+        Math.abs(timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime) - target.reminderInstantMs) <= 60000));
+    if (dueOk && reminderOk) {
+      timeBridgeRetryRecordSuccess_(rec, 'ms');
+      return;
+    }
+    // Live-account fact (2026-09-23, wipe probe): Graph ignores reminder fields
+    // when a PATCH also carries dueDateTime, so the two are written separately.
+    // The proven wipe form is { isReminderOn:false, reminderDateTime:null }.
+    try {
+      if (!reminderOk) {
+        var reminderPayload = { isReminderOn: target.isReminderOn };
+        reminderPayload.reminderDateTime = target.isReminderOn ? target.reminderDateTime : null;
+        updateMsTask_(rec.msListId, rec.msId, reminderPayload);
+        patched += 1;
+      }
+      if (!dueOk) {
+        updateMsTask_(rec.msListId, rec.msId, { dueDateTime: { dateTime: rec.td.date + 'T00:00:00', timeZone: target.timeZone } });
+      }
+      timeBridgeRetryRecordSuccess_(rec, 'ms');
+      if (pendingClear) delete rec.td.clear;
+    } catch (e) {
+      var code = timeBridgeBoundedErrorCode_(e);
+      console.warn('[TimeBridge] Microsoft render failed for a pair: ' + code);
+      var outcome = timeBridgeRetryRecordFailure_(rec, 'ms', nowMs);
+      if (outcome.quarantined) quarantined.push({ gId: gId, renderer: 'ms', code: code });
+    }
+  });
+  return { patched: patched, quarantined: quarantined };
+}
+
+/* §3.7 Calendar renderer (opt-in; SYNC_CALENDAR_PROJECTION is off by default). */
+
+function timeBridgeGetOrCreateCalendar_(state, syncTimeZone) {
+  if (typeof CalendarApp === 'undefined') return null;
+  var cached = state && state.calendarProjection && state.calendarProjection.calendarId;
+  if (cached) return cached;
+  try {
+    var calendars = CalendarApp.getCalendarsByName(TIME_BRIDGE_CALENDAR_SUMMARY);
+    var owned = calendars.filter(function(cal) {
+      return typeof cal.isOwnedByMe === 'function' ? cal.isOwnedByMe() : true;
+    });
+    var calendarId = null;
+    if (owned.length > 0) {
+      calendarId = owned[0].getId();
+    } else {
+      // Time zone and selection are a one-time property of the calendar, not a
+      // per-round side effect.
+      calendarId = CalendarApp.createCalendar(TIME_BRIDGE_CALENDAR_SUMMARY, {
+        timeZone: syncTimeZone,
+        selected: true
+      }).getId();
+    }
+    if (calendarId) {
+      state.calendarProjection = { calendarId: calendarId, v: 1 };
+      persistSyncState_(state);
+    }
+    return calendarId;
+  } catch (e) {
+    console.warn('[TimeBridge] Failed to get or create projection calendar: ' + timeBridgeBoundedErrorCode_(e));
+    return null;
+  }
+}
+
+function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, endIso, syncTimeZone, rec, reminderMode) {
+  var deterministicId = timeBridgeDeterministicEventId_(pairId);
+  var targetFp = timeBridgeEventFingerprint_(title, startIso, endIso, reminderMode);
+  var fingerprintSlot = rec.rem && rec.rem.eFp;
+
+  if (rec.rem && rec.rem.e === deterministicId && fingerprintSlot === targetFp) return false;
 
   var eventResource = {
     id: deterministicId,
@@ -515,50 +558,52 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
     end: { dateTime: endIso, timeZone: syncTimeZone },
     reminders: {
       useDefault: false,
-      overrides: [{ method: 'popup', minutes: 0 }]
+      overrides: reminderMode === 'silent' ? [] : [{ method: 'popup', minutes: 0 }]
     }
   };
+
+  function confirm() {
+    rec.rem = rec.rem || {};
+    rec.rem.e = deterministicId;
+    rec.rem.eFp = targetFp;
+  }
 
   try {
     var existing = Calendar.Events.get(calendarId, deterministicId);
     if (existing && existing.status === 'cancelled') {
       Calendar.Events.patch(Object.assign({}, eventResource, { status: 'confirmed' }), calendarId, deterministicId);
-      rec.rem.e = deterministicId;
-      rec.rem.eFp = targetFp;
-      return;
+      confirm();
+      return true;
     }
     if (existing && existing.status === 'confirmed') {
       Calendar.Events.patch(eventResource, calendarId, deterministicId);
-      rec.rem.e = deterministicId;
-      rec.rem.eFp = targetFp;
-      return;
+      confirm();
+      return true;
     }
   } catch (e) {
     var status = timeBridgeCalendarHttpStatus_(e);
     if (status === 404 || status === 410) {
       try {
         Calendar.Events.insert(eventResource, calendarId);
-        rec.rem.e = deterministicId;
-        rec.rem.eFp = targetFp;
-        return;
+        confirm();
+        return true;
       } catch (insertErr) {
         if (timeBridgeCalendarHttpStatus_(insertErr) === 409) {
           Calendar.Events.patch(Object.assign({}, eventResource, { status: 'confirmed' }), calendarId, deterministicId);
-          rec.rem.e = deterministicId;
-          rec.rem.eFp = targetFp;
-          return;
+          confirm();
+          return true;
         }
         throw insertErr;
       }
     }
     if (status === 409) {
       Calendar.Events.patch(Object.assign({}, eventResource, { status: 'confirmed' }), calendarId, deterministicId);
-      rec.rem.e = deterministicId;
-      rec.rem.eFp = targetFp;
-      return;
+      confirm();
+      return true;
     }
     throw e;
   }
+  return false;
 }
 
 function timeBridgeDeleteCalendarEvent_(calendarId, pairId, rec) {
@@ -568,259 +613,190 @@ function timeBridgeDeleteCalendarEvent_(calendarId, pairId, rec) {
   } catch (e) {
     var status = timeBridgeCalendarHttpStatus_(e);
     if (status !== 404 && status !== 410) {
-      console.warn('[TimeBridge] Failed to delete calendar event: ' + String(e.message || e));
+      console.warn('[TimeBridge] Failed to delete calendar event: ' + timeBridgeBoundedErrorCode_(e));
+      throw e;
     }
   }
   if (rec && rec.rem) {
     delete rec.rem.e;
     delete rec.rem.eFp;
   }
+  return true;
 }
 
-function timeBridgeGetOrCreateCalendar_(syncTimeZone) {
-  if (typeof CalendarApp === 'undefined') return null;
-  try {
-    var calendars = CalendarApp.getCalendarsByName(TIME_BRIDGE_CALENDAR_SUMMARY);
-    var owned = calendars.filter(function(cal) {
-      return typeof cal.isOwnedByMe === 'function' ? cal.isOwnedByMe() : true;
-    });
-    if (owned.length > 0) {
-      var cal = owned[0];
-      if (typeof cal.setTimeZone === 'function') cal.setTimeZone(syncTimeZone);
-      if (typeof cal.setSelected === 'function') cal.setSelected(true);
-      return cal.getId();
+function timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, startedAt) {
+  var result = { projected: 0, deleted: 0, quarantined: [] };
+  if (!safety || !safety.enableCalendarProjection) return result;
+  if (typeof Calendar === 'undefined') return result;
+  var reminderMode = safety.enableCalendarProjectionReminder === false ? 'silent' : 'default';
+  var calendarId = timeBridgeGetOrCreateCalendar_(state, syncTimeZone);
+  if (!calendarId) return result;
+  var opsCount = 0;
+
+  Object.keys((state && state.g2m) || {}).forEach(function(gId) {
+    if (opsCount >= TIME_BRIDGE_OPS_MAX_PER_ROUND) return;
+    var rec = state.g2m[gId];
+    if (!rec || !rec.msId) return;
+    var gTask = snap.gTasksById[gId];
+    if (!gTask) return;
+    var completed = gTask.status === 'completed' ||
+      (snap.msTasksById[rec.msId] && snap.msTasksById[rec.msId].status === 'completed');
+    var hasTime = !!(rec.td && rec.td.time) && !completed;
+    if (!timeBridgeRetryDue_(rec, 'cal', nowMs)) return;
+    try {
+      if (!hasTime) {
+        if (rec.rem && rec.rem.e) {
+          opsCount += 1;
+          timeBridgeDeleteCalendarEvent_(calendarId, gId, rec);
+          result.deleted += 1;
+        }
+        timeBridgeRetryRecordSuccess_(rec, 'cal');
+        return;
+      }
+      var startMs = timeBridgeWallClockToUtcMs_(rec.td.date + 'T' + rec.td.time + ':00', syncTimeZone);
+      if (!isFinite(startMs) || startMs < nowMs) {
+        timeBridgeRetryRecordSuccess_(rec, 'cal');
+        return;
+      }
+      var startIso = new Date(startMs).toISOString();
+      var endIso = new Date(startMs + TIME_BRIDGE_EVENT_DURATION_MINUTES * 60 * 1000).toISOString();
+      // The ops budget counts performed API writes only, never examinations —
+      // otherwise pairs late in the key order would starve forever.
+      opsCount += 1;
+      if (timeBridgeProjectCalendarEvent_(calendarId, gId, gTask.title, startIso, endIso, syncTimeZone, rec, reminderMode)) {
+        result.projected += 1;
+      }
+      timeBridgeRetryRecordSuccess_(rec, 'cal');
+    } catch (e) {
+      var code = timeBridgeBoundedErrorCode_(e);
+      console.warn('[TimeBridge] Calendar render failed for a pair: ' + code);
+      // A cached calendar that no longer resolves invalidates the cache so the
+      // next round looks the calendar up again.
+      if (code === 'HTTP_404' && state.calendarProjection) delete state.calendarProjection;
+      var outcome = timeBridgeRetryRecordFailure_(rec, 'cal', nowMs);
+      if (outcome.quarantined) result.quarantined.push({ gId: gId, renderer: 'cal', code: code });
     }
-    var created = CalendarApp.createCalendar(TIME_BRIDGE_CALENDAR_SUMMARY, {
-      timeZone: syncTimeZone,
-      selected: true
-    });
-    return created.getId();
-  } catch (e) {
-    console.warn('[TimeBridge] Failed to get or create projection calendar: ' + String(e.message || e));
-    return null;
-  }
+  });
+  return result;
 }
+
+/* §4 Migration from the v0.7.x state shape. */
+
+function timeBridgeMigrateLegacyRem_(state, snap, syncTimeZone, authoredTimeZone) {
+  var rebuilt = 0;
+  var cleared = 0;
+  Object.keys((state && state.g2m) || {}).forEach(function(gId) {
+    var rec = state.g2m[gId];
+    if (!rec) return;
+    var rem = rec.rem;
+    var hasLegacy = !!(rem && (rem.ms !== undefined || rem.msAt !== undefined ||
+      rem.hasTime !== undefined || rem.markerOrphaned !== undefined));
+    if (!rec.td && rec.msId) {
+      var msTask = snap.msTasksById[rec.msId];
+      var wall = timeBridgeMsDueWallClock_(msTask && msTask.dueDateTime, authoredTimeZone);
+      if (wall && wall.time) {
+        rec.td = { date: wall.date, time: wall.time, v: 1 };
+        rebuilt += 1;
+      } else if (msTask && msTask.isReminderOn && msTask.reminderDateTime) {
+        var reminderMs = timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime);
+        if (!isNaN(reminderMs)) {
+          var reminderTime = timeBridgeFormatHhMmInTimeZone_(reminderMs, syncTimeZone);
+          if (reminderTime !== '00:00') {
+            rec.td = {
+              date: timeBridgeFormatYmdInTimeZone_(reminderMs, syncTimeZone),
+              time: reminderTime,
+              v: 1
+            };
+            rebuilt += 1;
+          }
+        }
+      }
+    }
+    if (hasLegacy) {
+      // The legacy ownership keys are dropped as soon as the record has been
+      // rebuilt; e / eFp survive so projected events are not recreated.
+      delete rec.rem.ms;
+      delete rec.rem.msAt;
+      delete rec.rem.hasTime;
+      delete rec.rem.markerOrphaned;
+      if (!Object.keys(rec.rem).length) delete rec.rem;
+      cleared += 1;
+    }
+  });
+
+  var legacyJournal = null;
+  if (state.timeBridgeJournal) {
+    legacyJournal = 1;
+    state.timeBridgeJournal = null;
+  }
+  var deadLetterCount = Array.isArray(state.deadLetterJournal) ? state.deadLetterJournal.length : 0;
+  if (deadLetterCount) {
+    // §4.4: the old drawer was unattended and may have held only transient
+    // failures, so every pair starts again from a clean slate.
+    state.deadLetterJournal = [];
+  }
+  return { rebuilt: rebuilt, cleared: cleared, legacyJournal: legacyJournal, deadLetterCleared: deadLetterCount };
+}
+
+/* §3.4.5 quarantine notification — one aggregated mail per round. */
+
+function timeBridgeNotifyQuarantine_(entries) {
+  if (!entries || !entries.length) return false;
+  if (!canSendAlert_(ALERT_KEYS.timeBridgeQuarantine, ALERT_COOLDOWN_MS)) {
+    console.warn('[TimeBridge] Quarantine notification is still in its cooldown period; email skipped.');
+    return false;
+  }
+  var lines = entries.map(function(entry) {
+    return '- ' + previewOpaqueId_('pair', entry.gId) + ' · ' + entry.renderer + ' · ' + entry.code;
+  });
+  var subject = '[Sync engine] ' + entries.length + ' task(s) moved to the Time Bridge drawer';
+  var body = 'Time Bridge stopped retrying these tasks after repeated failures and put them in the drawer.\n' +
+    'Nothing was deleted, and the ordinary task fields keep syncing.\n\n' +
+    lines.join('\n') + '\n\n' +
+    'To retry: edit the task marker in Google Tasks or change its date, then run syncAll().';
+  var sent = sendMailAlert_(subject, body);
+  if (sent) markAlertSent_(ALERT_KEYS.timeBridgeQuarantine);
+  return sent;
+}
+
+/* §3.8 Orchestrator. */
 
 function timeBridgeRun_(state, snap, startedAt, roundId) {
   var safety = getSafetyConfig_();
-  if (!safety.enableTimeBridge) {
-    // WO-7: Even when the knob is OFF, release hasTime so that ordinary field-merge
-    // re-owns the due field. Do NOT delete calendar events on this path (consistent
-    // with the existing no-batch-delete-on-disable rule).
-    var g2m = state.g2m || {};
-    Object.keys(g2m).forEach(function(gId) {
-      var rec = g2m[gId];
-      if (rec && rec.rem && rec.rem.hasTime) {
-        rec.rem.hasTime = false;
-        rec.rem.ms = undefined;
-        delete rec.rem.msAt;
-      }
-    });
-    return;
-  }
-
   var syncTimeZone = syncTimeZone_();
   var nowMs = Date.now();
+  var authoredTimeZone = timeBridgeAuthoredTimeZone_(syncTimeZone);
+  var summary = { migrated: null, intaken: 0, spliced: 0, msPatched: 0, quarantined: [] };
 
-  // Phase 1: Journal Recovery
-  if (state.timeBridgeJournal) {
-    var j = state.timeBridgeJournal;
-    var gId = j.pairId;
-    var rec = state.g2m && state.g2m[gId];
-    if (!rec) {
-      state.timeBridgeJournal = null;
-      persistSyncState_(state);
-    } else {
-      var gTask = snap.gTasksById[gId];
-      var msTask = snap.msTasksById[rec.msId];
-      if (!gTask || !msTask) {
-        state.timeBridgeJournal = null;
-        persistSyncState_(state);
-      } else {
-        timeBridgeExecuteJournalStep_(state, gTask, msTask, rec.gListId, rec.msListId, syncTimeZone);
-      }
-    }
+  summary.migrated = timeBridgeMigrateLegacyRem_(state, snap, syncTimeZone, authoredTimeZone);
+
+  if (!safety.enableTimeBridge) {
+    // Knob OFF: no intake, no renderers.  `due` is fully owned by the merge and
+    // the time component is ignored there, so nothing has to be released here.
+    return summary;
   }
 
-  // Phase 2 & 3: Ingestion & Rescheduling
-  var opsCount = 0;
-  var calendarId = null;
-  if (safety.enableCalendarProjection && typeof Calendar !== 'undefined') {
-    calendarId = timeBridgeGetOrCreateCalendar_(syncTimeZone);
-  }
+  summary.intaken = timeBridgeIntake_(state, snap, syncTimeZone, nowMs, authoredTimeZone);
+  if (!remainingTimeOk_(startedAt, 30000)) return summary;
+  summary.spliced = timeBridgeSpliceRenderer_(state, snap, syncTimeZone, nowMs);
+  if (!remainingTimeOk_(startedAt, 30000)) return summary;
+  var msResult = timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZone);
+  summary.msPatched = msResult.patched;
+  summary.quarantined = summary.quarantined.concat(msResult.quarantined);
+  return summary;
+}
 
-  var mappedGIds = Object.keys(state.g2m || {});
-  for (var i = 0; i < mappedGIds.length; i += 1) {
-    if (!remainingTimeOk_(startedAt, 30000)) break;
-    if (opsCount >= TIME_BRIDGE_OPS_MAX_PER_ROUND) break;
+function timeBridgeRunRenderersAfterMerge_(state, snap, startedAt, roundId) {
+  var safety = getSafetyConfig_();
+  var syncTimeZone = syncTimeZone_();
+  var nowMs = Date.now();
+  var summary = { calendarProjected: 0, calendarDeleted: 0, quarantined: [] };
+  if (!safety.enableTimeBridge) return summary;
 
-    var gId = mappedGIds[i];
-    var rec = state.g2m[gId];
-    if (!rec || !rec.msId) continue;
-    rec.rem = rec.rem || {};
-
-    var gTask = snap.gTasksById[gId];
-    var msTask = snap.msTasksById[rec.msId];
-    if (!gTask || !msTask) continue;
-
-    var completed = gTask.status === 'completed' || msTask.status === 'completed';
-
-    // Parse marker
-    var parsed = timeBridgeParseNotesMarker_(gTask.notes);
-    var markerValid = parsed.markerValid;
-
-    // Hard reset check
-    if (markerValid && rec.rem.ms === false) {
-      rec.rem.ms = undefined;
-    }
-
-    // Evaluate ownership & surrender
-    timeBridgeEvaluateOwnership_(rec, msTask, nowMs);
-
-    var dueHasTime = timeBridgeDueHasTime_(msTask.dueDateTime, syncTimeZone);
-
-    // Set / Clear hasTime
-    var priorHasTime = !!rec.rem.hasTime;
-    if (markerValid && !parsed.isNone) {
-      rec.rem.hasTime = true;
-    } else if (msTask.isReminderOn || dueHasTime) {
-      rec.rem.hasTime = true;
-    } else if (!markerValid && !msTask.isReminderOn && !dueHasTime) {
-      rec.rem.hasTime = false;
-    }
-
-    // Cleanup calendar if completed or hasTime false
-    if (calendarId) {
-      if (completed || !rec.rem.hasTime) {
-        if (rec.rem.e) timeBridgeDeleteCalendarEvent_(calendarId, gId, rec);
-      }
-    }
-
-    // If completed, acquisition is excluded
-    if (completed) continue;
-
-    // Event-Driven Ingestion Triggers (§3.1)
-    var trigger1 = markerValid;
-    var trigger2 = false;
-    var trigger3 = false;
-    var trigger4 = !priorHasTime && rec.rem.hasTime;
-
-    var gDueChanged = false;
-    var gDueCanonical = ordinaryCanonicalDueFromGoogle_(gTask);
-    if (rec.fp && rec.fp.due !== undefined && gDueCanonical !== null) {
-      var gDueFp = ordinaryFieldFp_(ordinaryProjectGoogle_(gTask, rec), 'due');
-      if (gDueFp && rec.fp.due && gDueFp !== rec.fp.due) gDueChanged = true;
-    }
-
-    var msDueChanged = false;
-    var msDueCanonical = ordinaryCanonicalDueFromMicrosoft_(msTask);
-    if (rec.fp && rec.fp.due !== undefined && msDueCanonical !== null) {
-      var msDueFp = ordinaryFieldFp_(ordinaryProjectMicrosoft_(msTask, rec), 'due');
-      if (msDueFp && rec.fp.due && msDueFp !== rec.fp.due) msDueChanged = true;
-    }
-
-    if (!markerValid && gDueChanged && rec.rem.hasTime) trigger2 = true;
-    if (msDueChanged && rec.rem.hasTime && !state.timeBridgeJournal) trigger3 = true;
-
-    // Deduplicate triggers into single pass
-    if (!trigger1 && !trigger2 && !trigger3 && !trigger4) {
-      // Steady state: ensure projection up to date if hasTime
-      if (calendarId && rec.rem.hasTime && !rec.rem.e) {
-        var startMs = timeBridgeDueHasTime_(msTask.dueDateTime, syncTimeZone)
-          ? timeBridgeParseDateTimeZoneMs_(msTask.dueDateTime)
-          : (msTask.reminderDateTime ? timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime) : NaN);
-        if (!isNaN(startMs) && startMs >= nowMs) {
-          var endMs = startMs + TIME_BRIDGE_EVENT_DURATION_MINUTES * 60 * 1000;
-          timeBridgeProjectCalendarEvent_(calendarId, gId, gTask.title, new Date(startMs).toISOString(), new Date(endMs).toISOString(), syncTimeZone, rec);
-        }
-      }
-      continue;
-    }
-
-    // Determine target T
-    var T = NaN;
-    var isNone = false;
-    if (trigger1) {
-      if (parsed.isNone) {
-        isNone = true;
-      } else {
-        var baseDate = gDueCanonical || timeBridgeFormatYmdInTimeZone_(nowMs, syncTimeZone);
-        T = timeBridgeWallClockToUtcMs_(baseDate + 'T' + parsed.hh + ':' + parsed.mm + ':00', syncTimeZone);
-      }
-    } else if (trigger2) {
-      var existingHhMm = dueHasTime
-        ? timeBridgeFormatHhMmInTimeZone_(timeBridgeParseDateTimeZoneMs_(msTask.dueDateTime), syncTimeZone)
-        : (msTask.isReminderOn && msTask.reminderDateTime
-          ? timeBridgeFormatHhMmInTimeZone_(timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime), syncTimeZone)
-          : null);
-      if (existingHhMm) {
-        T = timeBridgeWallClockToUtcMs_(gDueCanonical + 'T' + existingHhMm + ':00', syncTimeZone);
-      }
-    } else if (trigger3) {
-      var msLocalYmd = timeBridgeFormatYmdInTimeZone_(timeBridgeParseDateTimeZoneMs_(msTask.dueDateTime), syncTimeZone);
-      updateGTask_(rec.gListId, gId, { due: msLocalYmd + 'T00:00:00.000Z' });
-      if (rec.fp && typeof rec.fp === 'object') {
-        rec.fp.due = ordinaryFieldFp_({ due: msLocalYmd, dueOk: true }, 'due');
-      }
-      var existingHhMm3 = dueHasTime
-        ? timeBridgeFormatHhMmInTimeZone_(timeBridgeParseDateTimeZoneMs_(msTask.dueDateTime), syncTimeZone)
-        : (msTask.isReminderOn && msTask.reminderDateTime
-          ? timeBridgeFormatHhMmInTimeZone_(timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime), syncTimeZone)
-          : null);
-      if (existingHhMm3) {
-        T = timeBridgeWallClockToUtcMs_(msLocalYmd + 'T' + existingHhMm3 + ':00', syncTimeZone);
-      }
-    } else if (trigger4) {
-      if (dueHasTime) {
-        T = timeBridgeParseDateTimeZoneMs_(msTask.dueDateTime);
-      } else {
-        // Driven solely by isReminderOn: zero MS intent, calendar projection only
-        T = NaN;
-      }
-    }
-
-    if (isNaN(T) && !isNone) {
-      // If T is not applicable, project calendar if appropriate
-      if (calendarId && rec.rem.hasTime && msTask.reminderDateTime) {
-        var rMs = timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime);
-        if (!isNaN(rMs) && rMs >= nowMs) {
-          timeBridgeProjectCalendarEvent_(calendarId, gId, gTask.title, new Date(rMs).toISOString(), new Date(rMs + 1800000).toISOString(), syncTimeZone, rec);
-        }
-      }
-      continue;
-    }
-
-    var intent = timeBridgeComputeIntent_(T, nowMs, syncTimeZone, rec, isNone);
-    if (parsed.exactMarkerLine) intent.exactMarkerLine = parsed.exactMarkerLine;
-
-    var msMatches = timeBridgeMsMatchesIntent_(msTask, intent, syncTimeZone);
-    var ownershipChanged = intent.acquireOwnership || intent.releaseOwnership;
-
-    // Complete Zero-Mutation No-op
-    if (msMatches && !parsed.exactMarkerLine && !ownershipChanged) {
-      continue;
-    }
-
-    // Create journal
-    var journal = {
-      opId: ordinaryFingerprintHex_(gId + '|' + nowMs),
-      pairId: gId,
-      stage: 'INTENT_PERSISTED',
-      intent: intent,
-      retryCount: 0
-    };
-    state.timeBridgeJournal = journal;
-    persistSyncState_(state);
-    opsCount += 1;
-
-    // Execute journal steps
-    timeBridgeExecuteJournalStep_(state, gTask, msTask, rec.gListId, rec.msListId, syncTimeZone);
-
-    // Project calendar if active
-    if (calendarId && rec.rem.hasTime && !isNone && T >= nowMs) {
-      var startIso = new Date(T).toISOString();
-      var endIso = new Date(T + TIME_BRIDGE_EVENT_DURATION_MINUTES * 60 * 1000).toISOString();
-      timeBridgeProjectCalendarEvent_(calendarId, gId, gTask.title, startIso, endIso, syncTimeZone, rec);
-    }
-  }
+  var calResult = timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, startedAt);
+  summary.calendarProjected = calResult.projected;
+  summary.calendarDeleted = calResult.deleted;
+  summary.quarantined = calResult.quarantined;
+  if (summary.quarantined.length) timeBridgeNotifyQuarantine_(summary.quarantined);
+  return summary;
 }

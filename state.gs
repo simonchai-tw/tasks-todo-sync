@@ -1816,6 +1816,10 @@ function assertTimeBridgeMappingRem_(rem, label) {
   if (rem === undefined || rem === null) return;
   label = label || 'rem';
   if (!isStateObject_(rem)) throw new Error('STATE_MALFORMED: ' + label + ' must be an object; overwrite refused.');
+  // v0.8.0: the runtime writes only ['e','eFp'].  The legacy Time Bridge keys
+  // (ms / msAt / hasTime / markerOrphaned) stay accepted on the load path so an
+  // upgrading installation can rebuild rec.td from them and then drop them;
+  // nothing in the v0.8.0 runtime ever writes them again.
   assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned'], label, 'STATE_MALFORMED');
   if (rem.e !== undefined && rem.e !== null && (typeof rem.e !== 'string' || !/^[0-9a-f]{32}$/.test(rem.e))) {
     throw new Error('STATE_MALFORMED: ' + label + '.e is invalid; overwrite refused.');
@@ -1837,11 +1841,66 @@ function assertTimeBridgeMappingRem_(rem, label) {
   }
 }
 
-function assertTimeBridgeJournal_(journal, label) {
+// v0.8.0 canonical time record: wall-clock only (no instant, no time zone).
+// `retry` carries the per-renderer R-4 ladder state (ms / splice / cal).
+function assertTimeBridgeTd_(td, label) {
+  if (td === undefined || td === null) return;
+  if (!isStateObject_(td)) throw new Error('STATE_MALFORMED: ' + label + ' must be an object; overwrite refused.');
+  assertKnownObjectKeys_(td, ['date', 'time', 'v', 'retry', 'clear'], label, 'STATE_MALFORMED');
+  if (typeof td.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(td.date)) {
+    throw new Error('STATE_MALFORMED: ' + label + '.date is invalid; overwrite refused.');
+  }
+  if (td.time !== null && (typeof td.time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(td.time))) {
+    throw new Error('STATE_MALFORMED: ' + label + '.time must be HH:mm or null; overwrite refused.');
+  }
+  if (td.v !== 1) throw new Error('STATE_MALFORMED: ' + label + '.v is invalid; overwrite refused.');
+  if (td.clear !== undefined && td.clear !== null && typeof td.clear !== 'boolean') {
+    throw new Error('STATE_MALFORMED: ' + label + '.clear must be boolean or null/undefined; overwrite refused.');
+  }
+  if (td.retry === undefined) return;
+  if (!isStateObject_(td.retry)) throw new Error('STATE_MALFORMED: ' + label + '.retry must be an object; overwrite refused.');
+  assertKnownObjectKeys_(td.retry, ['ms', 'splice', 'cal'], label + '.retry', 'STATE_MALFORMED');
+  ['ms', 'splice', 'cal'].forEach(function(name) {
+    const row = td.retry[name];
+    if (row === undefined) return;
+    const rowLabel = label + '.retry.' + name;
+    if (!isStateObject_(row)) throw new Error('STATE_MALFORMED: ' + rowLabel + ' must be an object; overwrite refused.');
+    assertKnownObjectKeys_(row, ['fails', 'lastFailAt', 'quarantined'], rowLabel, 'STATE_MALFORMED');
+    if (!Number.isInteger(row.fails) || row.fails < 0) {
+      throw new Error('STATE_MALFORMED: ' + rowLabel + '.fails is invalid; overwrite refused.');
+    }
+    if (row.lastFailAt !== undefined && row.lastFailAt !== null &&
+        (typeof row.lastFailAt !== 'string' || isNaN(Date.parse(row.lastFailAt)))) {
+      throw new Error('STATE_MALFORMED: ' + rowLabel + '.lastFailAt is invalid; overwrite refused.');
+    }
+    if (row.quarantined !== undefined && row.quarantined !== null && typeof row.quarantined !== 'boolean') {
+      throw new Error('STATE_MALFORMED: ' + rowLabel + '.quarantined must be boolean or null/undefined; overwrite refused.');
+    }
+  });
+}
+
+function assertCalendarProjection_(value) {
+  if (value === undefined || value === null) return;
+  if (!isStateObject_(value)) throw new Error('STATE_MALFORMED: calendarProjection must be an object; overwrite refused.');
+  assertKnownObjectKeys_(value, ['calendarId', 'v'], 'calendarProjection', 'STATE_MALFORMED');
+  if (typeof value.calendarId !== 'string' || !value.calendarId) {
+    throw new Error('STATE_MALFORMED: calendarProjection.calendarId is invalid; overwrite refused.');
+  }
+  if (value.v !== 1) throw new Error('STATE_MALFORMED: calendarProjection.v is invalid; overwrite refused.');
+}
+
+function assertTimeBridgeJournal_(journal, label, opts) {
   if (!journal) return;
   label = label || 'timeBridgeJournal';
   if (!isStateObject_(journal)) throw new Error('STATE_MALFORMED: ' + label + ' must be an object; overwrite refused.');
-  assertKnownObjectKeys_(journal, ['opId', 'pairId', 'stage', 'intent', 'googleEtag', 'msEtag', 'retryCount'], label, 'STATE_MALFORMED');
+  // Dead-letter entries are journals plus failedAt/reason.  v0.7.5 validated the
+  // dead-letter entry with the plain journal whitelist, so a state that had ever
+  // produced a dead-letter entry failed its own load with STATE_MALFORMED (never
+  // exercised, because no release had written one).  v0.8.0 keeps the tables
+  // only for the tolerant load path and clears them on the first round.
+  const allowedJournalKeys = ['opId', 'pairId', 'stage', 'intent', 'googleEtag', 'msEtag', 'retryCount'];
+  if (opts && opts.deadLetter) allowedJournalKeys.push('failedAt', 'reason');
+  assertKnownObjectKeys_(journal, allowedJournalKeys, label, 'STATE_MALFORMED');
   if (typeof journal.opId !== 'string' || !journal.opId) throw new Error('STATE_MALFORMED: ' + label + '.opId is invalid; overwrite refused.');
   if (typeof journal.pairId !== 'string' || !journal.pairId) throw new Error('STATE_MALFORMED: ' + label + '.pairId is invalid; overwrite refused.');
   if (!validTimeBridgeJournalStage_(journal.stage)) throw new Error('STATE_MALFORMED: ' + label + '.stage is invalid; overwrite refused.');
@@ -1880,7 +1939,7 @@ function assertTimeBridgeDeadLetterJournal_(list) {
   if (!list) return;
   if (!Array.isArray(list)) throw new Error('STATE_MALFORMED: deadLetterJournal must be an array; overwrite refused.');
   list.forEach(function(entry, idx) {
-    assertTimeBridgeJournal_(entry, 'deadLetterJournal[' + idx + ']');
+    assertTimeBridgeJournal_(entry, 'deadLetterJournal[' + idx + ']', { deadLetter: true });
     if (typeof entry.failedAt !== 'string' || typeof entry.reason !== 'string') {
       throw new Error('STATE_MALFORMED: deadLetterJournal[' + idx + '] must have failedAt and reason strings; overwrite refused.');
     }
@@ -1921,7 +1980,7 @@ function assertOrdinaryMappingExtras_(state) {
   Object.keys((state && state.g2m) || {}).forEach(function(gId) {
     const rec = state.g2m[gId];
     if (!rec || typeof rec !== 'object') return;
-    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem'],
+    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem', 'td'],
       'g2m[' + gId + ']', 'STATE_MALFORMED');
     assertOrdinaryFingerprint_(rec.fp, 'g2m[' + gId + ']');
     if (rec.res !== undefined) {
@@ -1952,6 +2011,9 @@ function assertOrdinaryMappingExtras_(state) {
     if (rec.rem !== undefined) {
       assertTimeBridgeMappingRem_(rec.rem, 'g2m[' + gId + '].rem');
     }
+    if (rec.td !== undefined) {
+      assertTimeBridgeTd_(rec.td, 'g2m[' + gId + '].td');
+    }
   });
 }
 
@@ -1966,7 +2028,8 @@ function assertStrictSchema4StateShape_(state) {
   // Absence terminal-state tables (W2/W3) and Time Bridge state tables (Spec v2.4) are optional.
   const schema4OptionalTopLevel = [
     'retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal', 'resourceObservationCursor',
-    'timeBridgeJournal', 'deadLetterJournal', 'pendingEventDeletions', 'deadLetterEventDeletions'
+    'timeBridgeJournal', 'deadLetterJournal', 'pendingEventDeletions', 'deadLetterEventDeletions',
+    'calendarProjection'
   ];
   assertKnownObjectKeys_(state, allowedTopLevel.concat(schema4OptionalTopLevel), 'schema=4 state', 'STATE_MALFORMED');
   allowedTopLevel.forEach(function(field) {
@@ -1986,12 +2049,14 @@ function assertStrictSchema4StateShape_(state) {
   if (state.deadLetterJournal) assertTimeBridgeDeadLetterJournal_(state.deadLetterJournal);
   if (state.pendingEventDeletions) assertPendingEventDeletionsTable_(state.pendingEventDeletions);
   if (state.deadLetterEventDeletions) assertDeadLetterEventDeletionsTable_(state.deadLetterEventDeletions);
+  if (state.calendarProjection) assertCalendarProjection_(state.calendarProjection);
   const legacy = cloneStateForValidation_(state);
   delete legacy.subtasks;
   delete legacy.timeBridgeJournal;
   delete legacy.deadLetterJournal;
   delete legacy.pendingEventDeletions;
   delete legacy.deadLetterEventDeletions;
+  delete legacy.calendarProjection;
   legacy.schema = 3;
   Object.keys(legacy.g2m || {}).forEach(function(gId) {
     const rec = legacy.g2m[gId];
@@ -2000,6 +2065,7 @@ function assertStrictSchema4StateShape_(state) {
     delete rec.res;
     delete rec.fc;
     delete rec.rem;
+    delete rec.td;
   });
   assertStrictSchema3StateShape_(legacy, 'STATE_MALFORMED');
   assertOrdinaryMappingExtras_(state);
@@ -2150,6 +2216,7 @@ function normalizeState_(state) {
       if (rec.res) extra.res = rec.res;
       if (rec.fc) extra.fc = rec.fc;
       if (rec.rem) extra.rem = rec.rem;
+      if (rec.td) extra.td = rec.td;
       if (Object.keys(extra).length) mappingExtras[gId] = extra;
     });
     const legacy = cloneStateForValidation_(source);
@@ -2159,6 +2226,7 @@ function normalizeState_(state) {
     delete legacy.deadLetterJournal;
     delete legacy.pendingEventDeletions;
     delete legacy.deadLetterEventDeletions;
+    delete legacy.calendarProjection;
     legacy.schema = 3;
     Object.keys(legacy.g2m || {}).forEach(function(gId) {
       const rec = legacy.g2m[gId];
@@ -2167,6 +2235,7 @@ function normalizeState_(state) {
       delete rec.res;
       delete rec.fc;
       delete rec.rem;
+      delete rec.td;
     });
     const normalizedLegacy = normalizeStateV3_(legacy);
     canonical = source;
@@ -2179,6 +2248,7 @@ function normalizeState_(state) {
       if (mappingExtras[gId].res) canonical.g2m[gId].res = mappingExtras[gId].res;
       if (mappingExtras[gId].fc) canonical.g2m[gId].fc = mappingExtras[gId].fc;
       if (mappingExtras[gId].rem) canonical.g2m[gId].rem = mappingExtras[gId].rem;
+      if (mappingExtras[gId].td) canonical.g2m[gId].td = mappingExtras[gId].td;
     });
   } else {
     // normalizeStateV3_ performs the deployed strict source validation and
@@ -2289,6 +2359,7 @@ function validateImportedState_(state) {
     delete legacy.deadLetterJournal;
     delete legacy.pendingEventDeletions;
     delete legacy.deadLetterEventDeletions;
+    delete legacy.calendarProjection;
     legacy.schema = 3;
     Object.keys(legacy.g2m || {}).forEach(function(gId) {
       const rec = legacy.g2m[gId];
@@ -2297,6 +2368,7 @@ function validateImportedState_(state) {
       delete rec.res;
       delete rec.fc;
       delete rec.rem;
+      delete rec.td;
     });
     validateImportedStateLegacy_(legacy);
     try { assertStrictSchema4StateShape_(state); }

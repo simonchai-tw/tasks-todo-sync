@@ -211,423 +211,433 @@ test('timeBridgeDueHasTime_ correctly distinguishes date-only UTC midnight from 
   assert.equal(c.timeBridgeDueHasTime_(taipeiMidnight, tz), false);
 });
 
-test('timeBridgeEvaluateOwnership_ adheres to Tri-State Ownership protocols (§1.1 & §1.2)', () => {
+/* ------------------------------------------------------------------ *
+ * v0.8.0 canonical time record: intake, renderers, retry ladder
+ * ------------------------------------------------------------------ */
+
+function tbState(gId, recExtra) {
+  return {
+    schema: 4,
+    listMap: { 'g-list': 'ms-list' },
+    g2m: { [gId]: Object.assign({ msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} }, recExtra || {}) },
+    m2g: { 'ms-task': gId },
+    subtasks: { mappings: {}, parents: {}, createJournal: {}, pendingDeletions: {}, deletionJournal: {}, moveJournal: {}, conflicts: {}, tombstones: { g: {}, ms: {} } },
+    tombstones: { g: {}, ms: {} },
+    listFaults: { g: {}, ms: {} },
+    health: {}
+  };
+}
+
+function tbSnap(gTask, msTask) {
+  return {
+    gTasksById: { 'g-task': gTask },
+    msTasksById: { 'ms-task': msTask },
+    gListByTask: { 'g-task': 'g-list' },
+    msListByTask: { 'ms-task': 'ms-list' }
+  };
+}
+
+test('timeBridgeIntake_ writes rec.td from the marker and never calls a provider (§3.2)', () => {
   const { c } = loadContext();
-  const now = Date.parse('2026-09-22T12:00:00Z');
+  const nowMs = Date.parse('2026-09-30T04:00:00Z'); // 12:00 Taipei
+  const state = tbState('g-task');
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: '[TTS-TIME:15:30]\nbody', status: 'needsAction', due: '2026-10-01T00:00:00.000Z' },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  let remoteCalls = 0;
+  c.getGTask_ = () => { remoteCalls += 1; return null; };
+  c.updateGTask_ = () => { remoteCalls += 1; return null; };
+  c.updateMsTask_ = () => { remoteCalls += 1; return null; };
 
-  // 1. Consumed Reminder: ms === true, isReminderOn === false, reminder in past -> ms = undefined
-  const rec1 = { rem: { ms: true, msAt: '2026-09-22T10:00:00Z' } };
-  const msTask1 = {
-    isReminderOn: false,
-    reminderDateTime: { dateTime: '2026-09-22T10:00:00', timeZone: 'UTC' }
-  };
-  c.timeBridgeEvaluateOwnership_(rec1, msTask1, now);
-  assert.equal(rec1.rem.ms, undefined);
-  assert.equal(rec1.rem.msAt, undefined);
+  const count = c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(count, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(state.g2m['g-task'].td)),
+    { date: '2026-10-01', time: '15:30', v: 1 },
+    'the Google due date carries the marker time'
+  );
+  assert.equal(remoteCalls, 0, 'intake must not touch a remote API');
 
-  // 2. Surrender Trigger 1: user cancelled unexpired reminder in the future
-  const rec2 = { rem: { ms: true, msAt: '2026-09-22T15:00:00Z' } };
-  const msTask2 = {
-    isReminderOn: false,
-    reminderDateTime: { dateTime: '2026-09-22T15:00:00', timeZone: 'UTC' }
-  };
-  c.timeBridgeEvaluateOwnership_(rec2, msTask2, now);
-  assert.equal(rec2.rem.ms, false, 'Should surrender ownership to false');
-  assert.equal(rec2.rem.msAt, undefined);
+  // NONE keeps the existing date and clears the time.
+  state.g2m['g-task'].td = { date: '2026-10-05', time: '09:00', v: 1 };
+  snap.gTasksById['g-task'].notes = '[TTS-TIME:NONE]\nbody';
+  c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-05', time: null, v: 1, clear: true },
+    'NONE records a pending clear so the renderer wipes our own leftover reminder');
 
-  // 3. Surrender Trigger 2: user modified reminder timestamp beyond 60s
-  const rec3 = { rem: { ms: true, msAt: '2026-09-22T15:00:00Z' } };
-  const msTask3 = {
-    isReminderOn: true,
-    reminderDateTime: { dateTime: '2026-09-22T16:00:00', timeZone: 'UTC' }
-  };
-  c.timeBridgeEvaluateOwnership_(rec3, msTask3, now);
-  assert.equal(rec3.rem.ms, false, 'Modified timestamp triggers surrender');
-
-  // 4. Completed tasks skip surrender triggers
-  const rec4 = { rem: { ms: true, msAt: '2026-09-22T15:00:00Z' } };
-  const msTask4 = {
-    isReminderOn: false,
-    reminderDateTime: { dateTime: '2026-09-22T15:00:00', timeZone: 'UTC' },
-    status: 'completed'
-  };
-  c.timeBridgeEvaluateOwnership_(rec4, msTask4, now);
-  assert.equal(rec4.rem.ms, true, 'Completed task preserves ms = true');
+  // A marker below line 1 is rejected fail-closed and leaves the record alone.
+  snap.gTasksById['g-task'].notes = 'body\n[TTS-TIME:15:30]';
+  c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-05', time: null, v: 1, clear: true });
 });
 
-test('timeBridgeComputeIntent_ handles Future, Expired Today, Past-Date, and NONE decisions (§3.1)', () => {
+test('timeBridgeSpliceRenderer_ is idempotent and recomputes fp.notes from the final string (§3.3)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z');
+  const state = tbState('g-task');
+  const marked = '[TTS-TIME:15:30]\nbody';
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: marked, status: 'needsAction' },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  const writes = [];
+  c.getGTask_ = () => ({ id: 'g-task', notes: marked });
+  c.updateGTask_ = (listId, id, payload) => { writes.push(payload); return { id, notes: payload.notes }; };
+
+  assert.equal(c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs), 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ notes: 'body' }]);
+  assert.equal(state.g2m['g-task'].fp.notes, c.ordinaryFingerprintHex_('body'), 'fp.notes is recomputed, not patched');
+  assert.equal(state.g2m['g-task'].td, undefined, 'the splice renderer does not invent a time record');
+
+  // Once the marker is gone the renderer has nothing to do (idempotent).
+  snap.gTasksById['g-task'].notes = 'body';
+  assert.equal(c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs), 0);
+  assert.equal(writes.length, 1);
+});
+
+test('timeBridgeMsRenderer_ converges due + reminder under the R-1 single rule (§3.4)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-10-01T12:00:00Z'); // 20:00 Taipei
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } });
+  const msTask = { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' };
+  const snap = tbSnap({ id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' }, msTask);
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => {
+    patches.push(payload);
+    return Object.assign({ id }, payload, { dueDateTime: payload.dueDateTime, reminderDateTime: payload.reminderDateTime });
+  };
+
+  const first = c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(first.patched, 1);
+  assert.equal(patches.length, 2, 'reminder and due are separate PATCHes (bug #4)');
+  assert.deepEqual(JSON.parse(JSON.stringify(patches[0])), { isReminderOn: true, reminderDateTime: { dateTime: '2026-10-02T07:30:00', timeZone: 'UTC' } });
+  assert.equal(patches[1].dueDateTime.dateTime, '2026-10-02T00:00:00', 'the due is date-only on Microsoft');
+  assert.equal(patches[1].dueDateTime.timeZone, 'Asia/Taipei');
+  assert.equal(JSON.stringify(patches[1]).indexOf('isReminderOn'), -1, 'the due PATCH carries no reminder fields');
+  assert.equal(patches[0].reminderDateTime.dateTime, '2026-10-02T07:30:00', 'the alarm carries the time (15:30 Taipei = 07:30Z)');
+
+  // A converged pair is a zero-mutation no-op: due is date-only on Microsoft
+  // and the TIME lives in the reminder.
+  msTask.dueDateTime = { dateTime: '2026-10-02T00:00:00', timeZone: 'Asia/Taipei' };
+  msTask.isReminderOn = true;
+  msTask.reminderDateTime = { dateTime: '2026-10-02T07:30:00', timeZone: 'UTC' };
+  const second = c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(second.patched, 0);
+  assert.equal(patches.length, 2, 'no redundant PATCH once converged');
+});
+
+test('R-1 alarm boundaries: past time today, late evening, and the midnight roll (replaces WO-1 tests)', () => {
   const { c } = loadContext();
   const tz = 'Asia/Taipei';
-  // Wednesday 2026-09-23 10:00:00 Asia/Taipei = 02:00:00 UTC
-  const nowMs = Date.parse('2026-09-23T02:00:00Z');
 
-  // A. Future task: today 15:30 Taipei = 07:30:00 UTC
-  const futureT = Date.parse('2026-09-23T07:30:00Z');
-  const recA = { rem: { ms: undefined } };
-  const intentA = c.timeBridgeComputeIntent_(futureT, nowMs, tz, recA, false);
-  assert.equal(intentA.duePayload.dateTime, '2026-09-23T15:30:00');
-  assert.equal(intentA.reminderPayload?.isReminderOn, true);
-  assert.equal(intentA.acquireOwnership, true);
+  // A past time today alarms now + 20 minutes.
+  const nowA = Date.parse('2026-10-01T12:00:00Z'); // 20:00 Taipei
+  const targetA = c.timeBridgeMsTarget_({ date: '2026-10-01', time: '15:25', v: 1 }, tz, nowA, tz);
+  assert.equal(targetA.reminderDateTime.dateTime, '2026-10-01T12:20:00');
 
-  // B. Expired Today (e.g. today 09:00 Taipei = 01:00:00 UTC) -> 20m fallback
-  const pastTodayT = Date.parse('2026-09-23T01:00:00Z');
-  const intentB = c.timeBridgeComputeIntent_(pastTodayT, nowMs, tz, recA, false);
-  assert.equal(intentB.duePayload.dateTime, '2026-09-23T09:00:00');
-  assert.equal(intentB.reminderPayload?.isReminderOn, true);
-  assert.ok(intentB.fallbackInstantMs > nowMs, 'Fallback must be set in the future');
+  // 23:36 with a past time today still alarms at 23:56 (the old 23:35 cutoff is gone).
+  const nowB = Date.parse('2026-10-01T15:36:00Z'); // 23:36 Taipei
+  const targetB = c.timeBridgeMsTarget_({ date: '2026-10-01', time: '23:30', v: 1 }, tz, nowB, tz);
+  assert.equal(targetB.isReminderOn, true);
+  assert.equal(targetB.reminderDateTime.dateTime, '2026-10-01T15:56:00');
 
-  // C. Past Date (yesterday 2026-09-22) -> disabled reminder
-  const yesterdayT = Date.parse('2026-09-22T07:00:00Z');
-  const recC = { rem: { ms: true } };
-  const intentC = c.timeBridgeComputeIntent_(yesterdayT, nowMs, tz, recC, false);
-  assert.equal(intentC.duePayload.dateTime, '2026-09-22T15:00:00');
-  assert.equal(intentC.releaseOwnership, true);
-  assert.equal(intentC.reminderPayload?.isReminderOn, false);
+  // 23:56 would roll past midnight, so no alarm is set at all.
+  const nowC = Date.parse('2026-10-01T15:56:00Z'); // 23:56 Taipei
+  const targetC = c.timeBridgeMsTarget_({ date: '2026-10-01', time: '23:50', v: 1 }, tz, nowC, tz);
+  assert.equal(targetC.isReminderOn, false);
+  assert.equal(targetC.reminderDateTime, null);
 
-  // D. NONE
-  const intentD = c.timeBridgeComputeIntent_(0, nowMs, tz, recC, true);
-  assert.equal(intentD.clearHasTime, true);
-  assert.equal(intentD.releaseOwnership, true);
+  // A long-past date can never produce an epoch sentinel (WO-1).
+  const targetD = c.timeBridgeMsTarget_({ date: '2020-01-01', time: '09:00', v: 1 }, tz, nowA, tz);
+  assert.equal(targetD.isReminderOn, false);
+  assert.equal(JSON.stringify(targetD).indexOf('1970'), -1);
+
+  // date-only (time: null) clears the alarm and never carries a dateTime.
+  const targetE = c.timeBridgeMsTarget_({ date: '2026-10-02', time: null, v: 1 }, tz, nowA, tz);
+  assert.equal(targetE.isReminderOn, false);
+  assert.equal(targetE.reminderDateTime, null);
+  assert.equal(targetE.dateTime, '2026-10-02T00:00:00', 'a date-only target still pins the midnight date');
 });
 
-test('timeBridgeRun_ executes full end-to-end flow with Google notes splice and field ownership', () => {
+test('timeBridgeCalendarRenderer_ projects, cleans up, and respects the projection knobs (§3.7)', () => {
   const { c, calendarEvents } = loadContext();
-  const state = c.newState_();
-  state.listMap = { 'g-list': 'ms-list' };
-  state.g2m['g-task'] = {
-    msId: 'ms-task',
-    gListId: 'g-list',
-    msListId: 'ms-list',
-    gUpdated: '2026-09-21T00:00:00Z',
-    msUpdated: '2026-09-21T00:00:00Z',
-    fp: { due: 'old-due-fp', notes: 'old-notes-fp', v: 1 },
-    rem: { ms: undefined }
-  };
-  state.m2g['ms-task'] = 'g-task';
+  const nowMs = Date.parse('2026-10-01T12:00:00Z');
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } });
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' };
+  const snap = tbSnap(gTask, { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' });
+  const safety = { enableTimeBridge: true, enableCalendarProjection: true, enableCalendarProjectionReminder: true };
 
-  // Use tomorrow's date so the fixture is always in the future (WO-2: prevents time-bomb).
-  const tomorrow = new Date(Date.now() + 25 * 60 * 60 * 1000);
-  const tomorrowDateOnly = tomorrow.toISOString().slice(0, 10); // YYYY-MM-DD
-
-  const gTask = {
-    id: 'g-task',
-    title: 'Pay bills',
-    notes: '[TTS-TIME:15:30]\n\nBring checkbook.',
-    due: tomorrowDateOnly + 'T00:00:00.000Z',
-    status: 'needsAction'
-  };
-  const msTask = {
-    id: 'ms-task',
-    title: 'Pay bills',
-    dueDateTime: { dateTime: tomorrowDateOnly + 'T00:00:00', timeZone: 'UTC' },
-    isReminderOn: false,
-    status: 'notStarted'
-  };
-
-  let msPatched = null;
-  let gPatched = null;
-
-  c.getGTask_ = (listId, id) => gTask;
-  c.updateMsTask_ = (listId, id, payload) => {
-    msPatched = payload;
-    msTask.dueDateTime = payload.dueDateTime;
-    msTask.isReminderOn = payload.isReminderOn;
-    msTask.reminderDateTime = payload.reminderDateTime;
-    return msTask;
-  };
-  c.updateGTask_ = (listId, id, payload) => {
-    gPatched = payload;
-    if (payload.notes !== undefined) gTask.notes = payload.notes;
-    return gTask;
-  };
-
-  const snap = {
-    gTasksById: { 'g-task': gTask },
-    msTasksById: { 'ms-task': msTask },
-    safety: { allowDeletions: true }
-  };
-
-  // Run Time Bridge
-  c.timeBridgeRun_(state, snap, Date.now(), 'round-1');
-
-  // Verify MS was patched with local due and reminder
-  assert.ok(msPatched, 'Microsoft task must be updated');
-  assert.equal(msPatched.dueDateTime.dateTime, tomorrowDateOnly + 'T15:30:00');
-  assert.equal(msPatched.isReminderOn, true);
-
-  // Verify Google Task notes had marker spliced out cleanly
-  assert.ok(gPatched, 'Google task notes must be spliced');
-  assert.equal(gTask.notes, 'Bring checkbook.');
-
-  // Verify ownership acquired
-  assert.equal(state.g2m['g-task'].rem.ms, true);
-  assert.equal(state.g2m['g-task'].rem.hasTime, true);
-
-  // Verify calendar event was projected
+  const projected = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, safety, nowMs);
+  assert.equal(projected.projected, 1);
   const eventId = c.timeBridgeDeterministicEventId_('g-task');
-  assert.ok(calendarEvents[eventId], 'Calendar projection event must exist');
-  assert.equal(calendarEvents[eventId].summary, 'Pay bills');
-  assert.equal(calendarEvents[eventId].reminders.overrides[0].minutes, 0);
+  assert.ok(calendarEvents[eventId], 'event inserted');
+  assert.equal(calendarEvents[eventId].start.dateTime, '2026-10-02T07:30:00.000Z');
+  assert.deepEqual(JSON.parse(JSON.stringify(calendarEvents[eventId].reminders.overrides)), [{ method: 'popup', minutes: 0 }]);
+  assert.equal(state.g2m['g-task'].rem.e, eventId);
 
-  // Verify field-merge skips due field when rec.rem.hasTime === true (§0)
-  const gProj = c.ordinaryProjectGoogle_(gTask, state.g2m['g-task']);
-  const mProj = c.ordinaryProjectMicrosoft_(msTask, state.g2m['g-task']);
-  const plan = c.ordinaryMergeMappedFields_(state.g2m['g-task'].fp, gProj, mProj, state.g2m['g-task']);
-  assert.equal(plan.toGoogle.due, undefined, 'Core sync must not touch due for Google');
-  assert.equal(plan.toMicrosoft.due, undefined, 'Core sync must not touch due for Microsoft');
-  assert.ok(plan.skipped.some((s) => s.field === 'due' && s.reason === 'TIME_BRIDGE_OWNED'));
-});
+  // A second pass with an unchanged target is a no-op.
+  const again = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, safety, nowMs);
+  assert.equal(again.projected, 0);
 
-test('timeBridgeRun_ deletes calendar event when task is completed (§4.2)', () => {
-  const { c, calendarEvents } = loadContext();
-  const eventId = c.timeBridgeDeterministicEventId_('g-task-comp');
-  calendarEvents[eventId] = { id: eventId, summary: 'Done task', status: 'confirmed' };
+  // Completion removes the projection.
+  gTask.status = 'completed';
+  const completed = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, safety, nowMs);
+  assert.equal(completed.deleted, 1);
+  assert.equal(calendarEvents[eventId], undefined);
 
-  const state = c.newState_();
-  state.listMap = { 'g-list': 'ms-list' };
-  state.g2m['g-task-comp'] = {
-    msId: 'ms-task-comp',
-    gListId: 'g-list',
-    msListId: 'ms-list',
-    rem: { ms: true, hasTime: true, e: eventId }
-  };
-  state.m2g['ms-task-comp'] = 'g-task-comp';
-
-  const gTask = { id: 'g-task-comp', title: 'Done task', notes: '', status: 'completed' };
-  const msTask = { id: 'ms-task-comp', title: 'Done task', status: 'completed', isReminderOn: false };
-
-  const snap = {
-    gTasksById: { 'g-task-comp': gTask },
-    msTasksById: { 'ms-task-comp': msTask },
-    safety: {}
-  };
-
-  c.timeBridgeRun_(state, snap, Date.now(), 'round-2');
-
-  assert.equal(calendarEvents[eventId], undefined, 'Calendar event must be removed when completed');
-  assert.equal(state.g2m['g-task-comp'].rem.e, undefined);
-});
-
-test('SYNC_TIME_BRIDGE="false" disables Time Bridge entirely (knob verification)', () => {
-  const { c, calendarEvents } = loadContext();
-  c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'false');
-
-  const safety = c.getSafetyConfig_();
-  assert.equal(safety.enableTimeBridge, false);
-
-  const state = c.newState_();
-  state.listMap = { 'g-list': 'ms-list' };
-  state.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
-  state.m2g['ms-task'] = 'g-task';
-
-  const gTask = {
-    id: 'g-task',
-    title: 'Disabled test',
-    notes: '[TTS-TIME:15:30]\nBring checkbook.',
-    due: '2026-09-22T00:00:00.000Z',
-    status: 'needsAction'
-  };
-  const msTask = {
-    id: 'ms-task',
-    title: 'Disabled test',
-    dueDateTime: { dateTime: '2026-09-22T00:00:00', timeZone: 'Asia/Taipei' },
-    isReminderOn: false,
-    status: 'notStarted'
-  };
-
-  const snap = {
-    gTasksById: { 'g-task': gTask },
-    msTasksById: { 'ms-task': msTask },
-    safety: safety
-  };
-
-  c.timeBridgeRun_(state, snap, Date.now(), 'round-knob-off');
-
-  // Verify marker NOT spliced and calendar NOT created
-  assert.equal(gTask.notes, '[TTS-TIME:15:30]\nBring checkbook.');
-  assert.equal(state.timeBridgeJournal, null);
-  const eventId = c.timeBridgeDeterministicEventId_('g-task');
+  // With the projection knob off nothing is inserted or deleted.
+  gTask.status = 'needsAction';
+  const off = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, { enableTimeBridge: true, enableCalendarProjection: false }, nowMs);
+  assert.deepEqual(JSON.parse(JSON.stringify(off)), { projected: 0, deleted: 0, quarantined: [] });
   assert.equal(calendarEvents[eventId], undefined);
 });
 
-test('WO-7: knob OFF clears hasTime so field-merge re-owns due', () => {
+test('knob OFF ignores the time component while the merge keeps owning the date (replaces WO-7)', () => {
   const { c } = loadContext();
-  c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'false');
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } };
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-02T00:00:00.000Z' };
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-02T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' };
 
-  const safety = c.getSafetyConfig_();
-  assert.equal(safety.enableTimeBridge, false);
+  const offSafety = { enableTimeBridge: false };
+  const gOff = c.ordinaryProjectGoogle_(gTask, rec, offSafety);
+  const mOff = c.ordinaryProjectMicrosoft_(msTask, rec, offSafety);
+  assert.deepEqual(JSON.parse(JSON.stringify(gOff.due)), { date: '2026-10-02', time: null });
+  assert.deepEqual(JSON.parse(JSON.stringify(mOff.due)), { date: '2026-10-02', time: null });
 
-  const state = c.newState_();
-  state.listMap = { 'g-list': 'ms-list' };
-  // Pre-populate a record that was previously hasTime=true from an earlier bridge run
-  state.g2m['g-task-wo7'] = {
-    msId: 'ms-task-wo7', gListId: 'g-list', msListId: 'ms-list',
-    fp: {}, rem: { hasTime: true, ms: true, msAt: '2026-10-01T07:30:00.000Z' }
-  };
-  state.m2g['ms-task-wo7'] = 'g-task-wo7';
+  const planOff = c.ordinaryMergeMappedFields_(null, gOff, mOff, rec);
+  assert.equal(planOff.skipped.some((s) => s.field === 'due'), false, 'no TIME_BRIDGE_OWNED carve-out remains');
+  assert.equal(planOff.bootstrapConflicts.length, 0);
 
-  const gTask = { id: 'g-task-wo7', title: 'WO7', notes: '', due: '2026-10-01T00:00:00.000Z', status: 'needsAction' };
-  const msTask = { id: 'ms-task-wo7', dueDateTime: { dateTime: '2026-10-01T07:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: false, status: 'notStarted' };
-  const snap = { gTasksById: { 'g-task-wo7': gTask }, msTasksById: { 'ms-task-wo7': msTask }, safety: safety };
-
-  // No calendar or MS patch calls expected (knob OFF = local-only clearing)
-  let msPatched = false;
-  c.updateMsTask_ = () => { msPatched = true; return msTask; };
-
-  c.timeBridgeRun_(state, snap, Date.now(), 'round-wo7');
-
-  // hasTime must be cleared so field-merge re-owns due
-  assert.equal(state.g2m['g-task-wo7'].rem.hasTime, false, 'hasTime must be cleared when knob is OFF');
-  assert.equal(state.g2m['g-task-wo7'].rem.ms, undefined, 'ms ownership must be released when knob is OFF');
-  assert.equal(msPatched, false, 'No MS PATCH should be issued when knob is OFF');
-
-  // Confirm merge plan now includes due (no longer TIME_BRIDGE_OWNED skip)
-  const gProj = c.ordinaryProjectGoogle_(gTask, state.g2m['g-task-wo7']);
-  const mProj = c.ordinaryProjectMicrosoft_(msTask, state.g2m['g-task-wo7']);
-  const plan = c.ordinaryMergeMappedFields_(state.g2m['g-task-wo7'].fp, gProj, mProj, state.g2m['g-task-wo7']);
-  assert.ok(!plan.skipped.some((s) => s.field === 'due' && s.reason === 'TIME_BRIDGE_OWNED'),
-    'Field merge must not skip due when knob is OFF');
+  // With the bridge on, the same pair exposes the time to the merge.
+  const onSafety = { enableTimeBridge: true };
+  const gOn = c.ordinaryProjectGoogle_(gTask, rec, onSafety);
+  const mOn = c.ordinaryProjectMicrosoft_(msTask, rec, onSafety);
+  assert.deepEqual(JSON.parse(JSON.stringify(gOn.due)), { date: '2026-10-02', time: '15:30' });
+  assert.deepEqual(JSON.parse(JSON.stringify(mOn.due)), { date: '2026-10-02', time: '15:30' });
 });
 
-test('SYNC_CALENDAR_PROJECTION="false" preserves reminder sync but skips Google Calendar projection', () => {
-  const { c, calendarEvents } = loadContext();
-  c.PropertiesService.getScriptProperties().setProperty('SYNC_CALENDAR_PROJECTION', 'false');
-
-  const safety = c.getSafetyConfig_();
-  assert.equal(safety.enableTimeBridge, true);
-  assert.equal(safety.enableCalendarProjection, false);
-
-  // Use tomorrow's date so the fixture is always in the future (WO-2: prevents time-bomb).
-  const tomorrow = new Date(Date.now() + 25 * 60 * 60 * 1000);
-  const tomorrowDateOnly = tomorrow.toISOString().slice(0, 10); // YYYY-MM-DD
-
-  const state = c.newState_();
-  state.listMap = { 'g-list': 'ms-list' };
-  state.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
-  state.m2g['ms-task'] = 'g-task';
-
-  const gTask = {
-    id: 'g-task',
-    title: 'No cal test',
-    notes: '[TTS-TIME:15:30]\nBring checkbook.',
-    due: tomorrowDateOnly + 'T00:00:00.000Z',
-    status: 'needsAction'
-  };
-  const msTask = {
-    id: 'ms-task',
-    title: 'No cal test',
-    dueDateTime: { dateTime: tomorrowDateOnly + 'T00:00:00', timeZone: 'Asia/Taipei' },
-    isReminderOn: false,
-    status: 'notStarted'
-  };
-
-  let msPatched = null;
-  c.updateMsTask_ = (listId, id, payload) => {
-    msPatched = payload;
-    msTask.dueDateTime = payload.dueDateTime || msTask.dueDateTime;
-    msTask.isReminderOn = payload.isReminderOn;
-    msTask.reminderDateTime = payload.reminderDateTime;
-    return msTask;
-  };
-  c.getGTask_ = () => gTask;
-  c.updateGTask_ = (listId, id, patch) => {
-    if (patch.notes) gTask.notes = patch.notes;
-  };
-
-  const snap = {
-    gTasksById: { 'g-task': gTask },
-    msTasksById: { 'ms-task': msTask },
-    safety: safety
-  };
-
-  c.timeBridgeRun_(state, snap, Date.now(), 'round-knob-nocal');
-
-  // Microsoft reminder is still set
-  assert.ok(msPatched);
-  assert.equal(msPatched.isReminderOn, true);
-  assert.equal(gTask.notes, 'Bring checkbook.');
-
-  // But NO calendar event was projected!
-  const eventId = c.timeBridgeDeterministicEventId_('g-task');
-  assert.equal(calendarEvents[eventId], undefined);
-  assert.equal(state.g2m['g-task'].rem.e, undefined);
-});
-
-test('WO-1: NONE intent produces no 1970 epoch duePayload and clears hasTime without MS PATCH', () => {
+test('R-4 retry ladder quarantines a repeatedly failing renderer and revives on a user edit (§3.4.5)', () => {
   const { c } = loadContext();
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } });
+  const rec = state.g2m['g-task'];
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  let attempts = 0;
+  c.updateMsTask_ = () => { attempts += 1; const e = new Error('HTTP 500: nope'); throw e; };
+  c.sendMailAlert_ = () => true;
 
-  // timeBridgeComputeIntent_ NONE path must return null duePayload
-  const rec = { rem: { ms: true } };
-  const intent = c.timeBridgeComputeIntent_(0, Date.now(), 'Asia/Taipei', rec, true);
-  assert.equal(intent.duePayload, null, 'NONE must produce null duePayload, not 1970 epoch');
-  assert.equal(intent.targetInstantMs, null, 'NONE must produce null targetInstantMs');
-  assert.equal(intent.clearHasTime, true);
-  assert.equal(intent.releaseOwnership, true, 'NONE with ms=true releases ownership');
-  assert.equal(intent.acquireOwnership, false);
-  assert.ok(!JSON.stringify(intent).includes('1970'), 'NONE intent must not contain any 1970 sentinel');
-
-  // timeBridgeMsMatchesIntent_ must return true for NONE (skip MS patch)
-  const msTask = { id: 'ms-task', dueDateTime: { dateTime: '2026-10-01T00:00:00', timeZone: 'Asia/Taipei' } };
-  const matches = c.timeBridgeMsMatchesIntent_(msTask, intent, 'Asia/Taipei');
-  assert.equal(matches, true, 'NONE intent must match (no MS patch needed)');
-});
-
-test('WO-1: past-date release reminderPayload contains no 1970 dateTime', () => {
-  const { c } = loadContext();
-
-  // Past date: 28h ago
-  const pastMs = Date.now() - 28 * 60 * 60 * 1000;
-  const nowMs = Date.now();
-  const tz = 'Asia/Taipei';
-
-  const rec = { rem: { ms: true, msAt: new Date(pastMs).toISOString() } };
-  const intent = c.timeBridgeComputeIntent_(pastMs, nowMs, tz, rec, false);
-
-  if (intent.reminderPayload) {
-    assert.ok(!JSON.stringify(intent.reminderPayload).includes('1970'),
-      'Past-date reminderPayload must not contain 1970 epoch sentinel');
-    assert.equal(intent.reminderPayload.isReminderOn, false);
-    assert.equal(intent.reminderPayload.dateTime, undefined,
-      'Past-date release reminderPayload must omit dateTime entirely');
+  let nowMs = Date.parse('2026-10-01T00:00:00Z');
+  let quarantined = null;
+  const drawerOpen = () => {
+    const retry = state.g2m['g-task'].td.retry;
+    return !!(retry && retry.ms && retry.ms.quarantined);
+  };
+  for (let round = 0; round < 12 && !drawerOpen(); round += 1) {
+    const result = c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+    if (result.quarantined.length) quarantined = result.quarantined[0];
+    nowMs += 24 * 60 * 60 * 1000;
   }
+  assert.equal(attempts, 10, 'six full-speed attempts plus three slow-lane attempts plus the quarantine attempt');
+  assert.ok(quarantined, 'the transition into the drawer is reported once');
+  assert.equal(quarantined.renderer, 'ms');
+  assert.equal(state.g2m['g-task'].td.retry.ms.quarantined, true);
+
+  // A quarantined pair is skipped until the user edits it.
+  const before = attempts;
+  c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(attempts, before, 'quarantined pairs are not retried');
+
+  // A marker edit revives it.
+  snap.gTasksById['g-task'].notes = '[TTS-TIME:18:00]\nbody';
+  c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(state.g2m['g-task'].td.retry, undefined, 'a user edit clears the ladder');
 });
 
-test('WO-4: updateMsTask_ is called with exactly 3 arguments (no dead If-Match arg)', () => {
+/* ------------------------------------------------------------------ *
+ * Orchestrator, notification and adoption paths
+ * ------------------------------------------------------------------ */
+
+test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and stops at the knob (§3.8)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z');
+  const state = tbState('g-task');
+  const marked = '[TTS-TIME:15:30]\nbody';
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: marked, status: 'needsAction', due: '2026-10-01T00:00:00.000Z' },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  const writes = { g: 0, ms: 0 };
+  c.getGTask_ = () => ({ id: 'g-task', notes: marked });
+  c.updateGTask_ = (listId, id, payload) => { writes.g += 1; return { id, notes: payload.notes }; };
+  c.updateMsTask_ = (listId, id, payload) => { writes.ms += 1; return Object.assign({ id }, payload); };
+
+  const summary = c.timeBridgeRun_(state, snap, Date.now(), 'round-1');
+  assert.equal(summary.intaken, 1);
+  assert.equal(summary.spliced, 1);
+  assert.equal(summary.msPatched, 1);
+  assert.equal(writes.g, 1);
+  assert.equal(writes.ms, 2, 'the Microsoft renderer sends one reminder PATCH and one due PATCH');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-01', time: '15:30', v: 1 });
+
+  // With the knob off nothing runs at all.
+  c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'false');
+  const offState = tbState('g-task');
+  const offSnap = tbSnap({ id: 'g-task', title: 'T', notes: marked, status: 'needsAction' }, { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' });
+  const offSummary = c.timeBridgeRun_(offState, offSnap, Date.now(), 'round-2');
+  assert.equal(offSummary.intaken, 0);
+  assert.equal(offSummary.spliced, 0);
+  assert.equal(offSummary.msPatched, 0);
+  assert.equal(offState.g2m['g-task'].td, undefined, 'no intake while the bridge is off');
+});
+
+test('timeBridgeRunRenderersAfterMerge_ aggregates one de-identified quarantine mail (§3.4.5)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z');
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } });
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' },
+    { id: 'ms-task', title: 'T', dueDateTime: { dateTime: '2026-10-02T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' }
+  );
+  // Force the transition into the drawer.
+  // The orchestrator reads the real clock, so the slow lane must be due against it.
+  state.g2m['g-task'].td.retry = { cal: { fails: 9, lastFailAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(), quarantined: false } };
+  c.Calendar = {
+    Events: {
+      get() { const e = new Error('HTTP 500: boom'); e.statusCode = 500; throw e; },
+      insert() { throw new Error('unreachable'); },
+      patch() { throw new Error('unreachable'); },
+      remove() { throw new Error('unreachable'); }
+    }
+  };
+  const mails = [];
+  c.sendMailAlert_ = (subject, body) => { mails.push({ subject, body }); return true; };
+  c.PropertiesService.getScriptProperties().setProperty('SYNC_CALENDAR_PROJECTION', 'true');
+  c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'true');
+
+  const summary = c.timeBridgeRunRenderersAfterMerge_(state, snap, Date.now(), 'round-1');
+  assert.equal(summary.quarantined.length, 1);
+  assert.equal(mails.length, 1, 'one aggregated mail');
+  assert.ok(mails[0].body.indexOf('g-task') < 0, 'the pair id is de-identified in the body');
+  assert.ok(mails[0].subject.indexOf('drawer') >= 0);
+
+  // The alert cooldown is now marked, so an immediate repeat does not mail again.
+  assert.equal(vm.runInContext('canSendAlert_(ALERT_KEYS.timeBridgeQuarantine, ALERT_COOLDOWN_MS)', c), false,
+    'the cooldown is marked after sending');
+  assert.equal(c.timeBridgeNotifyQuarantine_([{ gId: 'g-task', renderer: 'cal', code: 'HTTP_500' }]), false);
+  assert.equal(mails.length, 1, 'the cooldown suppresses a repeat mail');
+
+  assert.equal(state.g2m['g-task'].td.retry.cal.quarantined, true);
+});
+
+test('a Microsoft-side time the user set by hand is adopted into the canonical record (§3.4)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z');
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } });
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' },
+    { id: 'ms-task', title: 'T', dueDateTime: { dateTime: '2026-10-02T18:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, reminderDateTime: { dateTime: '2026-10-02T10:00:00', timeZone: 'UTC' }, status: 'notStarted' }
+  );
+  const summary = c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(summary.patched, 0, 'adoption writes nothing in that round');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-02', time: '18:00', v: 1 });
+});
+
+test('a marker without a Google due date falls back to today in the project zone (§3.2)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z'); // 12:00 Taipei
+  const state = tbState('g-task');
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: '[TTS-TIME:09:15]\nbody', status: 'needsAction', due: null },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-09-30', time: '09:15', v: 1 });
+});
+
+test('a failing splice keeps the marker and climbs the ladder; success clears it (§3.3/§3.4.5)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z');
+  const state = tbState('g-task', { td: { date: '2026-10-01', time: '15:30', v: 1 } });
+  const marked = '[TTS-TIME:15:30]\nbody';
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: marked, status: 'needsAction' },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  c.getGTask_ = () => ({ id: 'g-task', notes: marked });
+  c.updateGTask_ = () => { throw new Error('HTTP 500: nope'); };
+
+  c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs);
+  assert.equal(state.g2m['g-task'].td.retry.splice.fails, 1);
+  assert.equal(state.g2m['g-task'].td.retry.splice.quarantined, false);
+
+  // A successful splice clears the bucket again.
+  c.updateGTask_ = (listId, id, payload) => ({ id, notes: payload.notes });
+  c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs);
+  assert.equal(state.g2m['g-task'].td.retry, undefined, 'success resets the ladder');
+});
+
+test('a quarantine blocks the renderer until a user edit revives the pair (§3.4.5)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z');
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1, retry: { ms: { fails: 10, lastFailAt: new Date(nowMs).toISOString(), quarantined: true } } } });
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  let calls = 0;
+  c.updateMsTask_ = () => { calls += 1; return {}; };
+  assert.equal(c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei').patched, 0);
+  assert.equal(calls, 0, 'quarantined pairs are skipped');
+
+  // Changing the date revives it.
+  c.timeBridgeRetryRevive_(state.g2m['g-task']);
+  assert.equal(c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei').patched, 1);
+});
+
+test('a past timed task is not projected but an existing event is still cleaned up (§3.7)', () => {
   const { c, calendarEvents } = loadContext();
-  const state = c.newState_();
-  state.listMap = { 'g-list': 'ms-list' };
-  state.g2m['g-task-etag'] = {
-    msId: 'ms-task-etag', gListId: 'g-list', msListId: 'ms-list',
-    fp: {}, rem: { ms: undefined }
-  };
-  state.m2g['ms-task-etag'] = 'g-task-etag';
+  const nowMs = Date.parse('2026-10-10T12:00:00Z');
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } });
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' },
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  const safety = { enableTimeBridge: true, enableCalendarProjection: true, enableCalendarProjectionReminder: true };
+  const result = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, safety, nowMs);
+  assert.equal(result.projected, 0, 'a past instant is never projected');
+  assert.equal(Object.keys(calendarEvents).length, 0);
 
-  const tomorrow = new Date(Date.now() + 25 * 60 * 60 * 1000);
-  const tomorrowDateOnly = tomorrow.toISOString().slice(0, 10);
+  // A task whose time was cleared drops its event even when the date is past.
+  state.g2m['g-task'].td = { date: '2026-10-02', time: null, v: 1 };
+  state.g2m['g-task'].rem = { e: c.timeBridgeDeterministicEventId_('g-task'), eFp: 'c'.repeat(32) };
+  calendarEvents[state.g2m['g-task'].rem.e] = { id: state.g2m['g-task'].rem.e, status: 'confirmed' };
+  const cleanup = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, safety, nowMs);
+  assert.equal(cleanup.deleted, 1);
+  assert.equal(Object.keys(calendarEvents).length, 0);
+});
 
-  const gTask = {
-    id: 'g-task-etag', title: 'Etag test',
-    notes: '[TTS-TIME:10:00]\nNote.',
-    due: tomorrowDateOnly + 'T00:00:00.000Z',
-    status: 'needsAction'
-  };
-  const msTask = {
-    id: 'ms-task-etag', title: 'Etag test',
-    dueDateTime: { dateTime: tomorrowDateOnly + 'T00:00:00', timeZone: 'Asia/Taipei' },
-    isReminderOn: false, status: 'notStarted'
-  };
+test('NONE clears the leftover Microsoft reminder once and then the pair rests (R-3 clear-time flow)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2026-09-30T04:00:00Z');
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: null, v: 1, clear: true } });
+  const msTask = { id: 'ms-task', title: 'T', dueDateTime: { dateTime: '2026-10-02T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, reminderDateTime: { dateTime: '2026-10-02T07:30:00', timeZone: 'UTC' }, status: 'notStarted' };
+  const snap = tbSnap({ id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' }, msTask);
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => { patches.push(payload); return Object.assign({ id }, payload); };
 
-  let updateArgCount = 0;
-  c.updateMsTask_ = (...args) => { updateArgCount = args.length; return msTask; };
-  c.updateGTask_ = () => gTask;
-  c.getGTask_ = () => gTask;
+  const first = c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(first.patched, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(patches[0])), { isReminderOn: false, reminderDateTime: null },
+    'the proven wipe form (bug #4): reminder fields PATCHed alone');
+  assert.equal(state.g2m['g-task'].td.clear, undefined, 'the pending clear is consumed');
+  assert.equal(JSON.stringify(patches[0]).indexOf('1970'), -1);
 
-  const snap = {
-    gTasksById: { 'g-task-etag': gTask },
-    msTasksById: { 'ms-task-etag': msTask },
-    safety: {}
-  };
-  c.timeBridgeRun_(state, snap, Date.now(), 'round-etag');
-
-  assert.equal(updateArgCount, 3, 'updateMsTask_ must be called with exactly 3 args (no dead If-Match)');
+  // The leftover reminder is adopted as if the user had just set it.
+  msTask.isReminderOn = false;
+  msTask.reminderDateTime = null;
+  const second = c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
+  assert.equal(second.patched, 0, 'a cleared date-only pair rests');
 });

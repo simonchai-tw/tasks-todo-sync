@@ -93,6 +93,36 @@ function ordinaryCanonicalDueFromMicrosoft_(msTask) {
   return projected ? googleDueDateOnly_(projected) : undefined;
 }
 
+/* v0.8.0: the merge unit for `due` is { date, time|null }.  `time` is the
+ * canonical wall clock carried by rec.td (the Time Bridge record); when the
+ * bridge is off, or the record is absent, the unit is date-only exactly like
+ * v0.6.x.  A caller that passes no safety object is treated as "bridge on"
+ * (SYNC_TIME_BRIDGE defaults to true), which is what the legacy callers and the
+ * unit tests assume. */
+function ordinaryTimeBridgeOn_(safety) {
+  return safety === undefined || safety === null ? true : safety.enableTimeBridge !== false;
+}
+
+function ordinaryDueUnitFromGoogle_(gTask, rec, safety) {
+  var time = null;
+  if (ordinaryTimeBridgeOn_(safety) && rec && rec.td && rec.td.time) time = rec.td.time;
+  return { date: ordinaryCanonicalDueFromGoogle_(gTask), time: time };
+}
+
+function ordinaryDueUnitFromMicrosoft_(msTask, rec, safety) {
+  if (!msTask || !Object.prototype.hasOwnProperty.call(msTask, 'dueDateTime')) return null;
+  if (msTask.dueDateTime === null || msTask.dueDateTime === undefined || msTask.dueDateTime === '') return null;
+  var wall = timeBridgeMsDueWallClock_(msTask.dueDateTime, timeBridgeAuthoredTimeZone_(syncTimeZone_()));
+  if (!wall) return undefined;
+  // The time component belongs to rec.td (the Microsoft renderer adopts a
+  // hand-set Microsoft time into it), never to the merge.  If the merge read the
+  // provider's own time here, a newly created pair — Google carrying the time,
+  // Microsoft still date-only — would look like a bootstrap conflict and the
+  // time would never reach Microsoft at all.
+  var time = (ordinaryTimeBridgeOn_(safety) && rec && rec.td && rec.td.time) ? rec.td.time : null;
+  return { date: wall.date, time: time };
+}
+
 function ordinaryUserNotesFromGoogle_(gTask, rec) {
   var res = rec && rec.res;
   var parsed = parseManagedResourceBlock_(gTask && gTask.notes, res && res.gBlockFp, res && res.gBlockIntentFp);
@@ -120,7 +150,7 @@ function ordinaryUserNotesFromMicrosoft_(msTask, rec) {
   };
 }
 
-function ordinaryProjectGoogle_(gTask, rec) {
+function ordinaryProjectGoogle_(gTask, rec, safety) {
   var notes = ordinaryUserNotesFromGoogle_(gTask, rec);
   return {
     title: ordinaryCanonicalTitle_(gTask),
@@ -128,14 +158,14 @@ function ordinaryProjectGoogle_(gTask, rec) {
     notesOk: notes.ok,
     notesStatus: notes.status,
     completed: ordinaryCanonicalCompleted_(gTask && gTask.status),
-    due: ordinaryCanonicalDueFromGoogle_(gTask),
+    due: ordinaryDueUnitFromGoogle_(gTask, rec, safety),
     dueOk: true
   };
 }
 
-function ordinaryProjectMicrosoft_(msTask, rec) {
+function ordinaryProjectMicrosoft_(msTask, rec, safety) {
   var notes = ordinaryUserNotesFromMicrosoft_(msTask, rec);
-  var due = ordinaryCanonicalDueFromMicrosoft_(msTask);
+  var due = ordinaryDueUnitFromMicrosoft_(msTask, rec, safety);
   return {
     title: ordinaryCanonicalTitle_(msTask),
     notes: notes.ok ? notes.notes : null,
@@ -152,7 +182,13 @@ function ordinaryFieldFp_(proj, field) {
   if (field === 'due' && proj.dueOk === false) return null;
   var value = proj[field];
   if (field === 'completed') return ordinaryFingerprintHex_(value === true);
-  if (field === 'due') return ordinaryFingerprintHex_(value == null ? null : value);
+  // The merge compares/bookkeeps the due DATE; the time component lives in
+  // rec.td and is rendered by the Microsoft renderer.  Fingerprinting the time
+  // here would turn "Microsoft has not caught up yet" into a conflict.
+  if (field === 'due') {
+    if (value == null) return ordinaryFingerprintHex_(null);
+    return ordinaryFingerprintHex_(String(value.date || ''));
+  }
   return ordinaryFingerprintHex_(value == null ? '' : value);
 }
 
@@ -171,10 +207,9 @@ function ordinaryMergeMappedFields_(baselineFp, googleProjection, microsoftProje
       skipped.push({ field: field, reason: 'NOTES_UNMERGEABLE' });
       continue;
     }
-    if (field === 'due' && rec && rec.rem && rec.rem.hasTime === true) {
-      skipped.push({ field: field, reason: 'TIME_BRIDGE_OWNED' });
-      continue;
-    }
+    // v0.8.0: `due` has a single owner again — the ordinary merge.  The former
+    // Time Bridge ownership carve-out is gone; the time component travels with
+    // the due unit instead.
     if (field === 'due' && (googleProjection.dueOk === false || microsoftProjection.dueOk === false)) {
       skipped.push({ field: field, reason: 'DUE_UNSAFE' });
       continue;
@@ -228,7 +263,7 @@ function ordinaryGooglePatchFromPlan_(plan) {
     payload.status = plan.toGoogle.completed ? 'completed' : 'needsAction';
   }
   if (Object.prototype.hasOwnProperty.call(plan.toGoogle, 'due')) {
-    payload.due = plan.toGoogle.due ? plan.toGoogle.due + 'T00:00:00.000Z' : null;
+    payload.due = plan.toGoogle.due ? plan.toGoogle.due.date + 'T00:00:00.000Z' : null;
   }
   return payload;
 }
@@ -246,7 +281,13 @@ function ordinaryMicrosoftPatchFromPlan_(plan) {
     payload.status = plan.toMicrosoft.completed ? 'completed' : 'notStarted';
   }
   if (Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'due')) {
-    payload.dueDateTime = plan.toMicrosoft.due ? msDue_(plan.toMicrosoft.due + 'T00:00:00.000Z') : null;
+    // A timed due is written by the Microsoft renderer (due + reminder in one
+    // payload) so the round never PATCHes the same field twice.
+    if (!plan.toMicrosoft.due) {
+      payload.dueDateTime = null;
+    } else if (!plan.toMicrosoft.due.time) {
+      payload.dueDateTime = msDue_(plan.toMicrosoft.due.date + 'T00:00:00.000Z');
+    }
   }
   return payload;
 }
@@ -269,7 +310,6 @@ function ordinaryAdvanceFingerprints_(rec, googleProjection, microsoftProjection
   var fields = (plan.convergedFields || []).concat(plan.initializedFields || []);
   for (i = 0; i < ORDINARY_SHARED_FIELDS_.length; i += 1) {
     var field = ORDINARY_SHARED_FIELDS_[i];
-    if (field === 'due' && rec && rec.rem && rec.rem.hasTime === true) continue;
     var g = ordinaryFieldFp_(googleProjection, field);
     var m = ordinaryFieldFp_(microsoftProjection, field);
     if (g && m && g === m) rec.fp[field] = g;
@@ -297,21 +337,10 @@ function step2bRecurrenceClassification_() {
 }
 
 function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, safety) {
-  var gProj = ordinaryProjectGoogle_(gTask, rec);
-  var mProj = ordinaryProjectMicrosoft_(msTask, rec);
+  var gProj = ordinaryProjectGoogle_(gTask, rec, safety);
+  var mProj = ordinaryProjectMicrosoft_(msTask, rec, safety);
   var plan = ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec);
   var gId = gTask && gTask.id;
-  var timeBridgeJournalHeld = !!(
-    state && gId && (
-      (state.timeBridgeJournal && state.timeBridgeJournal.pairId === gId) ||
-      (Array.isArray(state.deadLetterJournal) && state.deadLetterJournal.some(function(j) { return j.pairId === gId; }))
-    )
-  );
-  if (timeBridgeJournalHeld) {
-    delete plan.toGoogle.notes;
-    delete plan.toMicrosoft.notes;
-    plan.skipped.push({ field: 'notes', reason: 'TIME_BRIDGE_JOURNAL_HELD' });
-  }
   ordinaryStoreFieldConflicts_(rec, plan, gId);
   var gPayload = ordinaryGooglePatchFromPlan_(plan);
   var msPayload = ordinaryMicrosoftPatchFromPlan_(plan);
@@ -325,11 +354,11 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   // Bounded resource write journal, seeded from any prior entries so a restart can
   // still see what was last attempted/confirmed (req 2).
   var resJournal = (rec.res && Array.isArray(rec.res.journal)) ? rec.res.journal.slice() : [];
-  if (!timeBridgeJournalHeld && (Object.prototype.hasOwnProperty.call(gPayload, 'notes') || resources.writeGoogle) &&
+  if ((Object.prototype.hasOwnProperty.call(gPayload, 'notes') || resources.writeGoogle) &&
       notesWriteAllowed_(resources.gParseStatus) && !googleNotesWriteBlocked_(gTask)) {
     gPayload.notes = composeManagedNotes_(userNotesG, resources.googleBlock);
   }
-  if (!timeBridgeJournalHeld && (Object.prototype.hasOwnProperty.call(msPayload, 'body') || resources.writeMicrosoft) &&
+  if ((Object.prototype.hasOwnProperty.call(msPayload, 'body') || resources.writeMicrosoft) &&
       notesWriteAllowed_(resources.msParseStatus) && resources.microsoftBody) {
     msPayload.body = {
       contentType: resources.microsoftBody.contentType,
@@ -504,9 +533,20 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
     rec.res.journal = resJournal;
   }
 
-  var gNow = ordinaryProjectGoogle_(gAfter, rec);
-  var mNow = ordinaryProjectMicrosoft_(msAfter, rec);
+  var gNow = ordinaryProjectGoogle_(gAfter, rec, safety);
+  var mNow = ordinaryProjectMicrosoft_(msAfter, rec, safety);
   ordinaryAdvanceFingerprints_(rec, gNow, mNow, plan);
+
+  // v0.8.0 §3.6: the merge owns the DATE while the Microsoft renderer owns the
+  // TIME.  Whatever date the merge converged on becomes rec.td.date, so the next
+  // round's renderer cannot write a stale date back over the user's edit; a
+  // cleared date clears the time with it.  A pair with an unresolved due
+  // conflict is left alone (fail-closed) until one side changes again.
+  if (rec.td && !(rec.fc && rec.fc.due)) {
+    var convergedDate = (mNow.due && mNow.due.date) || (gNow.due && gNow.due.date) || null;
+    if (!convergedDate) delete rec.td;
+    else if (rec.td.date !== convergedDate) rec.td.date = convergedDate;
+  }
 
   putMapping_(state, gAfter, currentGListId || rec.gListId, msAfter, rec.msListId);
   var saved = state.g2m[gAfter.id];
@@ -516,6 +556,8 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
     else delete saved.res;
     if (rec.fc) saved.fc = rec.fc;
     else delete saved.fc;
+    if (rec.td) saved.td = rec.td;
+    else delete saved.td;
   }
   return {
     plan: plan,

@@ -103,20 +103,31 @@ Rotation does not change the client ID, redirect URI, mappings, tombstones, move
 
 ## Time Bridge: Due times, reminders, and calendar projection
 
-Google Tasks natively supports due dates without a time-of-day component. Starting in `v0.7.0`, **Time Bridge** bridges this architectural gap:
+Google Tasks natively supports due dates without a time-of-day component. **Time Bridge** bridges this architectural gap:
 
-1. **Microsoft → Google**: When a task in Microsoft To Do has a reminder time (`reminderDateTime`), Time Bridge projects a corresponding 30-minute timed event (`start.dateTime`) onto a dedicated secondary Google Calendar titled `Tasks-ToDo-Sync`.
-2. **Google → Microsoft**: Tasks authored in Google Tasks can include an optional temporary time marker on the very first line of their notes (e.g., `[TTS-TIME:15:30]`). Time Bridge parses this marker, schedules the exact reminder in Microsoft To Do, projects the Google Calendar event, and automatically splices the marker out of Google Tasks notes.
-3. **Voice & Assistant Capture**: To automatically generate `[TTS-TIME:HH:mm]` markers when creating tasks via voice or chat (e.g., Android "Hey Google", Gemini mobile app, or Gemini web), see the [Google Gemini Saved Info Guide](gemini-saved-info.md).
+1. **Microsoft → Google**: a due time or reminder set in Microsoft To Do is adopted as the task's canonical time and, with calendar projection enabled, becomes a 30-minute timed event (`start.dateTime`) on the dedicated secondary Google Calendar titled `Tasks-ToDo-Sync`. Google Tasks itself only ever carries the date.
+2. **Google → Microsoft**: tasks authored in Google Tasks can include an optional temporary time marker on the very first line of their notes (e.g., `[TTS-TIME:15:30]`). Time Bridge reads the marker once, records the time in sync state, sets the Microsoft due time and reminder, and automatically splices the marker out of the notes. After that the recorded time is the source of truth, so editing the marker again is how you change it.
+3. **Alarm policy**: the Microsoft reminder is set to `max(due time, now + 20 minutes)` in the project time zone, and is not set at all when that moment would fall on a different calendar day than the task date. A timed task therefore always alarms, even when its time has already passed today.
+4. **Voice & Assistant Capture**: To automatically generate `[TTS-TIME:HH:mm]` markers when creating tasks via voice or chat (e.g., Android "Hey Google", Gemini mobile app, or Gemini web), see the [Google Gemini Saved Info Guide](gemini-saved-info.md).
 
 ### Configuration knobs
 
-Time Bridge includes two fail-closed configuration properties in **Project Settings → Script Properties**:
+Time Bridge includes three fail-closed configuration properties in **Project Settings → Script Properties**:
 
 | Key | Default | Description |
 | --- | :---: | --- |
-| `SYNC_TIME_BRIDGE` | `true` | Master switch for Time Bridge processing. Set to `false` to disable all time and reminder synchronization. |
-| `SYNC_CALENDAR_PROJECTION` | `false` | When `true`, projects timed tasks to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false` (default), synchronizes Microsoft To Do reminder times without writing events to Google Calendar. |
+| `SYNC_TIME_BRIDGE` | `true` | Master switch for Time Bridge processing. Set to `false` to disable all time and reminder synchronization; `due` then syncs as a date only and nothing is frozen. |
+| `SYNC_CALENDAR_PROJECTION` | `false` | When `true`, projects timed tasks to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false` (default), Microsoft To Do due times and reminders still synchronize; no calendar events are written, and existing events are left alone. |
+| `SYNC_CALENDAR_PROJECTION_REMINDER` | `true` | When `false`, projected events are created without a popup reminder: the task still occupies its slot on the calendar but does not ring. Use this when another notification path already covers the task. Changing it re-converges existing events one by one. |
+
+### iPhone / Apple Reminders users
+
+If you use **Apple Reminders** connected to your Microsoft account **and** Apple Calendar subscribed to Google Calendar, both the Microsoft To Do alarm and the projected event's popup can fire for the same task. Two options:
+
+1. Set `SYNC_CALENDAR_PROJECTION_REMINDER=false` — the projected event stays visible but silent, and your Microsoft-side alarm remains the only one; or
+2. Keep the default and unsubscribe from the `Tasks-ToDo-Sync` calendar on the device that should not ring.
+
+Android users who rely on Google-side alarms (no Microsoft To Do app on the phone) should keep the default.
 
 ## First validation and scheduling
 
@@ -220,7 +231,7 @@ The Time Bridge reads a single marker on the first line of a Google Task's notes
 
 | Marker | Behavior |
 | --- | --- |
-| `[TTS-TIME:HH:MM]` | Set the Microsoft To Do due time and reminder to `HH:MM` in the project time zone. Also projects a 30-minute Google Calendar event. `00:00` is rejected (ambiguous with date-only midnight). |
-| `[TTS-TIME:NONE]` | **Clear-time intent.** Keeps the existing date on Microsoft To Do unchanged. Clears `hasTime` and releases Time Bridge reminder ownership locally only. No Microsoft PATCH is issued; no epoch (1970) date is ever written. The marker is spliced out of the notes after processing. |
+| `[TTS-TIME:HH:MM]` | Sets the task's canonical time to `HH:MM` (project time zone), writes the Microsoft due time and reminder, and (when calendar projection is enabled) projects a 30-minute Google Calendar event. The marker is consumed once and spliced out. `00:00` is rejected (ambiguous with date-only midnight). |
+| `[TTS-TIME:NONE]` | **Clear-time intent.** Keeps the existing date on Microsoft To Do unchanged and clears the recorded time locally only. No Microsoft PATCH is issued and no epoch (1970) date is ever written. The marker is spliced out of the notes after processing. |
 
 Full-width brackets (`［`, `］`) and full-width colon (`：`) are accepted. The marker must appear on line 1; a marker on any subsequent line is rejected fail-closed.
