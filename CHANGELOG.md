@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.8.1 — 2026-09-27
+
+### Fresh wizard installs enable subtask synchronization by default
+
+- **`SYNC_ENABLE_SUBTASKS=true` joins the setup defaults** (`PUBLIC_SETUP_DEFAULTS`, pinned by the static validator): new installs through the 3-step wizard now synchronize subtasks and checklists without an extra property. The runtime fallback when the property is absent remains off, existing explicit Script Properties are preserved, and Google Calendar projection stays opt-in via `SYNC_CALENDAR_PROJECTION=true`.
+- **Rationale**: the subtask engine carries 41 dedicated unit tests, live real-account verification with a clean 0-task-residue reset, and three released versions of field exposure (v0.6.0 → v0.8.0) — the "ship it dark because it is new" rationale no longer holds.
+- **Docs**: README feature table, quick-start, the deployment defaults table, and the engineering audit header now reflect v0.8.1.
+
 ## 0.8.0 — 2026-09-23
 
 ### Time Bridge v3.0 — canonical time record and idempotent renderers

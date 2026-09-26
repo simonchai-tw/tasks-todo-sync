@@ -26,6 +26,9 @@ Fresh-project values are:
 | `SYNC_ALLOW_DELETIONS` | `true` |
 | `SYNC_ALLOW_LIST_DELETIONS` | `true` |
 | `SYNC_ALLOW_TASK_MOVES` | `true` |
+| `SYNC_ENABLE_SUBTASKS` | `true` |
+
+Subtask and checklist synchronization is enabled by default for fresh wizard installs since v0.8.1 (the runtime fallback when the property is absent remains off). Set it to `false` before the first run to keep task hierarchies untouched.
 
 `initializeSafeDefaults()` fills missing values and preserves explicit existing values. If the published package cannot be resolved, use the [manual Apps Script fallback](#manual-apps-script-fallback).
 

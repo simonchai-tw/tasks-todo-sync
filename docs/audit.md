@@ -1,8 +1,8 @@
-# v0.7.0 engineering audit
+# v0.8.1 engineering audit
 
-Audit scope: 0.7.0 — 2026-09-21
+Audit scope: 0.8.1 — 2026-09-27
 
-The canonical 18-file Apps Script runtime, Time Bridge v2.4 (due time and reminder synchronization with dedicated Google Calendar projection), modernized 3-step setup wizard, subtask and checklist synchronization engine, clean managed resource projection protocol, and formal scheduler invariants described below are included in this release. Their automated and real-account evidence is recorded here.
+The canonical 18-file Apps Script runtime, Time Bridge v3.0 (canonical time record with idempotent renderers and optional dedicated Google Calendar projection), modernized 3-step setup wizard, subtask and checklist synchronization engine, clean managed resource projection protocol, and formal scheduler invariants described below are included in this release. Since v0.8.1, fresh wizard installs enable subtask and checklist synchronization by default (`SYNC_ENABLE_SUBTASKS=true`); the runtime fallback when the property is absent remains off, and existing explicit Script Properties are preserved. Their automated and real-account evidence is recorded here.
 
 Supported environment: initial installation and source updates require a Windows, macOS, or Linux desktop/laptop with Node.js 22+, a terminal, and a modern browser. Chromebook Linux is best effort. npm installation is not supported on phones; the Microsoft connection wizard remains mobile-responsive for reauthorization. The [field compatibility matrix](field-compatibility.md) is the canonical source for field boundaries.
 

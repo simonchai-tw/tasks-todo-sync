@@ -162,7 +162,8 @@ for (const [name, expected] of [
   ['SYNC_LIST_DISCOVERY_MODE', "'auto'"],
   ['SYNC_ALLOW_DELETIONS', "'true'"],
   ['SYNC_ALLOW_LIST_DELETIONS', "'true'"],
-  ['SYNC_ALLOW_TASK_MOVES', "'true'"]
+  ['SYNC_ALLOW_TASK_MOVES', "'true'"],
+  ['SYNC_ENABLE_SUBTASKS', "'true'"]
 ]) {
   assert(new RegExp(`${name}\\s*:\\s*${expected}(?:,\\s*)?$`, 'm').test(publicSetupDefaultsMatch[0]),
     `PUBLIC_SETUP_DEFAULTS.${name} must remain ${expected}`);

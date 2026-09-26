@@ -1749,7 +1749,8 @@ test('initializeSafeDefaults installs missing public defaults and preserves unre
     SYNC_LIST_DISCOVERY_MODE: 'auto',
     SYNC_ALLOW_DELETIONS: 'true',
     SYNC_ALLOW_LIST_DELETIONS: 'true',
-    SYNC_ALLOW_TASK_MOVES: 'true'
+    SYNC_ALLOW_TASK_MOVES: 'true',
+    SYNC_ENABLE_SUBTASKS: 'true'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(second.updatedProperties)), {});
   assert.deepEqual(
@@ -1782,6 +1783,7 @@ test('initializeSafeDefaults preserves existing all-true settings and is idempot
       SYNC_ALLOW_DELETIONS: 'true',
       SYNC_ALLOW_LIST_DELETIONS: 'true',
       SYNC_ALLOW_TASK_MOVES: 'true',
+      SYNC_ENABLE_SUBTASKS: 'true',
       unrelated: 'preserve-me'
     }
   });
@@ -1817,6 +1819,7 @@ test('setupStatus returns bounded public-default status without exposing credent
       SYNC_ALLOW_DELETIONS: 'true',
       SYNC_ALLOW_LIST_DELETIONS: 'true',
       SYNC_ALLOW_TASK_MOVES: 'true',
+      SYNC_ENABLE_SUBTASKS: 'true',
       MS_CLIENT_ID: 'client-id-sentinel',
       MS_CLIENT_SECRET: 'secret-sentinel',
       MS_TENANT_ID: 'tenant-id-sentinel',
@@ -1839,7 +1842,8 @@ test('setupStatus returns bounded public-default status without exposing credent
     'SYNC_LIST_DISCOVERY_MODE',
     'SYNC_ALLOW_DELETIONS',
     'SYNC_ALLOW_LIST_DELETIONS',
-    'SYNC_ALLOW_TASK_MOVES'
+    'SYNC_ALLOW_TASK_MOVES',
+    'SYNC_ENABLE_SUBTASKS'
   ]) {
     assert.equal(report.safetyDefaults[key].correct, true, key);
     assert.equal(report.safetyDefaults[key].valid, true, key);
@@ -1875,7 +1879,8 @@ test('setupStatus accepts deliberate valid overrides while showing public-defaul
       SYNC_LIST_DISCOVERY_MODE: 'explicit',
       SYNC_ALLOW_DELETIONS: 'false',
       SYNC_ALLOW_LIST_DELETIONS: 'false',
-      SYNC_ALLOW_TASK_MOVES: 'false'
+      SYNC_ALLOW_TASK_MOVES: 'false',
+      SYNC_ENABLE_SUBTASKS: 'false'
     },
     scriptApp: { getProjectTriggers: () => [] }
   });
@@ -1889,7 +1894,8 @@ test('setupStatus accepts deliberate valid overrides while showing public-defaul
     'SYNC_LIST_DISCOVERY_MODE',
     'SYNC_ALLOW_DELETIONS',
     'SYNC_ALLOW_LIST_DELETIONS',
-    'SYNC_ALLOW_TASK_MOVES'
+    'SYNC_ALLOW_TASK_MOVES',
+    'SYNC_ENABLE_SUBTASKS'
   ]) {
     assert.equal(report.safetyDefaults[key].valid, true, key);
     assert.equal(report.safetyDefaults[key].matchesPublicDefault, false, key);
