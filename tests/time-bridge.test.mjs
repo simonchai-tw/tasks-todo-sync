@@ -327,37 +327,110 @@ test('timeBridgeMsRenderer_ converges due + reminder under the R-1 single rule (
   assert.equal(patches.length, 2, 'no redundant PATCH once converged');
 });
 
-test('R-1 alarm boundaries: past time today, late evening, and the midnight roll (replaces WO-1 tests)', () => {
+test('R-1 v0.8.2 alarm = the authored instant; the +20 lift fired once at td creation', () => {
   const { c } = loadContext();
   const tz = 'Asia/Taipei';
 
-  // A past time today alarms now + 20 minutes.
+  // A past time today alarms at its authored instant (no repaint, no drift).
   const nowA = Date.parse('2026-10-01T12:00:00Z'); // 20:00 Taipei
   const targetA = c.timeBridgeMsTarget_({ date: '2026-10-01', time: '15:25', v: 1 }, tz, nowA, tz);
-  assert.equal(targetA.reminderDateTime.dateTime, '2026-10-01T12:20:00');
+  assert.equal(targetA.isReminderOn, true);
+  assert.equal(targetA.reminderDateTime.dateTime, '2026-10-01T07:25:00');
 
-  // 23:36 with a past time today still alarms at 23:56 (the old 23:35 cutoff is gone).
+  // 23:36 with a past time today keeps 23:30 — the renderer, not the target,
+  // decides a past alarm stays as Microsoft holds it.
   const nowB = Date.parse('2026-10-01T15:36:00Z'); // 23:36 Taipei
   const targetB = c.timeBridgeMsTarget_({ date: '2026-10-01', time: '23:30', v: 1 }, tz, nowB, tz);
   assert.equal(targetB.isReminderOn, true);
-  assert.equal(targetB.reminderDateTime.dateTime, '2026-10-01T15:56:00');
+  assert.equal(targetB.reminderDateTime.dateTime, '2026-10-01T15:30:00');
 
-  // 23:56 would roll past midnight, so no alarm is set at all.
-  const nowC = Date.parse('2026-10-01T15:56:00Z'); // 23:56 Taipei
-  const targetC = c.timeBridgeMsTarget_({ date: '2026-10-01', time: '23:50', v: 1 }, tz, nowC, tz);
-  assert.equal(targetC.isReminderOn, false);
-  assert.equal(targetC.reminderDateTime, null);
-
-  // A long-past date can never produce an epoch sentinel (WO-1).
+  // A long-past date alarms at its authored instant — no epoch sentinel (WO-1).
   const targetD = c.timeBridgeMsTarget_({ date: '2020-01-01', time: '09:00', v: 1 }, tz, nowA, tz);
-  assert.equal(targetD.isReminderOn, false);
+  assert.equal(targetD.isReminderOn, true);
   assert.equal(JSON.stringify(targetD).indexOf('1970'), -1);
+  assert.equal(targetD.reminderDateTime.dateTime, '2020-01-01T01:00:00');
 
   // date-only (time: null) clears the alarm and never carries a dateTime.
   const targetE = c.timeBridgeMsTarget_({ date: '2026-10-02', time: null, v: 1 }, tz, nowA, tz);
   assert.equal(targetE.isReminderOn, false);
   assert.equal(targetE.reminderDateTime, null);
   assert.equal(targetE.dateTime, '2026-10-02T00:00:00', 'a date-only target still pins the midnight date');
+});
+
+test('timeBridgeApplyExpiryLift_ lifts an expired marker once: +20, then +5, then now', () => {
+  const { c } = loadContext();
+  const tz = 'Asia/Taipei';
+
+  // A marker for 15:25 seen at 20:00 lifts to 20:20 (same day, now+20).
+  const tdA = { date: '2026-10-01', time: '15:25', v: 1 };
+  c.timeBridgeApplyExpiryLift_(tdA, tz, Date.parse('2026-10-01T12:00:00Z'));
+  assert.deepEqual(tdA, { date: '2026-10-01', time: '20:20', v: 1 });
+
+  // A future marker is untouched.
+  const tdB = { date: '2026-10-02', time: '09:00', v: 1 };
+  c.timeBridgeApplyExpiryLift_(tdB, tz, Date.parse('2026-10-01T12:00:00Z'));
+  assert.deepEqual(tdB, { date: '2026-10-02', time: '09:00', v: 1 });
+
+  // 23:57 building a 09:00 marker: +20 rolls past midnight, +5 as well, so the
+  // lift lands on now itself and keeps the alarm on the authored day.
+  const tdC = { date: '2026-10-01', time: '09:00', v: 1 };
+  c.timeBridgeApplyExpiryLift_(tdC, tz, Date.parse('2026-10-01T15:57:00Z')); // 23:57 Taipei
+  assert.deepEqual(tdC, { date: '2026-10-01', time: '23:57', v: 1 });
+
+  // 23:59:50 edge (now+5 would also roll): the lift lands on now itself.
+  const tdD = { date: '2026-10-01', time: '09:00', v: 1 };
+  c.timeBridgeApplyExpiryLift_(tdD, tz, Date.parse('2026-10-01T15:59:50Z')); // 23:59:50 Taipei
+  assert.equal(tdD.date, '2026-10-01');
+  assert.equal(tdD.time, '23:59');
+
+  // A date-only td is left alone.
+  const tdE = { date: '2026-10-01', time: null, v: 1 };
+  c.timeBridgeApplyExpiryLift_(tdE, tz, Date.parse('2026-10-01T12:00:00Z'));
+  assert.equal(tdE.time, null);
+});
+
+test('v0.8.2 regression: a past alarm is never repainted and the adopt loop cannot drift', () => {
+  const { c } = loadContext();
+  const tz = 'Asia/Taipei';
+  const nowMs = Date.parse('2026-10-01T12:00:00Z'); // 20:00 Taipei — the 08:00 alarm fired long ago
+  const state = tbState('g-task', { td: { date: '2026-10-01', time: '08:00', v: 1 } });
+  const msTask = {
+    id: 'ms-task', title: 'Recurring', dueDateTime: { dateTime: '2026-10-01T00:00:00', timeZone: 'Asia/Taipei' },
+    isReminderOn: true, reminderDateTime: { dateTime: '2026-10-01T00:00:00', timeZone: 'UTC' }, status: 'notStarted'
+  };
+  const snap = tbSnap({ id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' }, msTask);
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => { patches.push(payload); return { id }; };
+
+  const first = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(first.patched, 0, 'a past alarm is left exactly as Microsoft holds it');
+  assert.equal(patches.length, 0);
+  assert.deepEqual(state.g2m['g-task'].td, { date: '2026-10-01', time: '08:00', v: 1 }, 'adopt must not read our own stale reminder back as a user edit');
+
+  // The old +20 loop: renderer wrote now+20, adopt ate it, next round wrote
+  // (now+20)+20.  Under v0.8.2 the target is stable, so a second pass after a
+  // hand-set reminder that MATCHES td converges with zero writes.
+  msTask.reminderDateTime = { dateTime: '2026-10-01T00:00:00', timeZone: 'UTC' };
+  const second = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(second.patched, 0);
+  assert.deepEqual(state.g2m['g-task'].td, { date: '2026-10-01', time: '08:00', v: 1 });
+});
+
+test('v0.8.2: a future alarm is still owned and written by the renderer (R-1 live path)', () => {
+  const { c } = loadContext();
+  const tz = 'Asia/Taipei';
+  const nowMs = Date.parse('2026-10-01T12:00:00Z'); // 20:00 Taipei
+  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } });
+  const msTask = { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' };
+  const snap = tbSnap({ id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' }, msTask);
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => { patches.push(payload); return { id }; };
+
+  const result = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(result.patched, 1, 'only the reminder PATCH counts (due PATCH is silent, matching v0.8.0 behaviour)');
+  assert.equal(patches.length, 2);
+  assert.equal(patches[0].reminderDateTime.dateTime, '2026-10-02T07:30:00', 'future alarm written at the authored instant');
+  assert.equal(patches[1].dueDateTime.dateTime, '2026-10-02T00:00:00');
 });
 
 test('timeBridgeCalendarRenderer_ projects, cleans up, and respects the projection knobs (§3.7)', () => {
@@ -554,7 +627,9 @@ test('a marker without a Google due date falls back to today in the project zone
     { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
   );
   c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
-  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-09-30', time: '09:15', v: 1 });
+  // 09:15 already passed by the time the marker was seen — the one-shot R-1
+  // lift moves the alarm to now+20 (12:20) so it still rings, exactly once.
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-09-30', time: '12:20', v: 1 });
 });
 
 test('a failing splice keeps the marker and climbs the ladder; success clears it (§3.3/§3.4.5)', () => {

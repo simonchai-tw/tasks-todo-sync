@@ -307,6 +307,28 @@ function timeBridgeBoundedErrorCode_(e) {
 
 /* §3.2 Intake — the only place a marker is read; writes rec.td, no API. */
 
+/* R-1 v0.8.2: the +20 guard is a ONE-SHOT at td creation.  A marker whose
+ * moment already passed is lifted to the nearest future instant (now+20, or
+ * now+5 when +20 crosses midnight, or now at the 23:59 edge) and from then on
+ * the renderer writes exactly this authored time — it never re-lifts, so the
+ * alarm converges instead of drifting 20 minutes forward every round. */
+function timeBridgeApplyExpiryLift_(td, syncTimeZone, nowMs) {
+  if (!td || !td.date || !td.time) return td;
+  var instantMs = timeBridgeWallClockToUtcMs_(td.date + 'T' + td.time + ':00', syncTimeZone);
+  if (!isFinite(instantMs) || instantMs >= nowMs) return td;
+  var today = timeBridgeFormatYmdInTimeZone_(nowMs, syncTimeZone);
+  var candidate = nowMs + 20 * 60 * 1000;
+  if (timeBridgeFormatYmdInTimeZone_(candidate, syncTimeZone) !== today) {
+    candidate = nowMs + 5 * 60 * 1000;
+  }
+  if (timeBridgeFormatYmdInTimeZone_(candidate, syncTimeZone) !== today) {
+    candidate = nowMs;
+  }
+  td.date = timeBridgeFormatYmdInTimeZone_(candidate, syncTimeZone);
+  td.time = timeBridgeFormatHhMmInTimeZone_(candidate, syncTimeZone);
+  return td;
+}
+
 function timeBridgeIntakePair_(rec, gTask, msTask, syncTimeZone, nowMs, authoredTimeZone) {
   var parsed = timeBridgeParseNotesMarker_(gTask && gTask.notes);
   if (!parsed.markerValid) return parsed;
@@ -323,6 +345,7 @@ function timeBridgeIntakePair_(rec, gTask, msTask, syncTimeZone, nowMs, authored
     next = { date: fallbackDate, time: null, v: 1, clear: true };
   } else {
     next = { date: gDue || timeBridgeFormatYmdInTimeZone_(nowMs, syncTimeZone), time: parsed.hh + ':' + parsed.mm, v: 1 };
+    timeBridgeApplyExpiryLift_(next, syncTimeZone, nowMs);
   }
   if (timeBridgeTdKey_(rec.td) !== timeBridgeTdKey_(next) || !!rec.td === false) {
     rec.td = next;
@@ -397,16 +420,16 @@ function timeBridgeMsTarget_(td, syncTimeZone, nowMs, authoredTimeZone) {
     reminderInstantMs: null
   };
   if (!td.time) return target;
-  // R-1: the alarm is max(task instant, now + 20 minutes); when that instant
-  // falls on a different calendar day than the task date it is not set at all
-  // (never ring after midnight for a task dated today).
-  var dueInstantMs = timeBridgeWallClockToUtcMs_(td.date + 'T' + td.time + ':00', syncTimeZone);
-  var candidate = Math.max(dueInstantMs, nowMs + 20 * 60 * 1000);
-  if (!isFinite(candidate)) return target;
-  if (timeBridgeFormatYmdInTimeZone_(candidate, syncTimeZone) !== td.date) return target;
+  // R-1 v0.8.2: the alarm is exactly the authored instant recorded in td.  The
+  // now+20 guard fired ONCE when td was created (timeBridgeApplyExpiryLift_ in
+  // the intake path); re-applying max(due, now+20) on every round made our own
+  // write drift forward each round and the adopt path then read that drift back
+  // as a user edit — the recurring +20-minute loop on Microsoft alarms.
+  var instantMs = timeBridgeWallClockToUtcMs_(td.date + 'T' + td.time + ':00', syncTimeZone);
+  if (!isFinite(instantMs)) return target;
   target.isReminderOn = true;
-  target.reminderInstantMs = candidate;
-  target.reminderDateTime = { dateTime: timeBridgeIsoSeconds_(candidate), timeZone: 'UTC' };
+  target.reminderInstantMs = instantMs;
+  target.reminderDateTime = { dateTime: timeBridgeIsoSeconds_(instantMs), timeZone: 'UTC' };
   return target;
 }
 
@@ -479,9 +502,20 @@ function timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZon
     if (!target) return;
     var observed = timeBridgeMsDueWallClock_(msTask.dueDateTime, authoredTimeZone);
     var dueOk = !!observed && observed.date === rec.td.date && observed.time === null;
-    var reminderOk = !!msTask.isReminderOn === target.isReminderOn &&
-      (!target.isReminderOn || (!!msTask.reminderDateTime &&
-        Math.abs(timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime) - target.reminderInstantMs) <= 60000));
+    // R-1 v0.8.2: an alarm whose moment has already passed stays exactly as
+    // Microsoft holds it — repainting a past reminder would fake a fresh alert
+    // and, on recurring tasks, fight Microsoft's own recurrence engine.  Only
+    // FUTURE alarms are owned by this renderer; a clear (isReminderOn false)
+    // still wipes leftovers unconditionally.
+    var reminderOk;
+    if (target.isReminderOn && target.reminderInstantMs >= nowMs) {
+      reminderOk = !!msTask.isReminderOn && !!msTask.reminderDateTime &&
+        Math.abs(timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime) - target.reminderInstantMs) <= 60000;
+    } else if (target.isReminderOn) {
+      reminderOk = true;
+    } else {
+      reminderOk = !msTask.isReminderOn;
+    }
     if (dueOk && reminderOk) {
       timeBridgeRetryRecordSuccess_(rec, 'ms');
       return;

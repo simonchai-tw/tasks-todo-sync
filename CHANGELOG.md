@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.8.2 — 2026-10-01
+
+### Microsoft reminder alarms no longer drift forward 20 minutes per round
+
+- **Root cause fixed**: the R-1 guard `max(due instant, now + 20 minutes)` re-applied on every sync round made the renderer's own write drift forward — each round the reminder moved to `now+20`, the next round read that drift back as a hand-set Microsoft time, and re-lifted it again. Recurring tasks (which re-arm their alarm daily) replayed the loop every day: after the trigger time passed, the reminder kept sliding 20 minutes at a time.
+- **The +20 guard is now a one-shot at record creation** (`timeBridgeApplyExpiryLift_`): a `[TTS-TIME:HH:mm]` marker whose moment already passed lifts the alarm to now+20 minutes once (now+5 when +20 crosses midnight, now at the 23:59 edge) and from then on the renderer writes exactly the authored time. Hand-set Microsoft times, recurring engines, and future alarms keep their former behavior; a past alarm is left exactly as Microsoft holds it instead of being repainted.
+- **Adoption contract restored**: because renderer writes now converge on a stable instant, the "a difference means the user edited it" assumption in `timeBridgeMsAdoptObservation_` holds again — no adoption change needed, the feedback loop is structurally gone.
+- **Tests**: R-1 boundary tests rewritten for the authored-instant semantics; new regressions cover the one-shot lift (+20/+5/now ladder), the no-repaint rule for past alarms, and the convergence of a second renderer pass.
+
 ## 0.8.1 — 2026-09-27
 
 ### Fresh wizard installs enable subtask synchronization by default
