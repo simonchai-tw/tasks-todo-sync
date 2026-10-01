@@ -166,6 +166,8 @@ const TIME_BRIDGE_DEAD_LETTER_EVENT_DELETIONS_MAX = 20;
 const TIME_BRIDGE_EVENT_DELETION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TIME_BRIDGE_CALENDAR_SUMMARY = 'Tasks-ToDo-Sync';
 const DEFAULT_SYNC_TIME_BRIDGE = true;
-const DEFAULT_SYNC_CALENDAR_PROJECTION = false;
-const DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER = true;
+// Product decision (Simon, 2026-09-30): calendar projection ships ON by default;
+// the reminder duplication knob is what stays OFF by default.
+const DEFAULT_SYNC_CALENDAR_PROJECTION = true;
+const DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER = false;
 

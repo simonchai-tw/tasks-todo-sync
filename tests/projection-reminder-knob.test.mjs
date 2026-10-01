@@ -114,8 +114,8 @@ test('SYNC_CALENDAR_PROJECTION_REMINDER switches the event between ringing and s
 test('the config knob parses strictly and reports a bounded error code', () => {
   const { c } = load({ SYNC_CALENDAR_PROJECTION_REMINDER: 'false' });
   assert.equal(c.getSafetyConfig_().enableCalendarProjectionReminder, false);
-  const { c: onByDefault } = load();
-  assert.equal(onByDefault.getSafetyConfig_().enableCalendarProjectionReminder, true, 'default true keeps v0.7.5 behaviour');
+  const { c: offByDefault } = load();
+  assert.equal(offByDefault.getSafetyConfig_().enableCalendarProjectionReminder, false, 'default false: reminder duplication is opt-in since 0.9.3');
   const { c: broken } = load({ SYNC_CALENDAR_PROJECTION_REMINDER: 'yes' });
   assert.throws(() => broken.getSafetyConfig_(), /SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID/);
   assert.equal(broken.boundedSafetyConfigIssue_(new Error('SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID: x')),

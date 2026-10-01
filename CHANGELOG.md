@@ -4,7 +4,11 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
-## 0.9.2-rc.1 — Unreleased
+## 0.9.3-rc.1 — Unreleased
+
+### Defaults
+
+- Calendar projection (`SYNC_CALENDAR_PROJECTION`) now defaults to **on**; calendar reminders (`SYNC_CALENDAR_PROJECTION_REMINDER`) now default to **off**. Previously projection was opt-in and reminders were on. Existing projects with these properties already set are unaffected.
 
 ### Windows companion fixes
 

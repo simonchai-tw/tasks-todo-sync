@@ -959,8 +959,8 @@
         if (!window.google || !google.script || !google.script.run) return;
         google.script.run.withSuccessHandler(function(data) {
           if (data && data.preferences) {
-            document.getElementById('prefCalendarProjection').checked = data.preferences.calendarProjectionEnabled === true;
-            document.getElementById('prefCalendarReminder').checked = data.preferences.calendarReminderEnabled !== false;
+            document.getElementById('prefCalendarProjection').checked = data.preferences.calendarProjectionEnabled !== false;
+            document.getElementById('prefCalendarReminder').checked = data.preferences.calendarReminderEnabled === true;
             document.getElementById('prefAlertEmail').value = data.preferences.alertEmail || '';
           }
           if (data && data.microsoft && (data.microsoft.status === 'authorized' || data.microsoft.status === 'advanced')) {

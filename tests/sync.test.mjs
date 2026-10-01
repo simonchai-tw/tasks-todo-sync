@@ -1082,8 +1082,8 @@ test('setupWizardOverview returns bounded status snapshot', () => {
   assert.equal(overview.intervalMinutes, 10);
   assert.equal(overview.lastSuccessfulSyncAt, null);
   assert.deepEqual(JSON.parse(JSON.stringify(overview.preferences)), {
-    calendarProjectionEnabled: false,
-    calendarReminderEnabled: true,
+    calendarProjectionEnabled: true,
+    calendarReminderEnabled: false,
     alertEmail: ''
   });
 });
