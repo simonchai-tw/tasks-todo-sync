@@ -581,12 +581,92 @@ function setupWizardPrepareGoogle() {
 function setupWizardOverview() {
   initializeExecutionBudget_();
   const trigger = setupTriggerCount_();
+  const properties = PropertiesService.getScriptProperties();
+  let lastSuccessfulSyncAt = null;
+  try {
+    const loaded = loadStateForInspection_();
+    if (!loaded.corrupt && loaded.state && loaded.state.health) {
+      lastSuccessfulSyncAt = loaded.state.health.lastSuccessfulSyncAt || null;
+    }
+  } catch (error) {
+    lastSuccessfulSyncAt = null;
+  }
   return {
     microsoft: setupWizardPersonalAuthorizationStatus(),
     triggerAvailable: trigger.available,
     triggerCount: trigger.count,
-    intervalMinutes: SYNC_TRIGGER_INTERVAL_MINUTES
+    intervalMinutes: SYNC_TRIGGER_INTERVAL_MINUTES,
+    lastSuccessfulSyncAt,
+    preferences: {
+      calendarProjectionEnabled: scriptBooleanProperty_(
+        properties,
+        'SYNC_CALENDAR_PROJECTION',
+        DEFAULT_SYNC_CALENDAR_PROJECTION
+      ),
+      calendarReminderEnabled: scriptBooleanProperty_(
+        properties,
+        'SYNC_CALENDAR_PROJECTION_REMINDER',
+        DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER
+      ),
+      alertEmail: String(properties.getProperty('ALERT_EMAIL') || '').trim()
+    }
   };
+}
+
+function setupWizardSavePreferences(input) {
+  initializeExecutionBudget_();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Preferences input must be an object.');
+  }
+  const properties = PropertiesService.getScriptProperties();
+  const allowedKeys = [
+    'calendarProjectionEnabled',
+    'calendarReminderEnabled',
+    'alertEmail'
+  ];
+  Object.keys(input).forEach(function(key) {
+    if (!allowedKeys.includes(key)) {
+      throw new Error('Unsupported preference: ' + String(key).slice(0, 40));
+    }
+  });
+
+  if (Object.prototype.hasOwnProperty.call(input, 'calendarProjectionEnabled')) {
+    if (typeof input.calendarProjectionEnabled !== 'boolean') {
+      throw new Error('calendarProjectionEnabled must be a boolean.');
+    }
+    properties.setProperty('SYNC_CALENDAR_PROJECTION', String(input.calendarProjectionEnabled));
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'calendarReminderEnabled')) {
+    if (typeof input.calendarReminderEnabled !== 'boolean') {
+      throw new Error('calendarReminderEnabled must be a boolean.');
+    }
+    properties.setProperty(
+      'SYNC_CALENDAR_PROJECTION_REMINDER',
+      String(input.calendarReminderEnabled)
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'alertEmail')) {
+    const alertEmail = String(input.alertEmail || '').trim().slice(0, 254);
+    if (alertEmail) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alertEmail)) {
+        throw new Error('ALERT_EMAIL must be a valid email address or blank.');
+      }
+      properties.setProperty('ALERT_EMAIL', alertEmail);
+    } else {
+      properties.deleteProperty('ALERT_EMAIL');
+    }
+  }
+
+  return setupWizardOverview().preferences;
+}
+
+function scriptBooleanProperty_(properties, key, defaultValue) {
+  const raw = String(properties.getProperty(key) || '').trim().toLowerCase();
+  if (!raw) return defaultValue === true;
+  if (raw !== 'true' && raw !== 'false') {
+    throw new Error(key + ' must be true or false.');
+  }
+  return raw === 'true';
 }
 
 // Step 3 of the wizard: after Microsoft is verified, validate, schedule, and

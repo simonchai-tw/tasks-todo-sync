@@ -4,14 +4,20 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
-## 0.8.2 — 2026-10-01
+## 0.9.2-rc.1 — Unreleased
 
-### Microsoft reminder alarms no longer drift forward 20 minutes per round
+### Windows companion fixes
 
-- **Root cause fixed**: the R-1 guard `max(due instant, now + 20 minutes)` re-applied on every sync round made the renderer's own write drift forward — each round the reminder moved to `now+20`, the next round read that drift back as a hand-set Microsoft time, and re-lifted it again. Recurring tasks (which re-arm their alarm daily) replayed the loop every day: after the trigger time passed, the reminder kept sliding 20 minutes at a time.
-- **The +20 guard is now a one-shot at record creation** (`timeBridgeApplyExpiryLift_`): a `[TTS-TIME:HH:mm]` marker whose moment already passed lifts the alarm to now+20 minutes once (now+5 when +20 crosses midnight, now at the 23:59 edge) and from then on the renderer writes exactly the authored time. Hand-set Microsoft times, recurring engines, and future alarms keep their former behavior; a past alarm is left exactly as Microsoft holds it instead of being repainted.
-- **Adoption contract restored**: because renderer writes now converge on a stable instant, the "a difference means the user edited it" assumption in `timeBridgeMsAdoptObservation_` holds again — no adoption change needed, the feedback loop is structurally gone.
-- **Tests**: R-1 boundary tests rewritten for the authored-instant semantics; new regressions cover the one-shot lift (+20/+5/now ladder), the no-repaint rule for past alarms, and the convergence of a second renderer pass.
+- **Detect works again**: the companion-protocol `detect` command referenced `randomUUID()` without importing it from `node:crypto`, so every detect run crashed before producing output. Fresh installs are unaffected; the import is now explicit.
+- **Install creates its own deployment**: a fresh project no longer redeploys the Google-managed initial HEAD deployment (which clasp reports as succeeding without returning JSON). `install` always creates a new deployment; `update` redeploys only the deployment recorded in the companion marker, preserving the web-app URL.
+- **Engine CLI failures now include clasp output**: the "did not return JSON" error message now quotes the first 400 characters of clasp stdout and stderr instead of reporting nothing.
+- **GAS project title aligned to `Tasks-ToDo-Sync`** (hyphenated) so the companion's exact-title detect matches projects created by earlier release lines.
+
+### Windows companion protocol
+
+- Adds JSON-only local CLI commands for the Windows companion to check the environment, detect existing Apps Script installations, install a new project and immutable web-app deployment, update the same project/deployment in place, read bounded cloud status, trigger `syncAll`, and save fixed companion preferences.
+- Adds bounded setup preferences for the dedicated `Tasks-ToDo-Sync` calendar projection, calendar reminders, and an optional alert email override. Preferences use strict boolean validation and a conservative email allowlist; arbitrary Script Properties cannot be written through this endpoint.
+- Updates never delete and recreate an Apps Script project. The safe update path preserves `scriptId`, pulls a timestamped backup, refuses unmanaged files, pushes the canonical file set, creates a new version, and updates the existing deployment.
 
 ## 0.8.1 — 2026-09-27
 

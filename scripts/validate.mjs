@@ -69,7 +69,7 @@ for (const { filename, source } of gasSources) {
   }
 }
 const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
-assert(publicEntrypoints.length === 53, `Expected 53 public entrypoints, found ${publicEntrypoints.length}`);
+assert(publicEntrypoints.length === 54, `Expected 54 public entrypoints, found ${publicEntrypoints.length}`);
 assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs'),
   'All public and compatibility entrypoints must remain in Code.gs');
 
@@ -99,6 +99,7 @@ const requiredFunctions = [
   'setupWizardPersonalAuthorizationStatus',
   'setupWizardPrepareGoogle',
   'setupWizardOverview',
+  'setupWizardSavePreferences',
   'setupWizardFinalize',
   'setupWizardRunFirstSync',
   'showRedirectUri',

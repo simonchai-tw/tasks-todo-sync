@@ -1080,6 +1080,35 @@ test('setupWizardOverview returns bounded status snapshot', () => {
   assert.equal(typeof overview.triggerAvailable, 'boolean');
   assert.equal(typeof overview.triggerCount, 'number');
   assert.equal(overview.intervalMinutes, 10);
+  assert.equal(overview.lastSuccessfulSyncAt, null);
+  assert.deepEqual(JSON.parse(JSON.stringify(overview.preferences)), {
+    calendarProjectionEnabled: false,
+    calendarReminderEnabled: true,
+    alertEmail: ''
+  });
+});
+
+test('setupWizardSavePreferences writes only bounded companion preferences', () => {
+  const { context, scriptStore } = loadContext();
+  const saved = context.setupWizardSavePreferences({
+    calendarProjectionEnabled: true,
+    calendarReminderEnabled: false,
+    alertEmail: 'alerts@example.com'
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(saved)), {
+    calendarProjectionEnabled: true,
+    calendarReminderEnabled: false,
+    alertEmail: 'alerts@example.com'
+  });
+  assert.equal(scriptStore.values.SYNC_CALENDAR_PROJECTION, 'true');
+  assert.equal(scriptStore.values.SYNC_CALENDAR_PROJECTION_REMINDER, 'false');
+  assert.equal(scriptStore.values.ALERT_EMAIL, 'alerts@example.com');
+
+  const cleared = context.setupWizardSavePreferences({ alertEmail: '' });
+  assert.equal(cleared.alertEmail, '');
+  assert.equal(Object.hasOwn(scriptStore.values, 'ALERT_EMAIL'), false);
+  assert.throws(() => context.setupWizardSavePreferences({ alertEmail: 'not-an-email' }), /valid email/);
+  assert.throws(() => context.setupWizardSavePreferences({ unknown: true }), /Unsupported preference/);
 });
 
 test('setupWizardFinalize and setupWizardRunFirstSync fail closed when Microsoft is unverified', () => {

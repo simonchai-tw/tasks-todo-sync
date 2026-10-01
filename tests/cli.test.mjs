@@ -322,3 +322,95 @@ test('init refuses Microsoft client credential flags before touching the filesys
   assert.equal(fake.fileMap.size, 0);
   assert.match(fake.errors.join('\n'), /intentionally not accepted/);
 });
+
+test('doctor --json reports the local Node.js compatibility gate', async () => {
+  const fake = createFakeRuntime();
+
+  const exitCode = await main(['doctor', '--json'], fake.runtime);
+  const payload = JSON.parse(fake.output.at(-1));
+
+  assert.equal(exitCode, 0);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.packageVersion, PACKAGE.version);
+  assert.equal(payload.node.major >= 22, true);
+  assert.equal(payload.node.supported, true);
+});
+
+test('install --json creates one version and one web app deployment without recreating an existing project', async () => {
+  const cwd = resolve('cli-test-install');
+  const fake = createFakeRuntime({
+    cwd,
+    onClasp: async ({ args, options, fileMap, normal }) => {
+      if (args[0] === 'show-authorized-user') return { code: 0, stdout: '{"loggedIn":true}' };
+      if (args[0] === 'create') {
+        fileMap.set(normal(join(options.cwd, '.clasp.json')), JSON.stringify({ scriptId: 'new-script', rootDir: '.' }));
+        return { code: 0 };
+      }
+      if (args[0] === 'list-deployments') return { code: 0, stdout: '[]' };
+      if (args[0] === 'create-version') return { code: 0, stdout: '{"versionNumber":7}' };
+      if (args[0] === 'create-deployment') {
+        return { code: 0, stdout: '{"deploymentId":"deployment-7","versionNumber":7}' };
+      }
+      return { code: 0 };
+    }
+  });
+
+  const exitCode = await main(['install', '--json', '--non-interactive', '--target', 'managed'], fake.runtime);
+  const payload = JSON.parse(fake.output.at(-1));
+  const commands = fake.calls.map(({ args }) => args[2]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.scriptId, 'new-script');
+  assert.equal(payload.deploymentId, 'deployment-7');
+  assert.equal(payload.versionNumber, 7);
+  assert.deepEqual(commands.filter((command) => ['create', 'push', 'create-version', 'create-deployment'].includes(command)), [
+    'create',
+    'push',
+    'create-version',
+    'create-deployment'
+  ]);
+  const marker = JSON.parse(fake.fileMap.get(join(cwd, 'managed', '.tasks-todo-sync-companion.json')));
+  assert.equal(marker.scriptId, 'new-script');
+  assert.equal(marker.deploymentId, 'deployment-7');
+});
+
+test('preferences --json calls the bounded Apps Script preference endpoint', async () => {
+  const cwd = resolve('cli-test-preferences');
+  const target = join(cwd, 'tasks-todo-sync-app');
+  const fake = createFakeRuntime({
+    cwd,
+    files: {
+      [join(target, '.clasp.json')]: JSON.stringify({ scriptId: 'script-1', rootDir: '.' })
+    },
+    onClasp: async ({ args }) => {
+      if (args[0] === 'run-function') {
+        return { code: 0, stdout: JSON.stringify({ response: { ok: true }, error: undefined }) };
+      }
+      return { code: 0 };
+    }
+  });
+
+  const exitCode = await main([
+    'preferences',
+    '--json',
+    '--calendar-projection',
+    'true',
+    '--calendar-reminder',
+    'false',
+    '--alert-email',
+    'alerts@example.com'
+  ], fake.runtime);
+  const payload = JSON.parse(fake.output.at(-1));
+  const runCall = fake.calls.find(({ args }) => args[2] === 'run-function');
+  const params = JSON.parse(runCall.args[runCall.args.length - 1]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(payload.ok, true);
+  assert.equal(runCall.args[3], 'setupWizardSavePreferences');
+  assert.deepEqual(params[0], {
+    calendarProjectionEnabled: true,
+    calendarReminderEnabled: false,
+    alertEmail: 'alerts@example.com'
+  });
+});

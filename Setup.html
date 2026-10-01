@@ -349,6 +349,81 @@
         to { transform: rotate(360deg); }
       }
 
+      .preferences-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        margin: 0 0 20px;
+        background: #f8fafc;
+      }
+      .preferences-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        margin-bottom: 12px;
+      }
+      .preference-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 0;
+      }
+      .preference-row + .preference-row {
+        border-top: 1px solid var(--border);
+      }
+      .preference-label {
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+      .preference-detail {
+        display: block;
+        font-size: 0.76rem;
+        color: var(--text-muted);
+        font-weight: 400;
+      }
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 42px;
+        height: 24px;
+        flex-shrink: 0;
+      }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: #cbd5e1;
+        border-radius: 999px;
+        transition: 0.2s;
+      }
+      .slider::before {
+        content: '';
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        left: 3px;
+        top: 3px;
+        background: #ffffff;
+        border-radius: 50%;
+        transition: 0.2s;
+      }
+      .switch input:checked + .slider { background: var(--primary); }
+      .switch input:checked + .slider::before { transform: translateX(18px); }
+      .email-input {
+        width: 100%;
+        margin-top: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        font: inherit;
+      }
+      .email-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px var(--border-focus);
+      }
+
       /* Footer */
       footer {
         margin-top: 24px;
@@ -553,6 +628,41 @@
               <div class="check-detail" id="finalDetailHealth">Verifies scheduler invariants and API connectivity</div>
             </div>
           </div>
+        </div>
+
+        <div class="preferences-card">
+          <div class="preferences-title">Companion preferences</div>
+          <div class="preference-row">
+            <div>
+              <span class="preference-label">Tasks-ToDo-Sync calendar</span>
+              <span class="preference-detail">Project due dates into the dedicated calendar</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="prefCalendarProjection" onchange="savePreferences()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="preference-row">
+            <div>
+              <span class="preference-label">Calendar reminders</span>
+              <span class="preference-detail">Keep reminder events when calendar projection is enabled</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="prefCalendarReminder" onchange="savePreferences()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="preference-row" style="display:block;">
+            <div>
+              <span class="preference-label">Alert email override</span>
+              <span class="preference-detail">Leave blank to use the signed-in Google email</span>
+            </div>
+            <input class="email-input" id="prefAlertEmail" type="email" autocomplete="email" placeholder="you@example.com">
+            <div class="actions-bar" style="margin-top:10px;">
+              <button class="btn btn-secondary" type="button" onclick="savePreferences()">Save email</button>
+            </div>
+          </div>
+          <div class="status-pill" id="preferenceStatus" hidden></div>
         </div>
 
         <div class="banner banner-success" id="finalSuccessBanner" hidden>
@@ -848,6 +958,11 @@
       function refreshStep3Overview() {
         if (!window.google || !google.script || !google.script.run) return;
         google.script.run.withSuccessHandler(function(data) {
+          if (data && data.preferences) {
+            document.getElementById('prefCalendarProjection').checked = data.preferences.calendarProjectionEnabled === true;
+            document.getElementById('prefCalendarReminder').checked = data.preferences.calendarReminderEnabled !== false;
+            document.getElementById('prefAlertEmail').value = data.preferences.alertEmail || '';
+          }
           if (data && data.microsoft && (data.microsoft.status === 'authorized' || data.microsoft.status === 'advanced')) {
             markRowSuccess('finalRowMs', 'finalIconBoxMs', 'finalDetailMs', data.microsoft.status === 'advanced' ? 'Connected via Advanced Entra OAuth.' : 'Connected & verified with Microsoft Graph.');
           }
@@ -859,6 +974,28 @@
             document.getElementById('finalSuccessBanner').hidden = false;
           }
         }).setupWizardOverview();
+      }
+
+      function savePreferences() {
+        if (!window.google || !google.script || !google.script.run) return;
+        const status = document.getElementById('preferenceStatus');
+        const input = {
+          calendarProjectionEnabled: document.getElementById('prefCalendarProjection').checked,
+          calendarReminderEnabled: document.getElementById('prefCalendarReminder').checked,
+          alertEmail: document.getElementById('prefAlertEmail').value.trim()
+        };
+        status.hidden = false;
+        status.textContent = 'Saving preferences…';
+        google.script.run
+          .withSuccessHandler(function(saved) {
+            status.textContent = 'Preferences saved.';
+            if (saved) document.getElementById('prefAlertEmail').value = saved.alertEmail || '';
+          })
+          .withFailureHandler(function(error) {
+            status.textContent = 'Preferences could not be saved.';
+            alert('Preference error: ' + (error && error.message || error));
+          })
+          .setupWizardSavePreferences(input);
       }
 
       function refreshMsStatus() {
