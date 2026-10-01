@@ -174,6 +174,7 @@ function discoverRelationshipsReadOnly_(state, parentCandidates, policy, started
     observed: 0,
     unobserved: 0,
     notFound: 0,
+    notFoundParentIds: [],
     malformed: 0,
     directCollectionRequests: 0,
     graphBatchOuterRequests: 0,
@@ -210,7 +211,7 @@ function discoverRelationshipsReadOnly_(state, parentCandidates, policy, started
       result.directCollectionRequests += Number(error && error.directCollectionRequests) || 0;
       const classification = classifyRelationshipReadError_(error);
       applyRelationshipObservation_(state, parent, { kind: classification }, roundId, nowMs);
-      if (classification === 'PARENT_NOT_FOUND') result.notFound += 1;
+      if (classification === 'PARENT_NOT_FOUND') { result.notFound += 1; result.notFoundParentIds.push(parent.msParentId); }
       else if (classification === 'MALFORMED') result.malformed += 1;
       else result.unobserved += 1;
     }

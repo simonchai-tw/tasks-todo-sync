@@ -1630,7 +1630,8 @@ const SUBTASK_RECORD_FIELDS_ = [
   'phase', 'gChildId', 'msChecklistId', 'nextMsChecklistId', 'gParentId', 'at', 'preparedAt',
   'lastRoundId', 'attempts', 'correlationId', 'fingerprint', 'reason', 'missingSide',
   'parentMsId', 'parentMsListId', 'intended', 'base', 'field', 'source', 'target', 'desired',
-  'missingStreak', 'lastMissingObservationRound', 'firstMissingAt', 'survivorSemanticBaseline'
+  'missingStreak', 'lastMissingObservationRound', 'firstMissingAt', 'survivorSemanticBaseline',
+  'gListId'
 ];
 
 function assertSubtaskTable_(table, field, allowRecords) {
@@ -1644,7 +1645,7 @@ function assertSubtaskTable_(table, field, allowRecords) {
     const record = table[key];
     if (!isStateObject_(record)) throw new Error('STATE_MALFORMED: subtasks.' + field + '[' + key + '] must be an object; overwrite refused.');
     assertKnownObjectKeys_(record, SUBTASK_RECORD_FIELDS_, 'subtasks.' + field + '[' + key + ']', 'STATE_MALFORMED');
-    ['gChildId', 'msChecklistId', 'gParentId', 'nextMsChecklistId'].forEach(function(idField) {
+    ['gChildId', 'msChecklistId', 'gParentId', 'nextMsChecklistId', 'gListId'].forEach(function(idField) {
       if (Object.prototype.hasOwnProperty.call(record, idField)) {
         assertSubtaskId_(record[idField], 'subtasks.' + field + '[' + key + '].' + idField);
       }

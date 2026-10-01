@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.8.3 — 2026-10-01
+
+### Three boundary bugs from the external advisory review fixed
+
+- **Advisory A — parent-loss evidence is now actually produced**: `discoverRelationshipsReadOnly_` classified Microsoft parents as `PARENT_NOT_FOUND` but never collected their ids, so the subtask-specific Microsoft parent-loss branch in `subtaskObserveDeletionEvidence_` could never fire. The discovery result now carries `notFoundParentIds` and the observation bridge feeds it through.
+- **Advisory B (P0) — deletion journal recovery no longer deletes with the wrong list id**: journal rows intentionally excluded `gListId` from persistence, so a recovery round fell back to `row.parentMsListId` — a Microsoft list id — against the Google API. The guaranteed 404 was misread as not-found and finalized, orphaning the Google checklist child. `gListId` is now persisted (state schema allowlist extended) and a row without it parks in UNCERTAIN instead of faking a not-found finalize.
+- **Advisory C — cross-list moves keep the canonical time record**: `putMapping_` rebuilt mapping rows without `td`, discarding `td.retry` and `td.quarantine` on a cross-list move and reviving quarantined pairs. The time record now survives mapping rebuilds.
+- **Test infrastructure: date-bomb fixtures defused and guarded**: the `timeBridgeRun_` integration fixture mixed a pinned calendar date with the real clock and broke the moment the calendar advanced (the same class of failure WO-2 fixed in v0.7.x). The fixture is now anchored on the real clock with a marker 25 hours ahead, and `validate.mjs` gained a static scan that fails any test date literal within ±1 day of today unless explicitly marked `FIXED-DATE-OK`.
+
 ## 0.8.2 — 2026-10-01
 
 ### Microsoft reminder alarms no longer drift forward 20 minutes per round

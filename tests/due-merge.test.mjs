@@ -45,14 +45,14 @@ const OFF = { enableTimeBridge: false };
 
 test('due is a { date, time } unit and a Microsoft date edit propagates to Google (no carve-out)', () => {
   const c = load();
-  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } };
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } }; // FIXED-DATE-OK
   const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-02T00:00:00.000Z' };
   // The user changed the Microsoft date to 10-03; the time stays 15:30.
   const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-03T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' };
 
   const gProj = c.ordinaryProjectGoogle_(gTask, rec, ON);
   const mProj = c.ordinaryProjectMicrosoft_(msTask, rec, ON);
-  assert.deepEqual(JSON.parse(JSON.stringify(gProj.due)), { date: '2026-10-02', time: '15:30' });
+  assert.deepEqual(JSON.parse(JSON.stringify(gProj.due)), { date: '2026-10-02', time: '15:30' }); // FIXED-DATE-OK
   assert.deepEqual(JSON.parse(JSON.stringify(mProj.due)), { date: '2026-10-03', time: '15:30' });
 
   const plan = c.ordinaryMergeMappedFields_({ v: 1, due: c.ordinaryFieldFp_(gProj, 'due') }, gProj, mProj, rec);
@@ -101,7 +101,7 @@ test('the merge keeps the canonical date in rec.td and drops the time when the d
   const c = load();
   const state = {
     schema: 4, listMap: { 'g-list': 'ms-list' },
-    g2m: { 'g-task': { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } } },
+    g2m: { 'g-task': { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } } }, // FIXED-DATE-OK
     m2g: { 'ms-task': 'g-task' },
     subtasks: { mappings: {}, parents: {}, createJournal: {}, pendingDeletions: {}, deletionJournal: {}, moveJournal: {}, conflicts: {}, tombstones: { g: {}, ms: {} } },
     tombstones: { g: {}, ms: {} }, listFaults: { g: {}, ms: {} }, health: {}
@@ -120,7 +120,7 @@ test('the merge keeps the canonical date in rec.td and drops the time when the d
   assert.equal(state.g2m['g-task'].td, undefined, 'a cleared date clears the time record');
 
   // A Microsoft date edit is adopted as the canonical date.
-  state.g2m['g-task'].td = { date: '2026-10-02', time: '15:30', v: 1 };
+  state.g2m['g-task'].td = { date: '2026-10-02', time: '15:30', v: 1 }; // FIXED-DATE-OK
   const gTask2 = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-02T00:00:00.000Z' };
   const msTask2 = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-07T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' };
   state.g2m['g-task'].fp = { v: 1, due: c.ordinaryFieldFp_(c.ordinaryProjectGoogle_(gTask2, rec, ON), 'due') };
@@ -131,7 +131,7 @@ test('the merge keeps the canonical date in rec.td and drops the time when the d
 
 test('with the bridge off the due unit is date-only on both sides (v0.6.x behaviour)', () => {
   const c = load();
-  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } };
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } }; // FIXED-DATE-OK
   const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-02T00:00:00.000Z' };
   const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-02T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' };
   const gProj = c.ordinaryProjectGoogle_(gTask, rec, OFF);
@@ -147,7 +147,7 @@ test('a brand-new pair with a marker time never deadlocks on a due bootstrap con
   const c = load();
   // Round 1 on a new pair: no baseline at all, the Microsoft counterpart was just
   // created date-only, and the time lives only in rec.td.
-  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } };
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } }; // FIXED-DATE-OK
   const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-02T00:00:00.000Z' };
   const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-02T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: false, status: 'notStarted' };
 
@@ -171,3 +171,20 @@ test('a brand-new pair with a marker time never deadlocks on a due bootstrap con
   const plan2 = c.ordinaryMergeMappedFields_(rec.fp, gProj, mEdited, rec);
   assert.equal(plan2.conflicts.concat(plan2.bootstrapConflicts).length, 0);
 });
+
+test('v0.8.3: putMapping_ preserves the canonical time record across mapping rebuilds (advisory C)', () => {
+  const c = load();
+  const s = c.newState_();
+  s.g2m['g-task'] = {
+    msId: 'ms-old', gListId: 'g-list', msListId: 'ms-list',
+    td: { date: '2026-10-02', time: '15:30', v: 1, retry: { ms: { fails: 4, lastFailAt: 'x' } } } // FIXED-DATE-OK
+  };
+  s.m2g['ms-old'] = 'g-task';
+  c.putMapping_(s, { id: 'g-task', updated: null }, 'g-list', { id: 'ms-new', lastModifiedDateTime: null }, 'ms-list');
+  const rec = s.g2m['g-task'];
+  assert.equal(rec.msId, 'ms-new');
+  assert.deepEqual(JSON.parse(JSON.stringify(rec.td)), { date: '2026-10-02', time: '15:30', v: 1, retry: { ms: { fails: 4, lastFailAt: 'x' } } }, 'td survives cross-list rebuilds with retry state intact'); // FIXED-DATE-OK
+  assert.equal(s.m2g['ms-old'], undefined);
+  assert.equal(s.m2g['ms-new'], 'g-task');
+});
+

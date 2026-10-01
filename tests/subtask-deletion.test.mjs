@@ -184,3 +184,35 @@ test('parent loss is per-child AMBIGUOUS_PARENT_LOSS and does not cascade delete
   assert.ok(s.subtasks.mappings.child);
   assert.equal(s.subtasks.pendingDeletions.child, undefined);
 });
+
+test('v0.8.3: journal persists gListId and recovery deletes with the Google list id (advisory B)', () => {
+  const c = load();
+  const s = mapped(c);
+  s.subtasks.deletionJournal.child = {
+    phase: 'PREPARED', gChildId: 'child', msChecklistId: 'check', gParentId: 'parent',
+    parentMsId: 'ms-parent', parentMsListId: 'ms-list', missingSide: 'MICROSOFT',
+    at: '2026-10-01T00:00:00Z', preparedAt: '2026-10-01T00:00:00Z', gListId: 'g-list'
+  };
+  const calls = [];
+  c.deleteGChecklistChildNoRetry_ = (listId, id) => { calls.push({ list: listId, id }); };
+  const result = c.subtaskRecoverDeletionJournals_(s, snap(), { roundId: 'r9', persist() {} });
+  assert.deepEqual(calls, [{ list: 'g-list', id: 'child' }], 'recovery deletes with the persisted Google list id, never the Microsoft list id');
+  assert.equal(result.retried, 1);
+  assert.ok(s.subtasks.tombstones.g.child);
+});
+
+test('v0.8.3: a legacy journal row without gListId parks in UNCERTAIN instead of faking a 404 finalize (advisory B)', () => {
+  const c = load();
+  const s = mapped(c);
+  s.subtasks.deletionJournal.child = {
+    phase: 'PREPARED', gChildId: 'child', msChecklistId: 'check', gParentId: 'parent',
+    parentMsId: 'ms-parent', parentMsListId: 'ms-list', missingSide: 'MICROSOFT',
+    at: '2026-10-01T00:00:00Z', preparedAt: '2026-10-01T00:00:00Z'
+  };
+  const calls = [];
+  c.deleteGChecklistChildNoRetry_ = (listId, id) => { calls.push({ list: listId, id }); };
+  const result = c.subtaskRecoverDeletionJournals_(s, snap(), { roundId: 'r9', persist() {} });
+  assert.equal(calls.length, 0, 'no Google delete call without a persisted gListId');
+  assert.equal(result.uncertain, 1, 'fail-closed: row parks in UNCERTAIN instead of a fake not-found finalize');
+  assert.equal(s.subtasks.deletionJournal.child.phase, 'UNCERTAIN');
+});
