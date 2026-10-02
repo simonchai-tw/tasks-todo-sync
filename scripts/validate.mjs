@@ -25,7 +25,7 @@ assert(packageJson.name === 'tasks-todo-sync', 'package name must remain tasks-t
 assert(typeof packageJson.version === 'string' && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageJson.version),
   'package version must be a valid release version');
 assert(packageJson.private === false, 'package must remain publishable');
-assert(packageJson.author === 'Simon Chai', 'package author must remain Simon Chai');
+assert(packageJson.author === 'tasks-todo-sync', 'package author must remain tasks-todo-sync');
 assert(Array.isArray(packageJson.contributors) && packageJson.contributors.length === 2
   && packageJson.contributors[0] === 'ChatGPT' && packageJson.contributors[1] === 'Claude',
   'package contributors must be ["ChatGPT", "Claude"]');
