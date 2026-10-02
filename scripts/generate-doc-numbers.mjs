@@ -82,7 +82,13 @@ const targets = [
   {
     file: 'docs/index.html',
     patches: [
-      { re: /(<span class="badge ver"><i class="badge-dot"><\/i>)v[^<]*(<\/span>)/g, to: `$1v${version}$2` }
+      { re: /(<span class="badge ver"><i class="badge-dot"><\/i>)v[^<]*(<\/span>)/g, to: `$1v${version}$2` },
+      // The hero "Automated tests" stat card drifted too (417 hand-edited vs
+      // the real suite count) — same single-source rule applies to it.
+      {
+        re: /(<div class="stat-num" data-count=")(\d+)(">)\d+(<\/div>\s*<div class="stat-label" data-i18n="stat_1")/,
+        to: `$1${suite.pass}$3${suite.pass}$4`
+      }
     ]
   }
 ];
