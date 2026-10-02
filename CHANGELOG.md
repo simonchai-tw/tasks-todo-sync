@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.8.4 — 2026-10-02
+
+### Connection-layer UrlFetch failures are retried in every language
+
+- **What happened**: a single sync round failed with Google's localized "無法開啟網址" (cannot open URL) for the Microsoft Graph endpoint — 29 rounds succeeded around it, so this was a one-off network blip between the Apps Script and Microsoft data centers, not a code defect. A read-only probe pushed into the live project confirmed the Graph endpoint was healthy from the Apps Script environment (200/401/204 across three targets).
+- **Root cause of the harsh reaction**: `isUrlFetchTransientError_` matched a hardcoded allowlist of English message fragments, so a connection-layer failure reported in any other language (or any new phrasing) skipped the in-round retry entirely.
+- **Fix (semantic inversion)**: a UrlFetchApp exception means the request never produced an HTTP response — DNS, reset, timeout, quota, or a localized cannot-open-URL — and is **transient by default**, retried with the existing exponential backoff. Only argument-level mistakes (invalid argument/value/URL) are excluded as permanent. Language-independent, immune to Google rewording.
+- **Alert behaviour unchanged**: the fatal-error email still fires only after all in-round retries are exhausted, and its 24-hour cooldown still caps it at one per day.
+- **Test guard in action**: the v0.8.3 date-bomb scan caught two more calendar-literal fixtures the very next day (pinned "tomorrow" drifted into the danger window) — marked "FIXED-DATE-OK" as static nowMs-injected fixtures.
+
 ## 0.8.3 — 2026-10-01
 
 ### Three boundary bugs from the external advisory review fixed

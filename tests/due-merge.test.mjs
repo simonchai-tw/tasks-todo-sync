@@ -53,11 +53,11 @@ test('due is a { date, time } unit and a Microsoft date edit propagates to Googl
   const gProj = c.ordinaryProjectGoogle_(gTask, rec, ON);
   const mProj = c.ordinaryProjectMicrosoft_(msTask, rec, ON);
   assert.deepEqual(JSON.parse(JSON.stringify(gProj.due)), { date: '2026-10-02', time: '15:30' }); // FIXED-DATE-OK
-  assert.deepEqual(JSON.parse(JSON.stringify(mProj.due)), { date: '2026-10-03', time: '15:30' });
+  assert.deepEqual(JSON.parse(JSON.stringify(mProj.due)), { date: '2026-10-03', time: '15:30' }); // FIXED-DATE-OK
 
   const plan = c.ordinaryMergeMappedFields_({ v: 1, due: c.ordinaryFieldFp_(gProj, 'due') }, gProj, mProj, rec);
   assert.equal(plan.skipped.some((s) => s.field === 'due'), false, 'the TIME_BRIDGE_OWNED carve-out is gone');
-  assert.deepEqual(JSON.parse(JSON.stringify(plan.toGoogle.due)), { date: '2026-10-03', time: '15:30' });
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.toGoogle.due)), { date: '2026-10-03', time: '15:30' }); // FIXED-DATE-OK
 
   // Google only ever receives the date; the time travels with the unit.
   const gPayload = c.ordinaryGooglePatchFromPlan_(plan);
@@ -187,4 +187,5 @@ test('v0.8.3: putMapping_ preserves the canonical time record across mapping reb
   assert.equal(s.m2g['ms-old'], undefined);
   assert.equal(s.m2g['ms-new'], 'g-task');
 });
+
 
