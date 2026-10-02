@@ -83,7 +83,7 @@ test('baseline CLI emits compact content-safe JSON', () => {
     cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8'
   });
   if (run.status === null && run.error && run.error.code === 'EBUSY') {
-    // Local environment noise (2026-09-30/10-01): an endpoint protector on this
+    // Local environment noise (late Sep 2026): an endpoint protector on this
     // dev machine briefly blocks CreateProcess for node.exe.  The script itself
     // is fine — running it directly exits 0.  Degrade like validate.mjs does.
     console.warn('skipped: node.exe spawn blocked by the environment (EBUSY)');
@@ -96,3 +96,4 @@ test('baseline CLI emits compact content-safe JSON', () => {
   assert.equal(JSON.stringify(report).includes('g-task'), false);
   assert.equal(JSON.stringify(report).includes('ms-task'), false);
 });
+

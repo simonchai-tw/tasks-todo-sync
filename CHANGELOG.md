@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
-## 0.9.3-rc.1 — Unreleased
+## 0.9.5-alpha — Unreleased
 
 ### Defaults
 
@@ -22,6 +22,34 @@ Historical entries below describe each release at the time it shipped, including
 - Adds JSON-only local CLI commands for the Windows companion to check the environment, detect existing Apps Script installations, install a new project and immutable web-app deployment, update the same project/deployment in place, read bounded cloud status, trigger `syncAll`, and save fixed companion preferences.
 - Adds bounded setup preferences for the dedicated `Tasks-ToDo-Sync` calendar projection, calendar reminders, and an optional alert email override. Preferences use strict boolean validation and a conservative email allowlist; arbitrary Script Properties cannot be written through this endpoint.
 - Updates never delete and recreate an Apps Script project. The safe update path preserves `scriptId`, pulls a timestamped backup, refuses unmanaged files, pushes the canonical file set, creates a new version, and updates the existing deployment.
+
+## 0.8.4 — 2026-10-02
+
+### Connection-layer UrlFetch failures are retried in every language
+
+- **What happened**: a single sync round failed with Google's localized "無法開啟網址" (cannot open URL) for the Microsoft Graph endpoint — 29 rounds succeeded around it, so this was a one-off network blip between the Apps Script and Microsoft data centers, not a code defect. A read-only probe pushed into the live project confirmed the Graph endpoint was healthy from the Apps Script environment (200/401/204 across three targets).
+- **Root cause of the harsh reaction**: `isUrlFetchTransientError_` matched a hardcoded allowlist of English message fragments, so a connection-layer failure reported in any other language (or any new phrasing) skipped the in-round retry entirely.
+- **Fix (semantic inversion)**: a UrlFetchApp exception means the request never produced an HTTP response — DNS, reset, timeout, quota, or a localized cannot-open-URL — and is **transient by default**, retried with the existing exponential backoff. Only argument-level mistakes (invalid argument/value/URL) are excluded as permanent. Language-independent, immune to Google rewording.
+- **Alert behaviour unchanged**: the fatal-error email still fires only after all in-round retries are exhausted, and its 24-hour cooldown still caps it at one per day.
+- **Test guard in action**: the v0.8.3 date-bomb scan caught two more calendar-literal fixtures the very next day (pinned "tomorrow" drifted into the danger window) — marked "FIXED-DATE-OK" as static nowMs-injected fixtures.
+
+## 0.8.3 — 2026-10-01
+
+### Three boundary bugs from the external advisory review fixed
+
+- **Advisory A — parent-loss evidence is now actually produced**: `discoverRelationshipsReadOnly_` classified Microsoft parents as `PARENT_NOT_FOUND` but never collected their ids, so the subtask-specific Microsoft parent-loss branch in `subtaskObserveDeletionEvidence_` could never fire. The discovery result now carries `notFoundParentIds` and the observation bridge feeds it through.
+- **Advisory B (P0) — deletion journal recovery no longer deletes with the wrong list id**: journal rows intentionally excluded `gListId` from persistence, so a recovery round fell back to `row.parentMsListId` — a Microsoft list id — against the Google API. The guaranteed 404 was misread as not-found and finalized, orphaning the Google checklist child. `gListId` is now persisted (state schema allowlist extended) and a row without it parks in UNCERTAIN instead of faking a not-found finalize.
+- **Advisory C — cross-list moves keep the canonical time record**: `putMapping_` rebuilt mapping rows without `td`, discarding `td.retry` and `td.quarantine` on a cross-list move and reviving quarantined pairs. The time record now survives mapping rebuilds.
+- **Test infrastructure: date-bomb fixtures defused and guarded**: the `timeBridgeRun_` integration fixture mixed a pinned calendar date with the real clock and broke the moment the calendar advanced (the same class of failure WO-2 fixed in v0.7.x). The fixture is now anchored on the real clock with a marker 25 hours ahead, and `validate.mjs` gained a static scan that fails any test date literal within ±1 day of today unless explicitly marked `FIXED-DATE-OK`.
+
+## 0.8.2 — 2026-10-01
+
+### Microsoft reminder alarms no longer drift forward 20 minutes per round
+
+- **Root cause fixed**: the R-1 guard `max(due instant, now + 20 minutes)` re-applied on every sync round made the renderer's own write drift forward — each round the reminder moved to `now+20`, the next round read that drift back as a hand-set Microsoft time, and re-lifted it again. Recurring tasks (which re-arm their alarm daily) replayed the loop every day: after the trigger time passed, the reminder kept sliding 20 minutes at a time.
+- **The +20 guard is now a one-shot at record creation** (`timeBridgeApplyExpiryLift_`): a `[TTS-TIME:HH:mm]` marker whose moment already passed lifts the alarm to now+20 minutes once (now+5 when +20 crosses midnight, now at the 23:59 edge) and from then on the renderer writes exactly the authored time. Hand-set Microsoft times, recurring engines, and future alarms keep their former behavior; a past alarm is left exactly as Microsoft holds it instead of being repainted.
+- **Adoption contract restored**: because renderer writes now converge on a stable instant, the "a difference means the user edited it" assumption in `timeBridgeMsAdoptObservation_` holds again — no adoption change needed, the feedback loop is structurally gone.
+- **Tests**: R-1 boundary tests rewritten for the authored-instant semantics; new regressions cover the one-shot lift (+20/+5/now ladder), the no-repaint rule for past alarms, and the convergence of a second renderer pass.
 
 ## 0.8.1 — 2026-09-27
 

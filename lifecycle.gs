@@ -1310,6 +1310,9 @@ function putMapping_(state, gTask, gListId, msTask, msListId) {
   if (previous && previous.res) rec.res = previous.res;
   if (previous && previous.fc) rec.fc = previous.fc;
   if (previous && previous.rem) rec.rem = previous.rem;
+  // v0.8.3 (advisory C): keep the canonical time record across mapping rebuilds
+  // (cross-list moves) so td.retry and td.quarantine survive the transition.
+  if (previous && previous.td) rec.td = previous.td;
   state.g2m[gTask.id] = rec;
   state.m2g[msTask.id] = gTask.id;
 }

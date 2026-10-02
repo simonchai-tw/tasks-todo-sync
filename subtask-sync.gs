@@ -737,9 +737,11 @@ function subtaskRemoteDeleteOnce_(row) {
     if (row.missingSide === 'GOOGLE') {
       deleteMsChecklistItemNoRetry_(row.parentMsListId, row.parentMsId, row.msChecklistId);
     } else {
-      var rec = null;
-      /* Google list id is recovered from ordinary parent mapping when present. */
-      deleteGChecklistChildNoRetry_(row.gListId || row.parentMsListId, row.gChildId);
+      /* v0.8.3 (advisory B): fail closed without a persisted Google list id —
+      // never substitute the Microsoft list id (a guaranteed 404 that the old
+      // code misread as not-found and finalized, orphaning the Google child). */
+      if (!row.gListId) return { ok: false, error: 'SUBTASK_DELETE_NO_GLIST_ID' };
+      deleteGChecklistChildNoRetry_(row.gListId, row.gChildId);
     }
     return { ok: true };
   } catch (error) {
@@ -772,13 +774,18 @@ function subtaskExecuteEligibleDeletes_(state, snap, options) {
       at: new Date().toISOString(),
       preparedAt: new Date().toISOString()
     };
-    /* gListId is operational only; schema allowlist excludes it, so keep it off the persisted row. */
+    /* v0.8.3 (advisory B): gListId IS persisted now.  The old "operational
+    // only" design left recovery rows without a Google list id, and the
+    // parentMsListId fallback fed a Microsoft list id to the Google API — the
+    // resulting 404 was treated as not-found and finalized, orphaning the
+    // Google child. */
     var persisted = {
       phase: row.phase, gChildId: row.gChildId, msChecklistId: row.msChecklistId, gParentId: row.gParentId,
       missingSide: row.missingSide, at: row.at, preparedAt: row.preparedAt
     };
     if (row.parentMsId) persisted.parentMsId = row.parentMsId;
     if (row.parentMsListId) persisted.parentMsListId = row.parentMsListId;
+    if (row.gListId) persisted.gListId = row.gListId;
     sub.deletionJournal[gId] = persisted;
     subtaskPersist_(state, options);
     var exec = subtaskRemoteDeleteOnce_({

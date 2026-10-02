@@ -8640,3 +8640,30 @@ test('createUnmappedBatch_ throws TIME_BUDGET_CREATE and preserves progress side
   assert.equal(props.getProperty('SYNC_TASK_CREATE_PROGRESS_V1'), initialProgress);
 });
 
+
+test('v0.8.4: localized connection-layer failures (zh-TW 無法開啟網址, en Cannot open the URL) are transient and retried', () => {
+  for (const message of [
+    '無法開啟網址：https://graph.microsoft.com/v1.0/me/todo/lists',
+    'Cannot open the URL: https://graph.microsoft.com/v1.0/me/todo/lists'
+  ]) {
+    const sleeps = [];
+    let fetches = 0;
+    const { context } = loadContext({
+      utilities: { sleep: (milliseconds) => sleeps.push(milliseconds) },
+      urlFetchApp: {
+        fetch() {
+          fetches += 1;
+          throw new Error(message);
+        }
+      }
+    });
+    context.microsoftAuth_ = () => ({ hasAccess: () => true, getAccessToken: () => 'test-token' });
+    const maxRetries = vm.runInContext('HTTP_MAX_RETRIES', context);
+
+    assert.throws(() => {
+      context.graphFetch_('https://example.invalid/graph', { method: 'get' });
+    }, /TIME_BUDGET_HTTP: UrlFetch transient error/);
+    assert.equal(fetches, maxRetries + 1, message);
+    assert.equal(sleeps.length, maxRetries, message);
+  }
+});

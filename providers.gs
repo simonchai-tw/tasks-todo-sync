@@ -1,14 +1,17 @@
+/* v0.8.4: a UrlFetchApp exception IS a connection-layer failure — the request
+ * never produced an HTTP response (DNS failure, connection reset, timeout,
+ * bandwidth quota, or Google's localized "cannot open URL" in any language).
+ * Every one of them is worth a retry, so the default is TRANSIENT and only
+ * argument-level mistakes (which can never succeed) are excluded.  The old
+ * allowlist of localized message fragments could not survive Google's
+ * translations: the 2026-10-02 zh-TW round ("無法開啟網址") failed without a
+ * single retry. */
 function isUrlFetchTransientError_(err) {
   if (!err) return false;
   const msg = String(err.message || err).toLowerCase();
-  return msg.includes('bandwidth quota exceeded') ||
-    msg.includes('address unavailable') ||
-    msg.includes('dns error') ||
-    msg.includes('rate limit') ||
-    msg.includes('timed out') ||
-    msg.includes('timeout') ||
-    msg.includes('connection reset') ||
-    msg.includes('socket');
+  return !msg.includes('invalid argument') &&
+    !msg.includes('invalid value') &&
+    !msg.includes('invalid url');
 }
 
 function fetchJsonWithRetry_(url, options, authKind) {

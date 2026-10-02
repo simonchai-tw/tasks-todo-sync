@@ -169,3 +169,11 @@ test('strict parent records are accepted while malformed records fail closed', (
   state.subtasks.parents['ms-one'].knowledge = 'bad';
   assert.throws(() => c.normalizeState_(state), /STATE_MALFORMED/);
 });
+
+test('v0.8.3: PARENT_NOT_FOUND collects parent ids into result.notFoundParentIds (advisory A)', () => {
+  const c = load();
+  c.graphFetch_ = () => { throw new Error('HTTP 404: missing'); };
+  const result = c.discoverRelationshipsReadOnly_(c.newState_(), [parent('one')], { architecture: 'BOUNDED_DIRECT_GET', budgetStatus: 'MEASURED', maxParents: 1 }, 0, 'r', 3);
+  assert.equal(result.notFound, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.notFoundParentIds)), ['ms-one']);
+});

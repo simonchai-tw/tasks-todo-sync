@@ -83,7 +83,7 @@ function load(scriptValues = {}) {
 function fixture(c) {
   const state = c.newState_();
   state.listMap['g-list'] = 'ms-list';
-  state.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: { v: 1 }, td: { date: '2026-10-02', time: '15:30', v: 1 } };
+  state.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: { v: 1 }, td: { date: '2026-10-02', time: '15:30', v: 1 } }; // FIXED-DATE-OK
   state.m2g['ms-task'] = 'g-task';
   const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' };
   const snap = { gTasksById: { 'g-task': gTask }, msTasksById: { 'ms-task': { id: 'ms-task', title: 'T', dueDateTime: { dateTime: '2026-10-02T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' } } };
@@ -143,3 +143,4 @@ test('the projection calendar id is cached in state and a dead cache is dropped'
   c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, safety, nowMs);
   assert.equal(state.calendarProjection, undefined, 'the dead cache entry is dropped');
 });
+

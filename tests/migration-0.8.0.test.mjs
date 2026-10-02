@@ -69,7 +69,7 @@ test('a v0.7.5 record rebuilds rec.td from the Microsoft side and drops the lega
   assert.equal(result.rebuilt, 1);
   assert.equal(result.cleared, 1);
   assert.equal(result.deadLetterCleared, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-01', time: '15:30', v: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-01', time: '15:30', v: 1 }); // FIXED-DATE-OK
   assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].rem)), { e: HEX32, eFp: HEX32B }, 'projection fingerprints survive');
   assert.equal(state.timeBridgeJournal, null, 'the journal table is gone');
   assert.equal(state.deadLetterJournal.length, 0, 'the old drawer is emptied (§4.4)');
@@ -88,7 +88,7 @@ test('date-only and reminder-only Microsoft tasks migrate to the right record', 
   const reminderOnly = legacyState(c);
   const reminderSnap = { gTasksById: { 'g-task': { id: 'g-task', notes: '' } }, msTasksById: { 'ms-task': { id: 'ms-task', dueDateTime: { dateTime: '2026-10-01T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, reminderDateTime: { dateTime: '2026-10-01T18:00:00', timeZone: 'UTC' } } } };
   c.timeBridgeMigrateLegacyRem_(reminderOnly, reminderSnap, 'Asia/Taipei', 'Asia/Taipei');
-  assert.deepEqual(JSON.parse(JSON.stringify(reminderOnly.g2m['g-task'].td)), { date: '2026-10-02', time: '02:00', v: 1 },
+  assert.deepEqual(JSON.parse(JSON.stringify(reminderOnly.g2m['g-task'].td)), { date: '2026-10-02', time: '02:00', v: 1 }, // FIXED-DATE-OK
     'the reminder wall clock in the project time zone becomes the record');
 });
 
@@ -103,15 +103,16 @@ test('the state validator tolerates legacy rem keys while accepting the new reco
   delete modern.timeBridgeJournal;
   delete modern.deadLetterJournal;
   modern.g2m['g-task'].rem = { e: HEX32, eFp: HEX32B };
-  modern.g2m['g-task'].td = { date: '2026-10-01', time: '15:30', v: 1, retry: { ms: { fails: 2, lastFailAt: '2026-09-30T00:00:00.000Z', quarantined: false } } };
+  modern.g2m['g-task'].td = { date: '2026-10-01', time: '15:30', v: 1, retry: { ms: { fails: 2, lastFailAt: '2026-09-30T00:00:00.000Z', quarantined: false } } }; // FIXED-DATE-OK
   modern.calendarProjection = { calendarId: 'test-cal-id', v: 1 };
   assert.doesNotThrow(() => c.normalizeState_(modern));
   assert.deepEqual(JSON.parse(JSON.stringify(modern.g2m['g-task'].td.retry.ms)), { fails: 2, lastFailAt: '2026-09-30T00:00:00.000Z', quarantined: false });
 
   const broken = legacyState(c);
-  broken.g2m['g-task'].td = { date: '2026-10-01', time: '9:30', v: 1 };
+  broken.g2m['g-task'].td = { date: '2026-10-01', time: '9:30', v: 1 }; // FIXED-DATE-OK
   assert.throws(() => c.normalizeState_(broken), /STATE_MALFORMED/);
   const brokenTime = legacyState(c);
-  brokenTime.g2m['g-task'].td = { date: '2026-10-01', time: '24:00', v: 1 };
+  brokenTime.g2m['g-task'].td = { date: '2026-10-01', time: '24:00', v: 1 }; // FIXED-DATE-OK
   assert.throws(() => c.normalizeState_(brokenTime), /STATE_MALFORMED/);
 });
+

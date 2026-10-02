@@ -259,4 +259,31 @@ for (const forbidden of ['MS_CLIENT_SECRET=', 'CLASPRC_JSON=', 'Bearer eyJ']) {
   if (code.includes(forbidden)) throw new Error(`Possible committed secret: ${forbidden}`);
 }
 
+// Date-bomb scan (added v0.8.3, WO-2 relapse 2026-10-01): a calendar date
+// literal in a test fixture that equals today or tomorrow breaks the moment
+// the real calendar advances.  Either build the fixture from Date.now() or
+// mark the line with FIXED-DATE-OK when a pinned date is intentional.
+{
+  const { readdirSync, readFileSync: rf } = await import('node:fs');
+  const dayMs = 24 * 60 * 60 * 1000;
+  const startOfUtcDay = (ms) => Math.floor(ms / dayMs) * dayMs;
+  const today = startOfUtcDay(Date.now());
+  const bombs = [];
+  for (const file of readdirSync('tests').filter((f) => f.endsWith('.test.mjs'))) {
+    rf(`tests/${file}`, 'utf8').split(/\r?\n/).forEach((line, i) => {
+      if (line.includes('FIXED-DATE-OK')) return;
+      for (const m of line.matchAll(/\b(20\d{2})-(\d{2})-(\d{2})\b/g)) {
+        const when = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        const deltaDays = Math.round((when - today) / dayMs);
+        if (deltaDays >= -1 && deltaDays <= 1) {
+          bombs.push(`tests/${file}:${i + 1} ${m[0]} (|=|today+${deltaDays}; make it dynamic or mark FIXED-DATE-OK)`);
+        }
+      }
+    });
+  }
+  if (bombs.length) {
+    throw new Error(`Date-bomb fixtures detected (break when the calendar advances):\n${bombs.join('\n')}`);
+  }
+}
+
 console.log('Static validation passed.');
