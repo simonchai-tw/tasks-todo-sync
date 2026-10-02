@@ -120,3 +120,47 @@ function boundedWizardErrorText_(error) {
   const text = String((error && error.message) || error || 'Unknown error');
   return text.slice(0, 200);
 }
+
+// P1 (advisory review): the wizard must display health from a real, traceable
+// check result — never inferred from trigger existence. The outcome of the last
+// real check (finalize's dry-run + healthCheck) is persisted here; a missing or
+// unreadable record means "not yet verified", never "healthy".
+function writeLastWizardHealth_(boundedHealth) {
+  try {
+    const ok = !!boundedHealth && boundedHealth.ok === true;
+    const record = {
+      state: ok ? 'pass' : 'fail',
+      ok: ok,
+      message: ok
+        ? String((boundedHealth && boundedHealth.message) || 'No open issues.').slice(0, 300)
+        : String((boundedHealth && boundedHealth.issues && boundedHealth.issues[0]) || 'Health check reported issues.').slice(0, 300),
+      issueCount: boundedHealth ? (Number(boundedHealth.issueCount) || 0) : 1,
+      checkedAt: new Date().toISOString()
+    };
+    PropertiesService.getScriptProperties().setProperty('LAST_WIZARD_HEALTH_CHECK', JSON.stringify(record));
+  } catch (error) {
+    // Persisting the record must never break finalize itself; the wizard will
+    // fall back to "not yet verified" on the next overview render.
+  }
+}
+
+function readLastWizardHealth_() {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty('LAST_WIZARD_HEALTH_CHECK');
+    if (!raw) {
+      return { state: 'unverified', message: 'No health check has run yet.', checkedAt: null };
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || (parsed.state !== 'pass' && parsed.state !== 'fail')) {
+      return { state: 'unverified', message: 'Last health record was unreadable.', checkedAt: null };
+    }
+    return {
+      state: parsed.state,
+      ok: parsed.ok === true,
+      message: String(parsed.message || '').slice(0, 300),
+      checkedAt: typeof parsed.checkedAt === 'string' ? parsed.checkedAt : null
+    };
+  } catch (error) {
+    return { state: 'unverified', message: 'Last health record was unreadable.', checkedAt: null };
+  }
+}

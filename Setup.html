@@ -195,6 +195,17 @@
       .check-row.ok .icon-check {
         display: block !important;
       }
+      .check-row.fail {
+        background: #fef2f2;
+        border-color: #fecaca;
+      }
+      .check-row.fail .icon-check {
+        display: none !important;
+      }
+      .check-row.fail .icon-circle {
+        display: block !important;
+        stroke: #dc2626;
+      }
       .check-icon {
         flex-shrink: 0;
         margin-top: 2px;
@@ -955,6 +966,35 @@
       }
 
       // Step 3 Overview & Finalize
+      // P1 (advisory review): health display must trace to a real check result
+      // and its time — never inferred from trigger existence. Unknown -> "Not yet verified".
+      function formatCheckedAt_(iso) {
+        if (!iso) return '';
+        try {
+          return ' Checked ' + new Date(iso).toLocaleString() + '.';
+        } catch (error) {
+          return '';
+        }
+      }
+
+      function renderOverviewHealth(health) {
+        const state = (health && health.state) || 'unverified';
+        if (state === 'pass') {
+          markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth',
+            'Dry-run passed. ' + (health.message || 'System healthy.') + formatCheckedAt_(health.checkedAt));
+        } else if (state === 'fail') {
+          const row = document.getElementById('finalRowHealth');
+          if (row) { row.classList.remove('ok'); row.classList.add('fail'); }
+          const detail = document.getElementById('finalDetailHealth');
+          if (detail) detail.textContent = 'Last health check reported issues: ' + (health.message || 'unknown') + formatCheckedAt_(health.checkedAt);
+        } else {
+          const row = document.getElementById('finalRowHealth');
+          if (row) { row.classList.remove('ok'); row.classList.remove('fail'); }
+          const detail = document.getElementById('finalDetailHealth');
+          if (detail) detail.textContent = 'Not yet verified — no health check has run yet. Activating the schedule runs one.';
+        }
+      }
+
       function refreshStep3Overview() {
         if (!window.google || !google.script || !google.script.run) return;
         google.script.run.withSuccessHandler(function(data) {
@@ -966,9 +1006,9 @@
           if (data && data.microsoft && (data.microsoft.status === 'authorized' || data.microsoft.status === 'advanced')) {
             markRowSuccess('finalRowMs', 'finalIconBoxMs', 'finalDetailMs', data.microsoft.status === 'advanced' ? 'Connected via Advanced Entra OAuth.' : 'Connected & verified with Microsoft Graph.');
           }
+          renderOverviewHealth(data && data.health);
           if (data && data.triggerCount > 0) {
             markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', data.triggerCount + ' active syncAll trigger(s) found (every ' + data.intervalMinutes + ' mins).');
-            markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth', 'Dry-run passed. System healthy.');
             document.getElementById('btnActivate').hidden = true;
             document.getElementById('btnRunSyncNow').hidden = false;
             document.getElementById('finalSuccessBanner').hidden = false;
@@ -1018,7 +1058,11 @@
           activateSpinner.hidden = true;
           if (res && res.ok) {
             markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', '10-minute automatic background trigger active.');
-            markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth', 'Dry-run passed. ' + (res.health && res.health.message || 'System healthy.'));
+            renderOverviewHealth({
+              state: res.health && res.health.ok === true ? 'pass' : 'fail',
+              message: res.health && res.health.ok === true ? 'No open issues.' : (((res.health && res.health.issues) || []).join(' | ') || 'Health check reported issues.'),
+              checkedAt: new Date().toISOString()
+            });
             document.getElementById('stepBadge3').textContent = '✓';
             document.getElementById('stepIndicator3').classList.add('done');
             document.getElementById('finalSuccessBanner').hidden = false;

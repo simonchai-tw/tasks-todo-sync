@@ -597,6 +597,7 @@ function setupWizardOverview() {
     triggerCount: trigger.count,
     intervalMinutes: SYNC_TRIGGER_INTERVAL_MINUTES,
     lastSuccessfulSyncAt,
+    health: readLastWizardHealth_(),
     preferences: {
       calendarProjectionEnabled: scriptBooleanProperty_(
         properties,
@@ -733,6 +734,7 @@ function setupWizardFinalize() {
     boundedHealth = { ok: false, issueCount: 1, issues: [boundedWizardErrorText_(error)] };
     record('health', 'Health check passed', false, boundedWizardErrorText_(error));
   }
+  writeLastWizardHealth_(boundedHealth);
 
   return {
     ok: checks.every(function(check) { return check.ok; }),
