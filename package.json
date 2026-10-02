@@ -65,6 +65,8 @@
     "check:package": "node scripts/validate-package.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
     "test": "node --test",
+    "docs:sync": "node scripts/generate-doc-numbers.mjs",
+    "docs:check": "node scripts/generate-doc-numbers.mjs --check",
     "stress:600": "node scripts/stress-600.mjs",
     "baseline:step2": "node scripts/step2-baseline.mjs"
   },
