@@ -88,8 +88,13 @@ test('both sides changing the due unit in one round is a fail-closed field confl
   const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
   const base = c.ordinaryFingerprintHex_('2026-10-02T15:30');
   rec.fp = { v: 1, due: base };
-  const gProj = { title: 'T', notes: 'body', notesOk: true, completed: false, due: { date: '2026-10-04', time: '15:30' }, dueOk: true };
-  const mProj = { title: 'T', notes: 'body', notesOk: true, completed: false, due: { date: '2026-10-05', time: '15:30' }, dueOk: true };
+  // R-3 only needs the two sides to disagree with each other and with the
+  // fingerprint; derive both from Date.now() (+2/+3 days) so the fixtures
+  // can never sit inside the validate.mjs date-bomb window (WO-2 class).
+  const gDue = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
+  const mDue = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+  const gProj = { title: 'T', notes: 'body', notesOk: true, completed: false, due: { date: gDue, time: '15:30' }, dueOk: true };
+  const mProj = { title: 'T', notes: 'body', notesOk: true, completed: false, due: { date: mDue, time: '15:30' }, dueOk: true };
   const plan = c.ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec);
   assert.ok(plan.conflicts.some((x) => x.field === 'due' && x.kind === 'TRUE_FIELD_CONFLICT'));
   const stored = c.ordinaryStoreFieldConflicts_(rec, plan, 'g-task');
