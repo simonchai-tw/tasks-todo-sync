@@ -82,6 +82,7 @@ test('schema 4 migration preserves every schema 3 field and declared v4 never re
   const schema3 = context.newState_();
   schema3.schema = 3;
   delete schema3.subtasks;
+  delete schema3.bootstrap; // v4-only table; the migration re-adds it below
   schema3.listMap['g-list'] = 'ms-list';
   schema3.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list' };
   schema3.m2g['ms-task'] = 'g-task';
@@ -91,6 +92,7 @@ test('schema 4 migration preserves every schema 3 field and declared v4 never re
   const migrated = context.normalizeState_(schema3);
   const ordinary = JSON.parse(JSON.stringify(migrated));
   delete ordinary.subtasks;
+  delete ordinary.bootstrap; // v4-only additive table, compared out like subtasks
   ordinary.schema = 3;
   assert.deepEqual(ordinary, before);
   assert.equal(
@@ -5750,6 +5752,9 @@ test('syncAll treats a proven Microsoft-missing auto pair as lifecycle evidence,
 test('auto default list keeps ordinary task create and timestamp-only observations without list-delete ownership', () => {
   const { context } = loadContext({ scriptValues: { SYNC_LIST_DISCOVERY_MODE: 'auto' } });
   let durable = context.newState_();
+  // Post-bootstrap fixture (2026-10-03 bootstrap gate): this test verifies
+  // ordinary create/update mechanics, not cold-start gating.
+  durable.bootstrap.status = 'done';
   let mode = 'create';
   let created = 0;
   let googleToMicrosoftUpdates = 0;

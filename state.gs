@@ -60,6 +60,15 @@ function newState_() {
     listTombstones: { g: {}, ms: {} },
     listTombstoneNames: { g: {}, ms: {} },
     listFaults: { g: {}, ms: {} },
+    // Cold-start bootstrap gate (schema 4, additive; optional for migrated
+    // generations — defaulted in normalizeState_).  A fresh or re-installed
+    // project starts 'pending': the first round adopts same-title pairs on
+    // both sides instead of duplicating them, and every remaining one-sided
+    // create is held until the user confirms the plan in the web wizard.
+    // 2026-10-03: reinstalling the cloud project duplicated every task because
+    // both sides of an empty state looked like unmapped sources to
+    // taskCreateBatchCandidates_ (fail-closed gate added in sync.gs).
+    bootstrap: { status: 'pending', plan: null, adoptedCount: 0, confirmedAt: null },
     health: {
       lastSuccessfulSyncAt: null,
       lastFailedSyncAt: null,
@@ -2018,6 +2027,26 @@ function assertOrdinaryMappingExtras_(state) {
   });
 }
 
+// Bootstrap gate table (schema 4, additive).  'pending' = cold start not yet
+// evaluated, 'awaitingConfirmation' = adoption ran and one-sided creates are
+// held for an explicit web-wizard confirmation, 'done' = gate released.
+function assertBootstrapState_(bootstrap) {
+  if (!isStateObject_(bootstrap)) throw new Error('STATE_MALFORMED: bootstrap must be an object; overwrite refused.');
+  assertKnownObjectKeys_(bootstrap, ['status', 'plan', 'adoptedCount', 'confirmedAt'], 'bootstrap', 'STATE_MALFORMED');
+  if (['pending', 'awaitingConfirmation', 'done'].indexOf(bootstrap.status) < 0) {
+    throw new Error('STATE_MALFORMED: bootstrap.status is invalid; overwrite refused.');
+  }
+  if (bootstrap.plan !== null && !isStateObject_(bootstrap.plan)) {
+    throw new Error('STATE_MALFORMED: bootstrap.plan must be an object or null; overwrite refused.');
+  }
+  if (!Number.isInteger(bootstrap.adoptedCount) || bootstrap.adoptedCount < 0) {
+    throw new Error('STATE_MALFORMED: bootstrap.adoptedCount must be a non-negative integer; overwrite refused.');
+  }
+  if (bootstrap.confirmedAt !== null && typeof bootstrap.confirmedAt !== 'string') {
+    throw new Error('STATE_MALFORMED: bootstrap.confirmedAt must be a string or null; overwrite refused.');
+  }
+}
+
 function assertStrictSchema4StateShape_(state) {
   if (!state || state.schema !== 4) return;
   const allowedTopLevel = [
@@ -2030,7 +2059,7 @@ function assertStrictSchema4StateShape_(state) {
   const schema4OptionalTopLevel = [
     'retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal', 'resourceObservationCursor',
     'timeBridgeJournal', 'deadLetterJournal', 'pendingEventDeletions', 'deadLetterEventDeletions',
-    'calendarProjection'
+    'calendarProjection', 'bootstrap'
   ];
   assertKnownObjectKeys_(state, allowedTopLevel.concat(schema4OptionalTopLevel), 'schema=4 state', 'STATE_MALFORMED');
   allowedTopLevel.forEach(function(field) {
@@ -2051,6 +2080,7 @@ function assertStrictSchema4StateShape_(state) {
   if (state.pendingEventDeletions) assertPendingEventDeletionsTable_(state.pendingEventDeletions);
   if (state.deadLetterEventDeletions) assertDeadLetterEventDeletionsTable_(state.deadLetterEventDeletions);
   if (state.calendarProjection) assertCalendarProjection_(state.calendarProjection);
+  if (state.bootstrap) assertBootstrapState_(state.bootstrap);
   const legacy = cloneStateForValidation_(state);
   delete legacy.subtasks;
   delete legacy.timeBridgeJournal;
@@ -2058,6 +2088,7 @@ function assertStrictSchema4StateShape_(state) {
   delete legacy.pendingEventDeletions;
   delete legacy.deadLetterEventDeletions;
   delete legacy.calendarProjection;
+  delete legacy.bootstrap;
   legacy.schema = 3;
   Object.keys(legacy.g2m || {}).forEach(function(gId) {
     const rec = legacy.g2m[gId];
@@ -2228,6 +2259,7 @@ function normalizeState_(state) {
     delete legacy.pendingEventDeletions;
     delete legacy.deadLetterEventDeletions;
     delete legacy.calendarProjection;
+    delete legacy.bootstrap;
     legacy.schema = 3;
     Object.keys(legacy.g2m || {}).forEach(function(gId) {
       const rec = legacy.g2m[gId];
@@ -2252,6 +2284,10 @@ function normalizeState_(state) {
       if (mappingExtras[gId].td) canonical.g2m[gId].td = mappingExtras[gId].td;
     });
   } else {
+    // bootstrap is a v4-only table.  Strip it before the strict legacy
+    // validation so a re-labelled newState_ fixture (or any legacy carrier)
+    // still migrates cleanly; the v4 default below re-adds it afterwards.
+    delete source.bootstrap;
     // normalizeStateV3_ performs the deployed strict source validation and
     // the existing schema-2-to-3 migration on the cloned value.
     canonical = normalizeStateV3_(source);
@@ -2267,6 +2303,17 @@ function normalizeState_(state) {
   if (canonical.deadLetterJournal === undefined) canonical.deadLetterJournal = [];
   if (canonical.pendingEventDeletions === undefined) canonical.pendingEventDeletions = [];
   if (canonical.deadLetterEventDeletions === undefined) canonical.deadLetterEventDeletions = [];
+  if (canonical.bootstrap === undefined) {
+    // Migration rule: a state that already carries task mappings predates the
+    // bootstrap gate and must never be blocked by it.  An empty mapping table
+    // is a cold start; its first round runs adoption and may gate creation.
+    const hasTaskMappings = Object.keys(canonical.g2m || {}).length > 0 ||
+      Object.keys(canonical.m2g || {}).length > 0;
+    canonical.bootstrap = {
+      status: hasTaskMappings ? 'done' : 'pending',
+      plan: null, adoptedCount: 0, confirmedAt: null
+    };
+  }
   assertStrictSchema4StateShape_(canonical);
   replaceStateContents_(state, canonical);
   return state;
@@ -2361,6 +2408,7 @@ function validateImportedState_(state) {
     delete legacy.pendingEventDeletions;
     delete legacy.deadLetterEventDeletions;
     delete legacy.calendarProjection;
+    delete legacy.bootstrap;
     legacy.schema = 3;
     Object.keys(legacy.g2m || {}).forEach(function(gId) {
       const rec = legacy.g2m[gId];

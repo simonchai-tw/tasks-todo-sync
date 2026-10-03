@@ -439,6 +439,116 @@ function taskCreateBatchCandidates_(state, snap) {
   return result;
 }
 
+/* ---------------------------------------------------------------------- */
+/* Cold-start bootstrap (2026-10-03 double-task incident).                */
+/* A re-installed project starts with an empty mapping table, so both     */
+/* sides looked like unmapped sources to taskCreateBatchCandidates_ and   */
+/* every existing task was duplicated.  The first round now adopts        */
+/* same-title pairs 1:1 within each list pair, and holds every remaining  */
+/* one-sided create until the user confirms the plan in the web wizard    */
+/* (setupWizardConfirmBootstrap).  No silent mass copy, ever.             */
+/* ---------------------------------------------------------------------- */
+
+function bootstrapTitleKey_(title) {
+  return String(title == null ? '' : title).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function bootstrapAdoptMatchingPairs_(state, snap) {
+  const adopted = [];
+  const subtaskReservations = typeof subtaskClassificationReservations_ === 'function'
+    ? subtaskClassificationReservations_(state, snap, snap && snap.safety)
+    : subtaskOwnershipReservations_(state);
+  Object.keys(state.listMap).sort().forEach(function(gListId) {
+    const msListId = state.listMap[gListId];
+    if (isGListFaulted_(state, gListId) || isMsListFaulted_(state, msListId) ||
+        isListPairReserved_(snap, gListId, msListId) ||
+        (state.listCreateGuards && state.listCreateGuards[gListId])) return;
+    const gBuckets = {}, mBuckets = {};
+    Object.keys(snap.gTasksById || {}).sort().forEach(function(gId) {
+      if (snap.gListByTask[gId] !== gListId) return;
+      if (state.g2m[gId] || state.tombstones.g[gId] || state.deletionJournal[gId] ||
+          state.taskMoveJournal[gId] || subtaskReservations.reservedGoogleIds[gId]) return;
+      const key = bootstrapTitleKey_(snap.gTasksById[gId].title);
+      if (!key) return; // empty or whitespace-only titles are never auto-adopted
+      (gBuckets[key] = gBuckets[key] || []).push(gId);
+    });
+    Object.keys(snap.msTasksById || {}).sort().forEach(function(msId) {
+      if (snap.msListByTask[msId] !== msListId) return;
+      if (state.m2g[msId] || state.tombstones.m[msId] ||
+          hasDeletionJournalForMsTask_(state, msId) || hasMoveJournalForMsTask_(state, msId) ||
+          subtaskReservations.reservedMicrosoftIds[msId]) return;
+      const key = bootstrapTitleKey_(snap.msTasksById[msId].title);
+      if (!key) return;
+      (mBuckets[key] = mBuckets[key] || []).push(msId);
+    });
+    Object.keys(gBuckets).sort().forEach(function(key) {
+      const gIds = gBuckets[key];
+      const msIds = mBuckets[key] || [];
+      const pairCount = Math.min(gIds.length, msIds.length);
+      for (let index = 0; index < pairCount; index++) {
+        const gId = gIds[index], msId = msIds[index];
+        state.g2m[gId] = { msId: msId, gListId: gListId, msListId: msListId };
+        state.m2g[msId] = gId;
+        adopted.push({ gId: gId, msId: msId, gListId: gListId, msListId: msListId });
+      }
+    });
+  });
+  return adopted;
+}
+
+function bootstrapBuildPlan_(state, adopted, candidates) {
+  const pairs = {};
+  Object.keys(state.listMap).sort().forEach(function(gListId) {
+    pairs[gListId] = {
+      gListId: gListId, msListId: state.listMap[gListId],
+      adopted: 0, googleOnly: 0, microsoftOnly: 0
+    };
+  });
+  adopted.forEach(function(entry) {
+    if (!pairs[entry.gListId]) return;
+    pairs[entry.gListId].adopted++;
+  });
+  candidates.forEach(function(candidate) {
+    const gListId = candidate.direction === 'google_to_microsoft'
+      ? candidate.sourceListId : candidate.destinationListId;
+    if (!pairs[gListId]) return;
+    if (candidate.direction === 'google_to_microsoft') pairs[gListId].googleOnly++;
+    else pairs[gListId].microsoftOnly++;
+  });
+  return {
+    createdAt: new Date().toISOString(),
+    adoptedCount: adopted.length,
+    pendingCreates: candidates.length,
+    pairs: Object.keys(pairs).map(function(key) { return pairs[key]; })
+  };
+}
+
+// Fail-closed creation gate, evaluated before any new create batch is
+// prepared.  Returns { blocked: true } when creation must not run this round.
+function bootstrapCreationGate_(state, snap) {
+  const bs = state.bootstrap;
+  if (!bs || bs.status === 'done') return { blocked: false };
+  if (bs.status === 'awaitingConfirmation') return { blocked: true };
+  const adopted = bootstrapAdoptMatchingPairs_(state, snap);
+  const candidates = taskCreateBatchCandidates_(state, snap);
+  bs.adoptedCount = adopted.length;
+  if (!candidates.length) {
+    const bothSidesEmpty = !Object.keys(snap.gTasksById || {}).length &&
+      !Object.keys(snap.msTasksById || {}).length;
+    // Only a state with at least one configured list pair — or nothing to
+    // sync at all — may auto-resolve.  An empty listMap with tasks present
+    // stays 'pending' so a later round still gates once lists pair up.
+    if (Object.keys(state.listMap).length > 0 || bothSidesEmpty) {
+      bs.status = 'done';
+      bs.plan = null;
+    }
+    return { blocked: false };
+  }
+  bs.status = 'awaitingConfirmation';
+  bs.plan = bootstrapBuildPlan_(state, adopted, candidates);
+  return { blocked: true };
+}
+
 function createUnmappedBatch_(state, snap, startedAt) {
   if (!remainingTimeOk_(startedAt, TASK_CREATE_BATCH_START_RESERVE_MS)) throw new Error('TIME_BUDGET_CREATE');
   const existing = state.taskCreateBatch;

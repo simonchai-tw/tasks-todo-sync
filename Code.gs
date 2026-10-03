@@ -578,18 +578,88 @@ function setupWizardPrepareGoogle() {
 }
 
 // Lightweight state for a returning visitor opening the private setup page.
+// Read-only view of state.bootstrap for the web wizard.  List titles are
+// resolved best-effort so the confirmation card can show names; on any
+// inventory failure the raw IDs are shown instead.  Never mutates state.
+function setupWizardBootstrapView_(state) {
+  const bs = state && state.bootstrap;
+  if (!bs || typeof bs !== 'object') return null;
+  const plan = bs.plan && typeof bs.plan === 'object' ? bs.plan : null;
+  const pairs = plan && Array.isArray(plan.pairs) ? plan.pairs : [];
+  const gTitles = {}, mTitles = {};
+  if (pairs.length) {
+    try {
+      (listGoogleTaskLists() || []).forEach(function(list) {
+        if (list && list.id) gTitles[list.id] = list.title || list.name || null;
+      });
+    } catch (error) { /* fall back to raw IDs */ }
+    try {
+      (listMicrosoftTaskLists() || []).forEach(function(list) {
+        if (list && list.id) mTitles[list.id] = list.displayName || list.title || list.name || null;
+      });
+    } catch (error) { /* fall back to raw IDs */ }
+  }
+  return {
+    status: String(bs.status || 'pending'),
+    adoptedCount: Number(bs.adoptedCount || 0),
+    confirmedAt: bs.confirmedAt || null,
+    needsConfirmation: bs.status === 'awaitingConfirmation',
+    pendingCreates: plan ? Number(plan.pendingCreates || 0) : 0,
+    pairs: pairs.map(function(pair) {
+      return {
+        gListId: pair.gListId || null,
+        msListId: pair.msListId || null,
+        gListTitle: gTitles[pair.gListId] || null,
+        msListTitle: mTitles[pair.msListId] || null,
+        adopted: Number(pair.adopted || 0),
+        googleOnly: Number(pair.googleOnly || 0),
+        microsoftOnly: Number(pair.microsoftOnly || 0)
+      };
+    })
+  };
+}
+
+// Fail-closed release of the cold-start creation gate.  The wizard shows the
+// adoption plan first (setupWizardOverview -> bootstrap); only this explicit
+// call lets syncAll create the remaining one-sided tasks.
+function setupWizardConfirmBootstrap() {
+  initializeExecutionBudget_();
+  const released = withGlobalLock_(function() {
+    const state = loadStateForSync_();
+    const bs = state.bootstrap;
+    if (!bs || bs.status !== 'awaitingConfirmation') {
+      return { ok: false, status: bs ? bs.status : null,
+        error: 'Bootstrap is not awaiting confirmation.' };
+    }
+    bs.status = 'done';
+    bs.confirmedAt = new Date().toISOString();
+    normalizeState_(state);
+    persistSyncState_(state);
+    return { ok: true, status: bs.status, confirmedAt: bs.confirmedAt };
+  });
+  if (!released) {
+    return { ok: false, error: 'A sync round is running; try again in a moment.' };
+  }
+  return released;
+}
+
 function setupWizardOverview() {
   initializeExecutionBudget_();
   const trigger = setupTriggerCount_();
   const properties = PropertiesService.getScriptProperties();
   let lastSuccessfulSyncAt = null;
+  let bootstrap = null;
   try {
     const loaded = loadStateForInspection_();
-    if (!loaded.corrupt && loaded.state && loaded.state.health) {
-      lastSuccessfulSyncAt = loaded.state.health.lastSuccessfulSyncAt || null;
+    if (!loaded.corrupt && loaded.state) {
+      if (loaded.state.health) {
+        lastSuccessfulSyncAt = loaded.state.health.lastSuccessfulSyncAt || null;
+      }
+      bootstrap = setupWizardBootstrapView_(loaded.state);
     }
   } catch (error) {
     lastSuccessfulSyncAt = null;
+    bootstrap = null;
   }
   return {
     microsoft: setupWizardPersonalAuthorizationStatus(),
@@ -597,6 +667,7 @@ function setupWizardOverview() {
     triggerCount: trigger.count,
     intervalMinutes: SYNC_TRIGGER_INTERVAL_MINUTES,
     lastSuccessfulSyncAt,
+    bootstrap,
     health: readLastWizardHealth_(),
     preferences: {
       calendarProjectionEnabled: scriptBooleanProperty_(
@@ -761,7 +832,7 @@ function setupWizardRunFirstSync() {
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Setup')
-    .setTitle('Tasks–To Do Sync — Easy Setup')
+    .setTitle('Tasks-ToDo-Sync Setup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
 }
 
@@ -842,6 +913,11 @@ function syncAll() {
           createUnmapped_(state, snap, startedAt);
           if (state.taskCreateBatch) throw new Error('TASK_CREATE_RECOVERY_PENDING: create batch is held; ordinary sync is fenced.');
         } else {
+          // Cold-start bootstrap gate (2026-10-03 double-task incident):
+          // adoption runs first; remaining one-sided creates are held
+          // (fail-closed) until setupWizardConfirmBootstrap() releases them.
+          const bootstrapGate = bootstrapCreationGate_(state, snap);
+          if (bootstrapGate.blocked) break;
           if (!remainingTimeOk_(startedAt, TASK_CREATE_BATCH_START_RESERVE_MS) || !taskCreateBatchCandidates_(state, snap).length) break;
           createUnmapped_(state, snap, startedAt);
           if (state.taskCreateBatch) throw new Error('TASK_CREATE_RECOVERY_PENDING: create batch held; ordinary sync is fenced.');

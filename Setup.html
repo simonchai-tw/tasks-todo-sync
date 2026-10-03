@@ -619,6 +619,17 @@
               <div class="check-detail" id="finalDetailMs">Checking authorization…</div>
             </div>
           </div>
+          <div class="check-row" id="bootstrapCard" hidden>
+            <div class="check-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Confirm first sync plan</div>
+              <div class="check-detail" id="bootstrapDetail">Matching tasks are linked automatically; one-sided tasks wait for your confirmation.</div>
+              <button class="btn btn-primary" id="btnBootstrapConfirm" onclick="confirmBootstrap()" style="margin-top:8px;">Confirm &amp; Create Missing Tasks</button>
+              <div class="check-detail" id="bootstrapStatus" hidden style="margin-top:6px;"></div>
+            </div>
+          </div>
           <div class="check-row" id="finalRowTrigger">
             <div class="check-icon" id="finalIconBoxTrigger">
               <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
@@ -995,6 +1006,53 @@
         }
       }
 
+      // Cold-start bootstrap card (2026-10-03 double-task incident): the
+      // engine links same-title pairs automatically and holds every
+      // one-sided create until the user confirms the plan here.
+      function renderBootstrapCard(bootstrap) {
+        const card = document.getElementById('bootstrapCard');
+        if (!card) return;
+        if (!bootstrap || bootstrap.needsConfirmation !== true) { card.hidden = true; return; }
+        const detail = document.getElementById('bootstrapDetail');
+        const lines = [];
+        (bootstrap.pairs || []).forEach(function(pair) {
+          const gName = pair.gListTitle || pair.gListId || '?';
+          const msName = pair.msListTitle || pair.msListId || '?';
+          let line = gName + ' ↔ ' + msName + ': ' + pair.adopted + ' matching task(s) linked';
+          const creates = [];
+          if (pair.googleOnly) creates.push(pair.googleOnly + ' to Microsoft');
+          if (pair.microsoftOnly) creates.push(pair.microsoftOnly + ' to Google');
+          if (creates.length) line += '; will create ' + creates.join(', ');
+          lines.push(line);
+        });
+        detail.textContent = lines.join(' • ') ||
+          bootstrap.pendingCreates + ' one-sided task(s) are waiting for your confirmation.';
+        card.hidden = false;
+      }
+
+      function confirmBootstrap() {
+        if (!window.google || !google.script || !google.script.run) return;
+        const btn = document.getElementById('btnBootstrapConfirm');
+        const status = document.getElementById('bootstrapStatus');
+        btn.disabled = true;
+        status.hidden = false;
+        status.textContent = 'Confirming…';
+        google.script.run.withSuccessHandler(function(res) {
+          if (res && res.ok) {
+            document.getElementById('bootstrapCard').hidden = true;
+            // Kick the first sync immediately so the user sees results
+            // without waiting for the 10-minute trigger.
+            runFirstSync();
+          } else {
+            btn.disabled = false;
+            status.textContent = (res && res.error) || 'Could not confirm. Try again.';
+          }
+        }).withFailureHandler(function(error) {
+          btn.disabled = false;
+          status.textContent = 'Confirmation error: ' + ((error && error.message) || error);
+        }).setupWizardConfirmBootstrap();
+      }
+
       function refreshStep3Overview() {
         if (!window.google || !google.script || !google.script.run) return;
         google.script.run.withSuccessHandler(function(data) {
@@ -1007,6 +1065,7 @@
             markRowSuccess('finalRowMs', 'finalIconBoxMs', 'finalDetailMs', data.microsoft.status === 'advanced' ? 'Connected via Advanced Entra OAuth.' : 'Connected & verified with Microsoft Graph.');
           }
           renderOverviewHealth(data && data.health);
+          renderBootstrapCard(data && data.bootstrap);
           if (data && data.triggerCount > 0) {
             markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', data.triggerCount + ' active syncAll trigger(s) found (every ' + data.intervalMinutes + ' mins).');
             document.getElementById('btnActivate').hidden = true;

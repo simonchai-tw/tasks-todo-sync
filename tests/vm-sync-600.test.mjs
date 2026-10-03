@@ -94,7 +94,11 @@ function smallUnmappedHarness(direction) {
   const h = harness({ listCount: 1, tasksPerList: TASK_COUNT });
   h.provider.google.get(gid(0)).splice(0);
   h.provider.microsoft.get(mid(0)).splice(0);
-  const clean = h.state(); clean.g2m = {}; clean.m2g = {}; h.context.saveState_(clean);
+  const clean = h.state(); clean.g2m = {}; clean.m2g = {};
+  // 2026-10-03 bootstrap gate: these tests verify create-batch mechanics on
+  // a post-bootstrap (gate already released) state, not cold-start gating.
+  clean.bootstrap = { status: 'done', plan: null, adoptedCount: 0, confirmedAt: null };
+  h.context.saveState_(clean);
   if (direction === 'google_to_microsoft') {
     h.provider.google.get(gid(0)).push(
       { id: 'g-a', title: 'A', notes: 'a', status: 'needsAction', updated: stamp(1) },
@@ -188,7 +192,10 @@ test('VM bounded create batches checkpoint and continue for 26 Google creates', 
   const h = harness({ listCount: 1, tasksPerList: TASK_COUNT });
   h.provider.google.get(gid(0)).splice(0);
   h.provider.microsoft.get(mid(0)).splice(0);
-  const clean = h.state(); clean.g2m = {}; clean.m2g = {}; h.context.saveState_(clean);
+  const clean = h.state(); clean.g2m = {}; clean.m2g = {};
+  // Post-bootstrap fixture (2026-10-03 bootstrap gate): batch mechanics only.
+  clean.bootstrap = { status: 'done', plan: null, adoptedCount: 0, confirmedAt: null };
+  h.context.saveState_(clean);
   for (let i = 0; i < 26; i++) {
     h.provider.google.get(gid(0)).push({ id: `g-${i}`, title: `Task ${i}`, notes: `note ${i}`, status: 'needsAction', updated: stamp(i) });
   }
