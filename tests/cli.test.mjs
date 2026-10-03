@@ -235,13 +235,18 @@ test('init migrates through a new directory containing only the copied clasp pro
     cwd,
     files: {
       [join(target, '.clasp.json')]: JSON.stringify({ scriptId: 'same-existing-script-id', rootDir: '.' })
+    },
+    onClasp: async ({ args }) => {
+      if (args[0] === 'show-authorized-user') return { code: 0, stdout: '{"loggedIn":true}' };
+      if (args[0] === 'pull') return { code: 0, stdout: '[]' };
+      return { code: 0 };
     }
   });
 
   const exitCode = await main(['init', '--yes', '--target', 'multi-file'], fake.runtime);
 
   assert.equal(exitCode, 0);
-  assert.deepEqual(fake.calls.map(({ args }) => args[2]), ['show-authorized-user', 'push']);
+  assert.deepEqual(fake.calls.map(({ args }) => args[2]), ['show-authorized-user', 'pull', 'push']);
   assert.equal(JSON.parse(fake.fileMap.get(join(target, '.clasp.json'))).scriptId, 'same-existing-script-id');
   for (const name of GAS_SOURCE_FILES) {
     assert.equal(fake.fileMap.get(join(target, name)), ASSETS.gasFiles[name]);
@@ -249,6 +254,93 @@ test('init migrates through a new directory containing only the copied clasp pro
   const marker = JSON.parse(fake.fileMap.get(join(target, '.tasks-todo-sync-init.json')));
   assert.equal(marker.phase, 'pushed');
   assert.equal(marker.scriptId, 'same-existing-script-id');
+  assert.equal(await fake.runtime.fs.exists(join(target, '.tasks-todo-sync-backups', 'handoff-2026-08-25T00-00-00-000Z')), true,
+    'the adoption pull leaves a backup directory as evidence');
+});
+
+test('init handoff refuses to adopt a remote project that still has unmanaged files', async () => {
+  const cwd = resolve('cli-test-handoff-dirty');
+  const target = join(cwd, 'multi-file');
+  const fake = createFakeRuntime({
+    cwd,
+    files: {
+      [join(target, '.clasp.json')]: JSON.stringify({ scriptId: 'legacy-project', rootDir: '.' })
+    },
+    onClasp: async ({ args, options, fileMap, normal }) => {
+      if (args[0] === 'show-authorized-user') return { code: 0, stdout: '{"loggedIn":true}' };
+      if (args[0] === 'pull') {
+        fileMap.set(normal(join(options.cwd, 'LegacyMacro.js')), '// leftover from a manual deploy\n');
+        return { code: 0, stdout: '[]' };
+      }
+      return { code: 0 };
+    }
+  });
+
+  const exitCode = await main(['init', '--yes', '--target', 'multi-file'], fake.runtime);
+
+  assert.equal(exitCode, 1);
+  assert.match(fake.errors.join('\n'), /Refusing to adopt the Apps Script project/);
+  assert.match(fake.errors.join('\n'), /LegacyMacro\.js/);
+  assert.equal(fake.calls.some(({ args }) => args[2] === 'push'), false, 'nothing may be pushed before the gate passes');
+  assert.equal(fake.fileMap.has(join(target, 'Code.gs')), false, 'assets must not be installed into a refused target');
+});
+
+test('update refuses a remote pull with unmanaged files and pushes nothing', async () => {
+  const cwd = resolve('cli-test-update-dirty');
+  const target = join(cwd, 'app');
+  const fake = createFakeRuntime({
+    cwd,
+    files: {
+      [join(target, '.clasp.json')]: JSON.stringify({ scriptId: 'script-1', rootDir: '.' })
+    },
+    onClasp: async ({ args, options, fileMap, normal }) => {
+      if (args[0] === 'show-authorized-user') return { code: 0, stdout: '{"loggedIn":true}' };
+      if (args[0] === 'pull') {
+        fileMap.set(normal(join(options.cwd, 'OldThing.js')), '// stale remote-only file\n');
+        return { code: 0, stdout: '[]' };
+      }
+      return { code: 0 };
+    }
+  });
+
+  const exitCode = await main(['update', '--json', '--target', 'app'], fake.runtime);
+  const payload = JSON.parse(fake.output.at(-1));
+
+  assert.equal(exitCode, 1);
+  assert.equal(payload.ok, false);
+  assert.match(payload.error.message, /Refusing automatic update/);
+  assert.match(payload.error.message, /OldThing\.js/);
+  assert.equal(fake.calls.some(({ args }) => args[2] === 'push'), false, 'nothing may be pushed when the gate refuses');
+  assert.equal(fake.fileMap.has(join(target, 'Code.gs')), false, 'assets must not be installed into a refused target');
+});
+
+test('update proceeds through the unmanaged gate to push when the remote is clean', async () => {
+  const cwd = resolve('cli-test-update-clean');
+  const target = join(cwd, 'app');
+  const fake = createFakeRuntime({
+    cwd,
+    files: {
+      [join(target, '.clasp.json')]: JSON.stringify({ scriptId: 'script-1', rootDir: '.' })
+    },
+    onClasp: async ({ args }) => {
+      if (args[0] === 'show-authorized-user') return { code: 0, stdout: '{"loggedIn":true}' };
+      if (args[0] === 'pull') return { code: 0, stdout: '[]' };
+      if (args[0] === 'list-deployments') return { code: 0, stdout: '[]' };
+      if (args[0] === 'create-version') return { code: 0, stdout: '{"versionNumber":7}' };
+      if (args[0] === 'create-deployment') return { code: 0, stdout: '{"deploymentId":"deployment-7","versionNumber":7}' };
+      return { code: 0 };
+    }
+  });
+
+  const exitCode = await main(['update', '--json', '--target', 'app'], fake.runtime);
+  const payload = JSON.parse(fake.output.at(-1));
+  const commands = fake.calls.map(({ args }) => args[2]);
+
+  assert.equal(exitCode, 0);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.action, 'updated');
+  assert.equal(payload.deploymentId, 'deployment-7');
+  assert.ok(commands.indexOf('pull') < commands.indexOf('push'), 'the gate pull must run before the push');
 });
 
 test('init refuses an in-place single-file upgrade with an actionable migration path', async () => {
