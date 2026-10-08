@@ -1180,7 +1180,9 @@ test('private setup web app serves only the bundled Setup file with a bounded ti
   assert.equal(context.doGet(), output);
   assert.deepEqual(calls, [
     ['file', 'Setup'],
-    ['title', 'Tasks–To Do Sync — Easy Setup'],
+    // Matches the single canonical product name (Tasks-ToDo-Sync), the same
+    // string doGet's HtmlService title uses.
+    ['title', 'Tasks-ToDo-Sync Setup'],
     ['xframe', 'DEFAULT']
   ]);
 });
@@ -1643,8 +1645,17 @@ test('sync summaries expose only bounded success, failure, and time-budget metri
 
     if (outcome === 'failure') {
       assert.throws(() => context.syncAll(), /PRIVATE_PROVIDER_RESPONSE_BODY/);
+    } else if (outcome === 'success') {
+      // 0.9.6 names every syncAll outcome (2026-10-07 contract; FIXED-DATE-OK): success is a
+      // summary-level completed object, never a bare undefined.
+      const result = context.syncAll();
+      assert.equal(result.completed, true);
+      assert.equal(Number.isInteger(result.mappingCount), true);
+      assert.equal(typeof result.completedAt, 'string');
     } else {
-      assert.equal(context.syncAll(), undefined);
+      const result = context.syncAll();
+      assert.equal(result.partial, true);
+      assert.equal(result.reason, 'TIME_BUDGET');
     }
     const summary = logs.map((value) => {
       try { return JSON.parse(value); } catch (e) { return null; }
@@ -8252,7 +8263,9 @@ test('destructive task and list delete paths stop at the reserve with journals i
   round.context.sendFatalAlert_ = () => {};
   new vm.Script('Date.now = function() { return 1000; };').runInContext(round.context);
 
-  assert.equal(round.context.syncAll(), undefined);
+  const roundOutcome = round.context.syncAll();
+  assert.equal(roundOutcome.partial, true);
+  assert.equal(roundOutcome.reason, 'TIME_BUDGET');
   assert.equal(roundDeletes, 0);
   assert.ok(catchSaves.length > 0);
   assert.equal(catchSaves.at(-1).pendingTaskDeletions['g-task'].confirmations, 1);
@@ -8356,7 +8369,9 @@ test('real fenced task rounds retain completed baseline through a time-budget fa
   assert.equal(userStore.getProperty('sync_state_main_round_fence'), null);
 
   context.assertDestructiveTimeBudget_ = (code) => { throw new Error(code || 'TIME_BUDGET_TASK_DELETE_REVALIDATION'); };
-  assert.equal(context.syncAll(), undefined);
+  const taskBudgetOutcome = context.syncAll();
+  assert.equal(taskBudgetOutcome.partial, true);
+  assert.equal(taskBudgetOutcome.reason, 'TIME_BUDGET');
   after = context.loadStateForSync_();
   assert.equal(after.pendingTaskDeletions['g-task'].confirmations, 1);
   assert.equal(userStore.getProperty('sync_state_main_round_fence'), null);
@@ -8393,7 +8408,9 @@ test('real fenced list rounds retain completed baseline through a time-budget fa
   assert.equal(userStore.getProperty('sync_state_main_round_fence'), null);
 
   context.assertDestructiveTimeBudget_ = (code) => { throw new Error(code || 'TIME_BUDGET_LIST_DELETE_REVALIDATION'); };
-  assert.equal(context.syncAll(), undefined);
+  const listBudgetOutcome = context.syncAll();
+  assert.equal(listBudgetOutcome.partial, true);
+  assert.equal(listBudgetOutcome.reason, 'TIME_BUDGET');
   after = context.loadStateForSync_();
   assert.equal(after.pendingListDeletions[pair.key].confirmations, 1);
   assert.equal(after.pendingListDeletions[pair.key].missingSide, 'google');
@@ -8671,4 +8688,173 @@ test('v0.8.4: localized connection-layer failures (zh-TW 無法開啟網址, en 
     assert.equal(fetches, maxRetries + 1, message);
     assert.equal(sleeps.length, maxRetries, message);
   }
+});
+
+/* The companion's cloud calls now go over the deployed web app's JSON API
+ * (Code.gs doGet/doPost), replacing `clasp run-function`. Measured 2026-10-07 (FIXED-DATE-OK):
+ * scripts.run needs an API-executable entry point plus a shared standard Cloud
+ * project -- this product's deployments have neither -- and answered
+ * "reading from storage ... NOT_FOUND" on every project we tried, including a
+ * freshly created minimal one, while the same project executed fine through
+ * the web app URL. runCloudFunction must keep clasp's response shape
+ * ({ response: <script return> } / { error: { code, message } }) so callers
+ * parse the result unchanged, and must name the deployment from the marker. */
+import { runCloudFunction } from '../lib/cli.mjs';
+
+function markerRuntime({ deploymentId = 'AKfycbMARKER' } = {}) {
+  return {
+    fs: {
+      exists: async () => deploymentId !== null,
+      readFile: async () => JSON.stringify(deploymentId === null ? {} : { deploymentId })
+    }
+  };
+}
+
+test('runCloudFunction maps the web app envelope onto the clasp response shape', async () => {
+  const calls = [];
+  const runtime = markerRuntime();
+  runtime.webAppCall = async (call) => {
+    calls.push(call);
+    return { ok: true, result: { overview: { triggerCount: 1 } }, rawText: '{"ok":true}' };
+  };
+
+  const cloud = await runCloudFunction(runtime, 'target', 'setupWizardOverview', [], true);
+
+  assert.deepEqual(calls, [
+    { deploymentId: 'AKfycbMARKER', action: 'setupWizardOverview', params: [], dev: false }
+  ], 'the deployed URL (/exec) is the default path');
+  assert.equal(cloud.processOk, true);
+  assert.deepEqual(cloud.json.response, { overview: { triggerCount: 1 } });
+  assert.equal(cloud.json.error, undefined);
+});
+
+test('runCloudFunction maps nonDev=false onto the /dev URL flag', async () => {
+  const calls = [];
+  const runtime = markerRuntime();
+  runtime.webAppCall = async (call) => {
+    calls.push(call);
+    return { ok: true, result: null, rawText: '' };
+  };
+
+  await runCloudFunction(runtime, 'target', 'setupWizardOverview', [], false);
+
+  assert.equal(calls[0].dev, true, 'dev must request the latest saved code, not the deployment');
+});
+
+test('runCloudFunction keeps non-ok envelopes as failures with the remote code', async () => {
+  const runtime = markerRuntime();
+  runtime.webAppCall = async () => ({
+    ok: false,
+    error: { code: 'AUTHORIZATION_REQUIRED', message: 'Authorization is required.' }
+  });
+
+  const cloud = await runCloudFunction(runtime, 'target', 'setupWizardOverview', [], true);
+
+  assert.equal(cloud.processOk, false, 'a web app error must not count as success');
+  assert.equal(cloud.json.error.code, 'AUTHORIZATION_REQUIRED');
+  assert.match(cloud.stderr, /Authorization is required/);
+});
+
+test('runCloudFunction reports a missing deployment instead of calling the web app', async () => {
+  const calls = [];
+  const runtime = markerRuntime({ deploymentId: null });
+  runtime.webAppCall = async (call) => {
+    calls.push(call);
+    return { ok: true, result: null, rawText: '' };
+  };
+
+  const cloud = await runCloudFunction(runtime, 'target', 'syncAll', [], true);
+
+  assert.deepEqual(calls, [], 'without a deployment id nothing may be called');
+  assert.equal(cloud.processOk, false);
+  assert.equal(cloud.json.error.code, 'NO_DEPLOYMENT');
+});
+
+/* Live regression (rc.6, 2026-10-06 FIXED-DATE-OK): detect reported
+ * "No existing project was found" for scriptId
+ * 1o-hO0EoczMiFYGeDCLw1XAYxFiQff05lwvpWY85_sYJExH-fQc4wlNfS even though the
+ * project existed and was complete. clasp pulls server files as .js while the
+ * managed set is .gs, so every fingerprint signal compared unequal and the
+ * candidate fell to confidence "low" (needs 4 signals). The same mismatch
+ * would make `update` refuse its own project as "contains unmanaged files". */
+import { managedGasSourceName, isManagedGasSourceFile, GAS_SOURCE_FILES } from '../lib/gas-files.mjs';
+
+test('managedGasSourceName maps pulled .js names onto canonical .gs names', () => {
+  assert.equal(managedGasSourceName('Code.js'), 'Code.gs');
+  assert.equal(managedGasSourceName('time-bridge.js'), 'time-bridge.gs');
+  assert.equal(managedGasSourceName('globals.js'), 'globals.gs');
+  // The exact file list observed live from the installed project.
+  const pulled = ['auth.js','Code.js','config.js','field-merge.js','globals.js','lifecycle.js',
+    'lists.js','operations.js','providers.js','relationship-discovery.js','resource-projection.js',
+    'runtime.js','setup.js','state.js','subtask-classification.js','subtask-sync.js','sync.js','time-bridge.js'];
+  for (const name of pulled) {
+    assert.ok(isManagedGasSourceFile(name), `${name} must be recognized as managed`);
+  }
+  // 18 pulled files map onto exactly the 18 managed sources: no leftovers.
+  assert.equal(pulled.length, GAS_SOURCE_FILES.length);
+  assert.deepEqual(
+    [...pulled].map(managedGasSourceName).sort(),
+    [...GAS_SOURCE_FILES].sort()
+  );
+
+  // Genuinely foreign files stay unknown.
+  assert.equal(managedGasSourceName('SomebodyElsesScript.js'), null);
+  assert.equal(isManagedGasSourceFile('SomebodyElsesScript.js'), false);
+  assert.equal(managedGasSourceName('Setup.html'), null);
+  assert.equal(managedGasSourceName('appsscript.json'), null);
+  // A .gs name is already canonical; the helper only normalizes .js.
+  assert.equal(managedGasSourceName('Code.gs'), null);
+  assert.equal(isManagedGasSourceFile('Code.gs'), false);
+});
+
+/* End-to-end cover for the live rc.6 detection failure, driving the real
+ * fingerprintRemoteProject with a fake clasp that returns server files as .js
+ * exactly as clasp does. */
+import { fingerprintRemoteProject } from '../lib/cli.mjs';
+
+function fakeClaspRuntime(pulledFiles) {
+  // node:fs/promises readdir returns basenames, and writeFile/readFile take
+  // full paths; mirror that so the test exercises the real name handling.
+  const store = new Map();
+  const base = (path) => String(path).split(/[\\/]/).pop();
+  return {
+    fs: {
+      async mkdir() {},
+      async writeFile(path, content) { store.set(base(path), content); },
+      async readFile(path) {
+        const key = base(path);
+        if (!store.has(key)) throw new Error(`ENOENT: ${path}`);
+        return store.get(key);
+      },
+      async readdir() { return [...store.keys()]; },
+      async rm() {}
+    },
+    async runClasp(args) {
+      // clasp pull materializes each remote file in the working directory.
+      if (args.includes('pull')) {
+        for (const [name, content] of Object.entries(pulledFiles)) store.set(name, content);
+      }
+      return { code: 0, stdout: '{}', stderr: '' };
+    }
+  };
+}
+
+test('fingerprintRemoteProject recognises a healthy remote pulled as .js', async () => {
+  const runtime = fakeClaspRuntime({
+    'Code.js': 'function setupWizardOverview() { return {}; }',
+    'globals.js': "const TIME_BRIDGE_CALENDAR_SUMMARY = 'Tasks-ToDo-Sync';",
+    'Setup.html': '<title>Tasks-ToDo-Sync Setup</title>Microsoft personal device',
+    'appsscript.json': '{"webApp":{"access":"MYSELF"}}',
+    'time-bridge.js': '// bridge',
+    'providers.js': '// providers',
+    // Unrelated leftovers that genuinely belong to the user.
+    'notes.js': 'scratch'
+  });
+
+  const result = await fingerprintRemoteProject(runtime, 'target', 'script-id');
+  // 6 signals available; the .js files must now satisfy the .gs checks.
+  assert.equal(result.signals, 6, `expected all six signals, got ${result.signals}`);
+  assert.equal(result.confidence, 'high');
+  // Only the genuinely foreign file is reported, not the 18 managed sources.
+  assert.deepEqual(result.unknownFiles, ['notes.js']);
 });

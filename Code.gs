@@ -830,10 +830,97 @@ function setupWizardRunFirstSync() {
   }
 }
 
-function doGet() {
+/* ---------------------------------------------------------------------------
+ * Web app JSON API.
+ *
+ * The desktop companion reads status and pushes commands over HTTP instead of
+ * the Apps Script API's scripts.run: scripts.run requires the project to be
+ * deployed with an API-executable entry point (manifest executionApi) plus a
+ * shared standard Cloud project, and neither exists in this product's
+ * deployments -- measured 2026-10-07, `clasp run-function` failed with
+ * "reading from storage ... NOT_FOUND" on every project we tried, while the
+ * same project executed fine through the web app URL.
+ *
+ * Contract (v1):
+ *   - Every machine call returns a JSON envelope:
+ *       { ok: true,  action, result }  or
+ *       { ok: false, action, error: { code, message } }
+ *   - Unknown or missing actions are rejected with UNKNOWN_ACTION /
+ *     MISSING_ACTION; the whitelist below is the whole surface.
+ *   - doGet with ?action=... serves the same envelope (handy for read-only
+ *     probes); without ?action it serves the human wizard page, unchanged.
+ *   - doPost takes { action, params } as a JSON body.
+ *   - google.script.run from the wizard page is untouched.
+ * ------------------------------------------------------------------------- */
+var WEB_APP_API_VERSION = 1;
+
+var WEB_APP_ACTIONS = {
+  webAppHandshake: function () {
+    return { apiVersion: WEB_APP_API_VERSION, serverTime: new Date().toISOString() };
+  },
+  setupWizardOverview: function () {
+    return setupWizardOverview();
+  },
+  setupWizardSavePreferences: function (params) {
+    // The companion sends the positional argument list it used to hand to
+    // clasp run-function: [input]. Accept that shape and the plain object.
+    const input = Array.isArray(params) ? params[0] : (params && params.input);
+    return setupWizardSavePreferences(input);
+  },
+  syncAll: function () {
+    return syncAll();
+  }
+};
+
+function dispatchWebAppAction_(action, params) {
+  if (!action) {
+    return { ok: false, error: { code: 'MISSING_ACTION', message: 'Provide an action name.' } };
+  }
+  if (!Object.prototype.hasOwnProperty.call(WEB_APP_ACTIONS, action)) {
+    return { ok: false, action: action, error: { code: 'UNKNOWN_ACTION', message: 'Action is not in the web app whitelist: ' + action } };
+  }
+  try {
+    return { ok: true, action: action, apiVersion: WEB_APP_API_VERSION, result: WEB_APP_ACTIONS[action](params) };
+  } catch (error) {
+    return { ok: false, action: action, error: classifyWebAppError_(error) };
+  }
+}
+
+function classifyWebAppError_(error) {
+  const message = boundedWizardErrorText_(error);
+  if (/authoriz/i.test(message)) {
+    return { code: 'AUTHORIZATION_REQUIRED', message: message };
+  }
+  return { code: 'EXECUTION_ERROR', message: message };
+}
+
+function webAppJsonResponse_(payload) {
+  return ContentService.createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (params.action) {
+    return webAppJsonResponse_(dispatchWebAppAction_(params.action, params));
+  }
   return HtmlService.createHtmlOutputFromFile('Setup')
     .setTitle('Tasks-ToDo-Sync Setup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+}
+
+function doPost(e) {
+  let action = null;
+  let params = {};
+  try {
+    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    action = body.action;
+    params = body.params;
+    if (params === null || typeof params !== 'object') params = {};
+  } catch (error) {
+    return webAppJsonResponse_({ ok: false, error: { code: 'BAD_REQUEST', message: 'Request body must be JSON: {"action":...,"params":...}.' } });
+  }
+  return webAppJsonResponse_(dispatchWebAppAction_(action, params));
 }
 
 function checkpointTaskCreateBatch_(state) {
@@ -849,7 +936,7 @@ function checkpointTaskCreateBatch_(state) {
 function syncAll() {
   const entryStartedAt = initializeExecutionBudget_();
   beginSyncObservability_(entryStartedAt);
-  return withGlobalLock_(function() {
+  const round = withGlobalLock_(function() {
     const startedAt = entryStartedAt;
     const roundId = deletionRoundId_(startedAt);
     let state;
@@ -954,6 +1041,18 @@ function syncAll() {
       clearSyncRoundFence_();
       console.log('[Sync] Completed. mapping=' + Object.keys(state.g2m).length);
       logSyncSummary_('success');
+      // The round state IS the result; syncAll was fire-and-forget and fell
+      // through here, so the web app surfaced a bare undefined that the
+      // desktop rendered as `response: null` -- indistinguishable from a skip
+      // and read as a failure (measured 2026-10-07 14:08: a manual Sync All
+      // completed in 31s and still showed null). Name the success. Content
+      // stays summary-level: identifiers and counts, never task data.
+      return {
+        completed: true,
+        roundId: roundId,
+        mappingCount: Object.keys(state.g2m).length,
+        completedAt: new Date().toISOString()
+      };
     } catch (e) {
       const isTimeBudget = String(e.message).indexOf('TIME_BUDGET_') === 0;
       if (!finalStateCommitted && SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_ && SYNC_TASK_CREATE_BATCH_PENDING_STATE_) {
@@ -1003,7 +1102,11 @@ function syncAll() {
       if (isTimeBudget) {
         console.warn('[Sync] Near the time limit; durable state was saved safely. The next round will rerun the full inventory, with no persisted page cursor.');
         logSyncSummary_('time_budget');
-        return;
+        return {
+          partial: true,
+          reason: 'TIME_BUDGET',
+          message: 'The round hit an error near the execution time limit. Durable state was saved safely and the next round reruns the full inventory; nothing was lost.'
+        };
       }
       sendFatalAlert_(String(e.message || e));
       console.error('[Sync] Failed: ' + e.message + '\n' + (e.stack || ''));
@@ -1011,6 +1114,30 @@ function syncAll() {
       throw e;
     }
   });
+  if (round === null) {
+    // withGlobalLock_ returns null only when tryLock timed out: another round
+    // (normally the 10-minute trigger) holds the script lock. Skipping is the
+    // correct, safe outcome -- but a bare null surfaced on the desktop as
+    // `response: null` with no explanation and read as a failure (measured
+    // 2026-10-07 13:43: a manual Sync All lost the lock to the 13:42 trigger
+    // round). Name the skip so callers can show it.
+    return {
+      skipped: true,
+      reason: 'LOCK_HELD',
+      message: 'Another sync round is already running (usually the 10-minute trigger). This round was skipped; the running round\'s result applies.'
+    };
+  }
+  if (round === undefined) {
+    // Safety net: every path in this function now returns a named object.
+    // Reaching here means a return path was missed -- name it instead of
+    // shipping a bare undefined that the desktop renders as `response: null`.
+    return {
+      completed: false,
+      reason: 'UNNAMED_OUTCOME',
+      message: 'The round finished without a named outcome (engine bug). The sync state itself is authoritative; check the status lights.'
+    };
+  }
+  return round;
 }
 
 // Only structured pendingMoves use stable opaque labels rather than provider

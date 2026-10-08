@@ -69,7 +69,9 @@ for (const { filename, source } of gasSources) {
   }
 }
 const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
-assert(publicEntrypoints.length === 54, `Expected 54 public entrypoints, found ${publicEntrypoints.length}`);
+// 56 since 2026-10-07: doPost joined doGet as a public web app entrypoint
+// (the companion's JSON API replaced the scripts.run transport).
+assert(publicEntrypoints.length === 56, `Expected 56 public entrypoints, found ${publicEntrypoints.length}`);
 assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs'),
   'All public and compatibility entrypoints must remain in Code.gs');
 
@@ -262,21 +264,60 @@ for (const forbidden of ['MS_CLIENT_SECRET=', 'CLASPRC_JSON=', 'Bearer eyJ']) {
 // Date-bomb scan (added v0.8.3, WO-2 relapse 2026-10-01): a calendar date
 // literal in a test fixture that equals today or tomorrow breaks the moment
 // the real calendar advances.  Either build the fixture from Date.now() or
-// mark the line with FIXED-DATE-OK when a pinned date is intentional.
+// mark the test with FIXED-DATE-OK when a pinned date is intentional.
+//
+// Three refinements, each answering a false positive that actually occurred:
+//
+// 1. Comment lines are ignored. A date written in a comment records when a bug
+//    was observed ("measured on 2026-10-06"). That is history; it cannot break
+//    when the calendar advances, and flagging it trains people to ignore the
+//    check.
+// 2. FIXED-DATE-OK is honoured for the whole test, not just the line it sits
+//    on. The original per-line rule meant a marker on the line above a literal
+//    did nothing, which is the easiest way to mark a fixture and still fail.
+// 3. A pinned date is often not "today" at all. Tests that move a due date from
+//    A to B need both values fixed so the pair still lines up; deriving one of
+//    them from Date.now() would break the pairing on the day the calendar moves.
+//    That is the case the marker exists for, so honouring it per test is the
+//    intended behaviour, not a loophole.
 {
   const { readdirSync, readFileSync: rf } = await import('node:fs');
   const dayMs = 24 * 60 * 60 * 1000;
   const startOfUtcDay = (ms) => Math.floor(ms / dayMs) * dayMs;
   const today = startOfUtcDay(Date.now());
   const bombs = [];
+  // A test body runs from its test(...) / it(...) / describe(...) opener to the
+  // next opener, or end of file. Tracking opens rather than braces is enough
+  // here: the rule only needs to know which dates belong to the same test, and
+  // nesting describe blocks still reads as one region, which is the safe
+  // direction to err (fewer false positives, and a genuinely pinned date
+  // declared anywhere in the region applies to it).
+  const opener = /^\s*(?:test|it|describe)\s*\(/;
+  const isComment = (line) => /^\s*(?:\/\/|\*|\/\*)/.test(line);
   for (const file of readdirSync('tests').filter((f) => f.endsWith('.test.mjs'))) {
-    rf(`tests/${file}`, 'utf8').split(/\r?\n/).forEach((line, i) => {
-      if (line.includes('FIXED-DATE-OK')) return;
+    const lines = rf(`tests/${file}`, 'utf8').split(/\r?\n/);
+    const markedFrom = [];
+    let regionStart = 0;
+    let regionMarked = false;
+    for (let i = 0; i < lines.length; i++) {
+      if (opener.test(lines[i])) {
+        // Close the previous region, carrying its verdict forward.
+        for (let j = regionStart; j < i; j++) markedFrom.push(regionMarked);
+        regionStart = i;
+        regionMarked = false;
+      }
+      if (lines[i].includes('FIXED-DATE-OK')) regionMarked = true;
+    }
+    for (let j = regionStart; j < lines.length; j++) markedFrom.push(regionMarked);
+
+    lines.forEach((line, i) => {
+      if (markedFrom[i]) return;
+      if (isComment(line)) return;
       for (const m of line.matchAll(/\b(20\d{2})-(\d{2})-(\d{2})\b/g)) {
         const when = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
         const deltaDays = Math.round((when - today) / dayMs);
         if (deltaDays >= -1 && deltaDays <= 1) {
-          bombs.push(`tests/${file}:${i + 1} ${m[0]} (|=|today+${deltaDays}; make it dynamic or mark FIXED-DATE-OK)`);
+          bombs.push(`tests/${file}:${i + 1} ${m[0]} (|=|today+${deltaDays}; make it dynamic or mark the test FIXED-DATE-OK)`);
         }
       }
     });
