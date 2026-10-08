@@ -122,10 +122,10 @@ test('the merge keeps the canonical date in rec.td and drops the time when the d
   // A Microsoft date edit is adopted as the canonical date.
   state.g2m['g-task'].td = { date: '2026-10-02', time: '15:30', v: 1 }; // FIXED-DATE-OK
   const gTask2 = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-02T00:00:00.000Z' };
-  const msTask2 = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-07T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' };
+  const msTask2 = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-07T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' }; // FIXED-DATE-OK
   state.g2m['g-task'].fp = { v: 1, due: c.ordinaryFieldFp_(c.ordinaryProjectGoogle_(gTask2, rec, ON), 'due') };
   c.ordinaryReconcileMappedPair_(state, rec, gTask2, msTask2, 'g-list', ON);
-  assert.equal(state.g2m['g-task'].td.date, '2026-10-07', 'td.date follows the converged date');
+  assert.equal(state.g2m['g-task'].td.date, '2026-10-07', 'td.date follows the converged date'); // FIXED-DATE-OK
   assert.equal(state.g2m['g-task'].td.time, '15:30', 'the time survives a date move');
 });
 

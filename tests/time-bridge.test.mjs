@@ -575,11 +575,15 @@ test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and
 
 test('timeBridgeRunRenderersAfterMerge_ aggregates one de-identified quarantine mail (§3.4.5)', () => {
   const { c } = loadContext();
-  const nowMs = Date.parse('2026-09-30T04:00:00Z');
-  const state = tbState('g-task', { td: { date: '2026-10-02', time: '15:30', v: 1 } }); // FIXED-DATE-OK
+  const nowMs = Date.now();
+  const targetMs = nowMs + 25 * 60 * 60 * 1000;
+  const tpe = (ms) => new Date(ms + 8 * 60 * 60 * 1000);
+  const tpeDate = tpe(targetMs).toISOString().slice(0, 10);
+  const tpeHhMm = tpe(targetMs).toISOString().slice(11, 16);
+  const state = tbState('g-task', { td: { date: tpeDate, time: tpeHhMm, v: 1 } });
   const snap = tbSnap(
     { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' },
-    { id: 'ms-task', title: 'T', dueDateTime: { dateTime: '2026-10-02T15:30:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' }
+    { id: 'ms-task', title: 'T', dueDateTime: { dateTime: tpeDate + 'T' + tpeHhMm + ':00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' }
   );
   // Force the transition into the drawer.
   // The orchestrator reads the real clock, so the slow lane must be due against it.
@@ -597,7 +601,7 @@ test('timeBridgeRunRenderersAfterMerge_ aggregates one de-identified quarantine 
   c.PropertiesService.getScriptProperties().setProperty('SYNC_CALENDAR_PROJECTION', 'true');
   c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'true');
 
-  const summary = c.timeBridgeRunRenderersAfterMerge_(state, snap, Date.now(), 'round-1');
+  const summary = c.timeBridgeRunRenderersAfterMerge_(state, snap, nowMs, 'round-1');
   assert.equal(summary.quarantined.length, 1);
   assert.equal(mails.length, 1, 'one aggregated mail');
   assert.ok(mails[0].body.indexOf('g-task') < 0, 'the pair id is de-identified in the body');
