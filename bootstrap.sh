@@ -34,7 +34,7 @@ ask() {
   if [ -t 0 ]; then
     printf '%s' "$1" >&2
     IFS= read -r REPLY
-  elif [ -r /dev/tty ] && { printf '%s' "$1" >/dev/tty; IFS= read -r REPLY </dev/tty; }; then
+  elif [ -r /dev/tty ] && { printf '%s' "$1" 2>/dev/null >/dev/tty; IFS= read -r REPLY 2>/dev/null </dev/tty; }; then
     :
   else
     return 1
