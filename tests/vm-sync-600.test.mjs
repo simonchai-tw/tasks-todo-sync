@@ -94,7 +94,11 @@ function smallUnmappedHarness(direction) {
   const h = harness({ listCount: 1, tasksPerList: TASK_COUNT });
   h.provider.google.get(gid(0)).splice(0);
   h.provider.microsoft.get(mid(0)).splice(0);
-  const clean = h.state(); clean.g2m = {}; clean.m2g = {}; h.context.saveState_(clean);
+  const clean = h.state(); clean.g2m = {}; clean.m2g = {};
+  // 2026-10-03 bootstrap gate: these tests verify create-batch mechanics on
+  // a post-bootstrap (gate already released) state, not cold-start gating.
+  clean.bootstrap = { status: 'done', plan: null, adoptedCount: 0, confirmedAt: null };
+  h.context.saveState_(clean);
   if (direction === 'google_to_microsoft') {
     h.provider.google.get(gid(0)).push(
       { id: 'g-a', title: 'A', notes: 'a', status: 'needsAction', updated: stamp(1) },
@@ -163,7 +167,7 @@ test('VM long Unicode payload survives 600 Google-to-Microsoft updates', () => {
   assert.ok(h.provider.microsoft.get(mid(0)).every((t) => t.body.content.includes('工作事項') && t.body.content.includes('😀')));
   assertIntegrity(h);
 });
-test('VM injected provider failure and controllable time budget fail closed', () => { const failed = harness({ listCount: 1, tasksPerList: 600 }); failed.provider.fail = { side: 'google', status: 500 }; assert.throws(() => failed.context.syncAll(), /HTTP 500/); assert.equal(failed.provider.gWrites + failed.provider.msWrites, 0); assertIntegrity(failed); const timed = harness({ listCount: 1, tasksPerList: 600, advanceMs: 300000 }); timed.setTime(1000); assert.equal(timed.context.syncAll(), undefined); assert.equal(timed.provider.gWrites + timed.provider.msWrites, 0); assertIntegrity(timed); assert.ok(timed.logs.some((x) => x.includes('Near time limit') || x.includes('TIME_BUDGET'))); });
+test('VM injected provider failure and controllable time budget fail closed', () => { const failed = harness({ listCount: 1, tasksPerList: 600 }); failed.provider.fail = { side: 'google', status: 500 }; assert.throws(() => failed.context.syncAll(), /HTTP 500/); assert.equal(failed.provider.gWrites + failed.provider.msWrites, 0); assertIntegrity(failed); const timed = harness({ listCount: 1, tasksPerList: 600, advanceMs: 300000 }); timed.setTime(1000); const timedOutcome = timed.context.syncAll(); assert.equal(timedOutcome.partial, true); assert.equal(timedOutcome.reason, 'TIME_BUDGET'); assert.equal(timed.provider.gWrites + timed.provider.msWrites, 0); assertIntegrity(timed); assert.ok(timed.logs.some((x) => x.includes('Near time limit') || x.includes('TIME_BUDGET'))); });
 test('VM bounded create batch recovers first unfenced Google POST by UUID', () => {
   const h = smallUnmappedHarness('google_to_microsoft');
   const create = h.context.createMsTask_; let stopped = false;
@@ -188,7 +192,10 @@ test('VM bounded create batches checkpoint and continue for 26 Google creates', 
   const h = harness({ listCount: 1, tasksPerList: TASK_COUNT });
   h.provider.google.get(gid(0)).splice(0);
   h.provider.microsoft.get(mid(0)).splice(0);
-  const clean = h.state(); clean.g2m = {}; clean.m2g = {}; h.context.saveState_(clean);
+  const clean = h.state(); clean.g2m = {}; clean.m2g = {};
+  // Post-bootstrap fixture (2026-10-03 bootstrap gate): batch mechanics only.
+  clean.bootstrap = { status: 'done', plan: null, adoptedCount: 0, confirmedAt: null };
+  h.context.saveState_(clean);
   for (let i = 0; i < 26; i++) {
     h.provider.google.get(gid(0)).push({ id: `g-${i}`, title: `Task ${i}`, notes: `note ${i}`, status: 'needsAction', updated: stamp(i) });
   }

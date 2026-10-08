@@ -260,16 +260,16 @@ test('timeBridgeIntake_ writes rec.td from the marker and never calls a provider
   assert.equal(remoteCalls, 0, 'intake must not touch a remote API');
 
   // NONE keeps the existing date and clears the time.
-  state.g2m['g-task'].td = { date: '2026-10-05', time: '09:00', v: 1 };
+  state.g2m['g-task'].td = { date: '2026-10-05', time: '09:00', v: 1 }; // FIXED-DATE-OK
   snap.gTasksById['g-task'].notes = '[TTS-TIME:NONE]\nbody';
   c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
-  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-05', time: null, v: 1, clear: true },
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-05', time: null, v: 1, clear: true }, // FIXED-DATE-OK
     'NONE records a pending clear so the renderer wipes our own leftover reminder');
 
   // A marker below line 1 is rejected fail-closed and leaves the record alone.
   snap.gTasksById['g-task'].notes = 'body\n[TTS-TIME:15:30]';
   c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei');
-  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-05', time: null, v: 1, clear: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-05', time: null, v: 1, clear: true }); // FIXED-DATE-OK
 });
 
 test('timeBridgeSpliceRenderer_ is idempotent and recomputes fp.notes from the final string (§3.3)', () => {
@@ -575,6 +575,11 @@ test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and
 
 test('timeBridgeRunRenderersAfterMerge_ aggregates one de-identified quarantine mail (§3.4.5)', () => {
   const { c } = loadContext();
+  // The pair must be future-dated against the real clock: a past due makes
+  // timeBridgeCalendarRenderer_ record success and skip (the "startMs <
+  // nowMs" guard), so the failure path under test is never reached.  Derive
+  // the due from Date.now() (+25h, rendered through the +8h Taipei trick)
+  // so this fixture cannot go stale as the calendar advances (WO-2 class).
   const nowMs = Date.now();
   const targetMs = nowMs + 25 * 60 * 60 * 1000;
   const tpe = (ms) => new Date(ms + 8 * 60 * 60 * 1000);

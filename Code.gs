@@ -578,15 +578,167 @@ function setupWizardPrepareGoogle() {
 }
 
 // Lightweight state for a returning visitor opening the private setup page.
+// Read-only view of state.bootstrap for the web wizard.  List titles are
+// resolved best-effort so the confirmation card can show names; on any
+// inventory failure the raw IDs are shown instead.  Never mutates state.
+function setupWizardBootstrapView_(state) {
+  const bs = state && state.bootstrap;
+  if (!bs || typeof bs !== 'object') return null;
+  const plan = bs.plan && typeof bs.plan === 'object' ? bs.plan : null;
+  const pairs = plan && Array.isArray(plan.pairs) ? plan.pairs : [];
+  const gTitles = {}, mTitles = {};
+  if (pairs.length) {
+    try {
+      (listGoogleTaskLists() || []).forEach(function(list) {
+        if (list && list.id) gTitles[list.id] = list.title || list.name || null;
+      });
+    } catch (error) { /* fall back to raw IDs */ }
+    try {
+      (listMicrosoftTaskLists() || []).forEach(function(list) {
+        if (list && list.id) mTitles[list.id] = list.displayName || list.title || list.name || null;
+      });
+    } catch (error) { /* fall back to raw IDs */ }
+  }
+  return {
+    status: String(bs.status || 'pending'),
+    adoptedCount: Number(bs.adoptedCount || 0),
+    confirmedAt: bs.confirmedAt || null,
+    needsConfirmation: bs.status === 'awaitingConfirmation',
+    pendingCreates: plan ? Number(plan.pendingCreates || 0) : 0,
+    pairs: pairs.map(function(pair) {
+      return {
+        gListId: pair.gListId || null,
+        msListId: pair.msListId || null,
+        gListTitle: gTitles[pair.gListId] || null,
+        msListTitle: mTitles[pair.msListId] || null,
+        adopted: Number(pair.adopted || 0),
+        googleOnly: Number(pair.googleOnly || 0),
+        microsoftOnly: Number(pair.microsoftOnly || 0)
+      };
+    })
+  };
+}
+
+// Fail-closed release of the cold-start creation gate.  The wizard shows the
+// adoption plan first (setupWizardOverview -> bootstrap); only this explicit
+// call lets syncAll create the remaining one-sided tasks.
+function setupWizardConfirmBootstrap() {
+  initializeExecutionBudget_();
+  const released = withGlobalLock_(function() {
+    const state = loadStateForSync_();
+    const bs = state.bootstrap;
+    if (!bs || bs.status !== 'awaitingConfirmation') {
+      return { ok: false, status: bs ? bs.status : null,
+        error: 'Bootstrap is not awaiting confirmation.' };
+    }
+    bs.status = 'done';
+    bs.confirmedAt = new Date().toISOString();
+    normalizeState_(state);
+    persistSyncState_(state);
+    return { ok: true, status: bs.status, confirmedAt: bs.confirmedAt };
+  });
+  if (!released) {
+    return { ok: false, error: 'A sync round is running; try again in a moment.' };
+  }
+  return released;
+}
+
 function setupWizardOverview() {
   initializeExecutionBudget_();
   const trigger = setupTriggerCount_();
+  const properties = PropertiesService.getScriptProperties();
+  let lastSuccessfulSyncAt = null;
+  let bootstrap = null;
+  try {
+    const loaded = loadStateForInspection_();
+    if (!loaded.corrupt && loaded.state) {
+      if (loaded.state.health) {
+        lastSuccessfulSyncAt = loaded.state.health.lastSuccessfulSyncAt || null;
+      }
+      bootstrap = setupWizardBootstrapView_(loaded.state);
+    }
+  } catch (error) {
+    lastSuccessfulSyncAt = null;
+    bootstrap = null;
+  }
   return {
     microsoft: setupWizardPersonalAuthorizationStatus(),
     triggerAvailable: trigger.available,
     triggerCount: trigger.count,
-    intervalMinutes: SYNC_TRIGGER_INTERVAL_MINUTES
+    intervalMinutes: SYNC_TRIGGER_INTERVAL_MINUTES,
+    lastSuccessfulSyncAt,
+    bootstrap,
+    health: readLastWizardHealth_(),
+    preferences: {
+      calendarProjectionEnabled: scriptBooleanProperty_(
+        properties,
+        'SYNC_CALENDAR_PROJECTION',
+        DEFAULT_SYNC_CALENDAR_PROJECTION
+      ),
+      calendarReminderEnabled: scriptBooleanProperty_(
+        properties,
+        'SYNC_CALENDAR_PROJECTION_REMINDER',
+        DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER
+      ),
+      alertEmail: String(properties.getProperty('ALERT_EMAIL') || '').trim()
+    }
   };
+}
+
+function setupWizardSavePreferences(input) {
+  initializeExecutionBudget_();
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Preferences input must be an object.');
+  }
+  const properties = PropertiesService.getScriptProperties();
+  const allowedKeys = [
+    'calendarProjectionEnabled',
+    'calendarReminderEnabled',
+    'alertEmail'
+  ];
+  Object.keys(input).forEach(function(key) {
+    if (!allowedKeys.includes(key)) {
+      throw new Error('Unsupported preference: ' + String(key).slice(0, 40));
+    }
+  });
+
+  if (Object.prototype.hasOwnProperty.call(input, 'calendarProjectionEnabled')) {
+    if (typeof input.calendarProjectionEnabled !== 'boolean') {
+      throw new Error('calendarProjectionEnabled must be a boolean.');
+    }
+    properties.setProperty('SYNC_CALENDAR_PROJECTION', String(input.calendarProjectionEnabled));
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'calendarReminderEnabled')) {
+    if (typeof input.calendarReminderEnabled !== 'boolean') {
+      throw new Error('calendarReminderEnabled must be a boolean.');
+    }
+    properties.setProperty(
+      'SYNC_CALENDAR_PROJECTION_REMINDER',
+      String(input.calendarReminderEnabled)
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'alertEmail')) {
+    const alertEmail = String(input.alertEmail || '').trim().slice(0, 254);
+    if (alertEmail) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(alertEmail)) {
+        throw new Error('ALERT_EMAIL must be a valid email address or blank.');
+      }
+      properties.setProperty('ALERT_EMAIL', alertEmail);
+    } else {
+      properties.deleteProperty('ALERT_EMAIL');
+    }
+  }
+
+  return setupWizardOverview().preferences;
+}
+
+function scriptBooleanProperty_(properties, key, defaultValue) {
+  const raw = String(properties.getProperty(key) || '').trim().toLowerCase();
+  if (!raw) return defaultValue === true;
+  if (raw !== 'true' && raw !== 'false') {
+    throw new Error(key + ' must be true or false.');
+  }
+  return raw === 'true';
 }
 
 // Step 3 of the wizard: after Microsoft is verified, validate, schedule, and
@@ -653,6 +805,7 @@ function setupWizardFinalize() {
     boundedHealth = { ok: false, issueCount: 1, issues: [boundedWizardErrorText_(error)] };
     record('health', 'Health check passed', false, boundedWizardErrorText_(error));
   }
+  writeLastWizardHealth_(boundedHealth);
 
   return {
     ok: checks.every(function(check) { return check.ok; }),
@@ -677,10 +830,97 @@ function setupWizardRunFirstSync() {
   }
 }
 
-function doGet() {
+/* ---------------------------------------------------------------------------
+ * Web app JSON API.
+ *
+ * The desktop companion reads status and pushes commands over HTTP instead of
+ * the Apps Script API's scripts.run: scripts.run requires the project to be
+ * deployed with an API-executable entry point (manifest executionApi) plus a
+ * shared standard Cloud project, and neither exists in this product's
+ * deployments -- measured 2026-10-07, `clasp run-function` failed with
+ * "reading from storage ... NOT_FOUND" on every project we tried, while the
+ * same project executed fine through the web app URL.
+ *
+ * Contract (v1):
+ *   - Every machine call returns a JSON envelope:
+ *       { ok: true,  action, result }  or
+ *       { ok: false, action, error: { code, message } }
+ *   - Unknown or missing actions are rejected with UNKNOWN_ACTION /
+ *     MISSING_ACTION; the whitelist below is the whole surface.
+ *   - doGet with ?action=... serves the same envelope (handy for read-only
+ *     probes); without ?action it serves the human wizard page, unchanged.
+ *   - doPost takes { action, params } as a JSON body.
+ *   - google.script.run from the wizard page is untouched.
+ * ------------------------------------------------------------------------- */
+var WEB_APP_API_VERSION = 1;
+
+var WEB_APP_ACTIONS = {
+  webAppHandshake: function () {
+    return { apiVersion: WEB_APP_API_VERSION, serverTime: new Date().toISOString() };
+  },
+  setupWizardOverview: function () {
+    return setupWizardOverview();
+  },
+  setupWizardSavePreferences: function (params) {
+    // The companion sends the positional argument list it used to hand to
+    // clasp run-function: [input]. Accept that shape and the plain object.
+    const input = Array.isArray(params) ? params[0] : (params && params.input);
+    return setupWizardSavePreferences(input);
+  },
+  syncAll: function () {
+    return syncAll();
+  }
+};
+
+function dispatchWebAppAction_(action, params) {
+  if (!action) {
+    return { ok: false, error: { code: 'MISSING_ACTION', message: 'Provide an action name.' } };
+  }
+  if (!Object.prototype.hasOwnProperty.call(WEB_APP_ACTIONS, action)) {
+    return { ok: false, action: action, error: { code: 'UNKNOWN_ACTION', message: 'Action is not in the web app whitelist: ' + action } };
+  }
+  try {
+    return { ok: true, action: action, apiVersion: WEB_APP_API_VERSION, result: WEB_APP_ACTIONS[action](params) };
+  } catch (error) {
+    return { ok: false, action: action, error: classifyWebAppError_(error) };
+  }
+}
+
+function classifyWebAppError_(error) {
+  const message = boundedWizardErrorText_(error);
+  if (/authoriz/i.test(message)) {
+    return { code: 'AUTHORIZATION_REQUIRED', message: message };
+  }
+  return { code: 'EXECUTION_ERROR', message: message };
+}
+
+function webAppJsonResponse_(payload) {
+  return ContentService.createTextOutput(JSON.stringify(payload))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (params.action) {
+    return webAppJsonResponse_(dispatchWebAppAction_(params.action, params));
+  }
   return HtmlService.createHtmlOutputFromFile('Setup')
-    .setTitle('Tasks–To Do Sync — Easy Setup')
+    .setTitle('Tasks-ToDo-Sync Setup')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DEFAULT);
+}
+
+function doPost(e) {
+  let action = null;
+  let params = {};
+  try {
+    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    action = body.action;
+    params = body.params;
+    if (params === null || typeof params !== 'object') params = {};
+  } catch (error) {
+    return webAppJsonResponse_({ ok: false, error: { code: 'BAD_REQUEST', message: 'Request body must be JSON: {"action":...,"params":...}.' } });
+  }
+  return webAppJsonResponse_(dispatchWebAppAction_(action, params));
 }
 
 function checkpointTaskCreateBatch_(state) {
@@ -696,7 +936,7 @@ function checkpointTaskCreateBatch_(state) {
 function syncAll() {
   const entryStartedAt = initializeExecutionBudget_();
   beginSyncObservability_(entryStartedAt);
-  return withGlobalLock_(function() {
+  const round = withGlobalLock_(function() {
     const startedAt = entryStartedAt;
     const roundId = deletionRoundId_(startedAt);
     let state;
@@ -760,6 +1000,11 @@ function syncAll() {
           createUnmapped_(state, snap, startedAt);
           if (state.taskCreateBatch) throw new Error('TASK_CREATE_RECOVERY_PENDING: create batch is held; ordinary sync is fenced.');
         } else {
+          // Cold-start bootstrap gate (2026-10-03 double-task incident):
+          // adoption runs first; remaining one-sided creates are held
+          // (fail-closed) until setupWizardConfirmBootstrap() releases them.
+          const bootstrapGate = bootstrapCreationGate_(state, snap);
+          if (bootstrapGate.blocked) break;
           if (!remainingTimeOk_(startedAt, TASK_CREATE_BATCH_START_RESERVE_MS) || !taskCreateBatchCandidates_(state, snap).length) break;
           createUnmapped_(state, snap, startedAt);
           if (state.taskCreateBatch) throw new Error('TASK_CREATE_RECOVERY_PENDING: create batch held; ordinary sync is fenced.');
@@ -796,6 +1041,18 @@ function syncAll() {
       clearSyncRoundFence_();
       console.log('[Sync] Completed. mapping=' + Object.keys(state.g2m).length);
       logSyncSummary_('success');
+      // The round state IS the result; syncAll was fire-and-forget and fell
+      // through here, so the web app surfaced a bare undefined that the
+      // desktop rendered as `response: null` -- indistinguishable from a skip
+      // and read as a failure (measured 2026-10-07 14:08: a manual Sync All
+      // completed in 31s and still showed null). Name the success. Content
+      // stays summary-level: identifiers and counts, never task data.
+      return {
+        completed: true,
+        roundId: roundId,
+        mappingCount: Object.keys(state.g2m).length,
+        completedAt: new Date().toISOString()
+      };
     } catch (e) {
       const isTimeBudget = String(e.message).indexOf('TIME_BUDGET_') === 0;
       if (!finalStateCommitted && SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_ && SYNC_TASK_CREATE_BATCH_PENDING_STATE_) {
@@ -845,7 +1102,11 @@ function syncAll() {
       if (isTimeBudget) {
         console.warn('[Sync] Near the time limit; durable state was saved safely. The next round will rerun the full inventory, with no persisted page cursor.');
         logSyncSummary_('time_budget');
-        return;
+        return {
+          partial: true,
+          reason: 'TIME_BUDGET',
+          message: 'The round hit an error near the execution time limit. Durable state was saved safely and the next round reruns the full inventory; nothing was lost.'
+        };
       }
       sendFatalAlert_(String(e.message || e));
       console.error('[Sync] Failed: ' + e.message + '\n' + (e.stack || ''));
@@ -853,6 +1114,30 @@ function syncAll() {
       throw e;
     }
   });
+  if (round === null) {
+    // withGlobalLock_ returns null only when tryLock timed out: another round
+    // (normally the 10-minute trigger) holds the script lock. Skipping is the
+    // correct, safe outcome -- but a bare null surfaced on the desktop as
+    // `response: null` with no explanation and read as a failure (measured
+    // 2026-10-07 13:43: a manual Sync All lost the lock to the 13:42 trigger
+    // round). Name the skip so callers can show it.
+    return {
+      skipped: true,
+      reason: 'LOCK_HELD',
+      message: 'Another sync round is already running (usually the 10-minute trigger). This round was skipped; the running round\'s result applies.'
+    };
+  }
+  if (round === undefined) {
+    // Safety net: every path in this function now returns a named object.
+    // Reaching here means a return path was missed -- name it instead of
+    // shipping a bare undefined that the desktop renders as `response: null`.
+    return {
+      completed: false,
+      reason: 'UNNAMED_OUTCOME',
+      message: 'The round finished without a named outcome (engine bug). The sync state itself is authoritative; check the status lights.'
+    };
+  }
+  return round;
 }
 
 // Only structured pendingMoves use stable opaque labels rather than provider

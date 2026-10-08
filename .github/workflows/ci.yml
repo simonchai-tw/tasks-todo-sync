@@ -24,4 +24,5 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm test
+      - run: npm run docs:check
       - run: npm run smoke:package

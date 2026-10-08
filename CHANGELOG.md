@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.9.5-alpha — Unreleased
+
+### Defaults
+
+- Calendar projection (`SYNC_CALENDAR_PROJECTION`) now defaults to **on**; calendar reminders (`SYNC_CALENDAR_PROJECTION_REMINDER`) now default to **off**. Previously projection was opt-in and reminders were on. Existing projects with these properties already set are unaffected.
+
+### Windows companion fixes
+
+- **Detect works again**: the companion-protocol `detect` command referenced `randomUUID()` without importing it from `node:crypto`, so every detect run crashed before producing output. Fresh installs are unaffected; the import is now explicit.
+- **Install creates its own deployment**: a fresh project no longer redeploys the Google-managed initial HEAD deployment (which clasp reports as succeeding without returning JSON). `install` always creates a new deployment; `update` redeploys only the deployment recorded in the companion marker, preserving the web-app URL.
+- **Engine CLI failures now include clasp output**: the "did not return JSON" error message now quotes the first 400 characters of clasp stdout and stderr instead of reporting nothing.
+- **GAS project title aligned to `Tasks-ToDo-Sync`** (hyphenated) so the companion's exact-title detect matches projects created by earlier release lines.
+
+### Windows companion protocol
+
+- Adds JSON-only local CLI commands for the Windows companion to check the environment, detect existing Apps Script installations, install a new project and immutable web-app deployment, update the same project/deployment in place, read bounded cloud status, trigger `syncAll`, and save fixed companion preferences.
+- Adds bounded setup preferences for the dedicated `Tasks-ToDo-Sync` calendar projection, calendar reminders, and an optional alert email override. Preferences use strict boolean validation and a conservative email allowlist; arbitrary Script Properties cannot be written through this endpoint.
+- Updates never delete and recreate an Apps Script project. The safe update path preserves `scriptId`, pulls a timestamped backup, refuses unmanaged files, pushes the canonical file set, creates a new version, and updates the existing deployment.
+
 ## 0.8.4 — 2026-10-02
 
 ### Connection-layer UrlFetch failures are retried in every language

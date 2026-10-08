@@ -195,6 +195,17 @@
       .check-row.ok .icon-check {
         display: block !important;
       }
+      .check-row.fail {
+        background: #fef2f2;
+        border-color: #fecaca;
+      }
+      .check-row.fail .icon-check {
+        display: none !important;
+      }
+      .check-row.fail .icon-circle {
+        display: block !important;
+        stroke: #dc2626;
+      }
       .check-icon {
         flex-shrink: 0;
         margin-top: 2px;
@@ -347,6 +358,81 @@
       }
       @keyframes spin {
         to { transform: rotate(360deg); }
+      }
+
+      .preferences-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        margin: 0 0 20px;
+        background: #f8fafc;
+      }
+      .preferences-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        margin-bottom: 12px;
+      }
+      .preference-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 0;
+      }
+      .preference-row + .preference-row {
+        border-top: 1px solid var(--border);
+      }
+      .preference-label {
+        font-size: 0.88rem;
+        font-weight: 600;
+      }
+      .preference-detail {
+        display: block;
+        font-size: 0.76rem;
+        color: var(--text-muted);
+        font-weight: 400;
+      }
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 42px;
+        height: 24px;
+        flex-shrink: 0;
+      }
+      .switch input { opacity: 0; width: 0; height: 0; }
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        inset: 0;
+        background: #cbd5e1;
+        border-radius: 999px;
+        transition: 0.2s;
+      }
+      .slider::before {
+        content: '';
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        left: 3px;
+        top: 3px;
+        background: #ffffff;
+        border-radius: 50%;
+        transition: 0.2s;
+      }
+      .switch input:checked + .slider { background: var(--primary); }
+      .switch input:checked + .slider::before { transform: translateX(18px); }
+      .email-input {
+        width: 100%;
+        margin-top: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        font: inherit;
+      }
+      .email-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px var(--border-focus);
       }
 
       /* Footer */
@@ -533,6 +619,17 @@
               <div class="check-detail" id="finalDetailMs">Checking authorization…</div>
             </div>
           </div>
+          <div class="check-row" id="bootstrapCard" hidden>
+            <div class="check-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path></svg>
+            </div>
+            <div class="check-body">
+              <div class="check-label">Confirm first sync plan</div>
+              <div class="check-detail" id="bootstrapDetail">Matching tasks are linked automatically; one-sided tasks wait for your confirmation.</div>
+              <button class="btn btn-primary" id="btnBootstrapConfirm" onclick="confirmBootstrap()" style="margin-top:8px;">Confirm &amp; Create Missing Tasks</button>
+              <div class="check-detail" id="bootstrapStatus" hidden style="margin-top:6px;"></div>
+            </div>
+          </div>
           <div class="check-row" id="finalRowTrigger">
             <div class="check-icon" id="finalIconBoxTrigger">
               <svg class="icon-circle" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>
@@ -553,6 +650,41 @@
               <div class="check-detail" id="finalDetailHealth">Verifies scheduler invariants and API connectivity</div>
             </div>
           </div>
+        </div>
+
+        <div class="preferences-card">
+          <div class="preferences-title">Companion preferences</div>
+          <div class="preference-row">
+            <div>
+              <span class="preference-label">Tasks-ToDo-Sync calendar</span>
+              <span class="preference-detail">Project due dates into the dedicated calendar</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="prefCalendarProjection" onchange="savePreferences()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="preference-row">
+            <div>
+              <span class="preference-label">Calendar reminders</span>
+              <span class="preference-detail">Keep reminder events when calendar projection is enabled</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="prefCalendarReminder" onchange="savePreferences()">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="preference-row" style="display:block;">
+            <div>
+              <span class="preference-label">Alert email override</span>
+              <span class="preference-detail">Leave blank to use the signed-in Google email</span>
+            </div>
+            <input class="email-input" id="prefAlertEmail" type="email" autocomplete="email" placeholder="you@example.com">
+            <div class="actions-bar" style="margin-top:10px;">
+              <button class="btn btn-secondary" type="button" onclick="savePreferences()">Save email</button>
+            </div>
+          </div>
+          <div class="status-pill" id="preferenceStatus" hidden></div>
         </div>
 
         <div class="banner banner-success" id="finalSuccessBanner" hidden>
@@ -845,20 +977,124 @@
       }
 
       // Step 3 Overview & Finalize
+      // P1 (advisory review): health display must trace to a real check result
+      // and its time — never inferred from trigger existence. Unknown -> "Not yet verified".
+      function formatCheckedAt_(iso) {
+        if (!iso) return '';
+        try {
+          return ' Checked ' + new Date(iso).toLocaleString() + '.';
+        } catch (error) {
+          return '';
+        }
+      }
+
+      function renderOverviewHealth(health) {
+        const state = (health && health.state) || 'unverified';
+        if (state === 'pass') {
+          markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth',
+            'Dry-run passed. ' + (health.message || 'System healthy.') + formatCheckedAt_(health.checkedAt));
+        } else if (state === 'fail') {
+          const row = document.getElementById('finalRowHealth');
+          if (row) { row.classList.remove('ok'); row.classList.add('fail'); }
+          const detail = document.getElementById('finalDetailHealth');
+          if (detail) detail.textContent = 'Last health check reported issues: ' + (health.message || 'unknown') + formatCheckedAt_(health.checkedAt);
+        } else {
+          const row = document.getElementById('finalRowHealth');
+          if (row) { row.classList.remove('ok'); row.classList.remove('fail'); }
+          const detail = document.getElementById('finalDetailHealth');
+          if (detail) detail.textContent = 'Not yet verified — no health check has run yet. Activating the schedule runs one.';
+        }
+      }
+
+      // Cold-start bootstrap card (2026-10-03 double-task incident): the
+      // engine links same-title pairs automatically and holds every
+      // one-sided create until the user confirms the plan here.
+      function renderBootstrapCard(bootstrap) {
+        const card = document.getElementById('bootstrapCard');
+        if (!card) return;
+        if (!bootstrap || bootstrap.needsConfirmation !== true) { card.hidden = true; return; }
+        const detail = document.getElementById('bootstrapDetail');
+        const lines = [];
+        (bootstrap.pairs || []).forEach(function(pair) {
+          const gName = pair.gListTitle || pair.gListId || '?';
+          const msName = pair.msListTitle || pair.msListId || '?';
+          let line = gName + ' ↔ ' + msName + ': ' + pair.adopted + ' matching task(s) linked';
+          const creates = [];
+          if (pair.googleOnly) creates.push(pair.googleOnly + ' to Microsoft');
+          if (pair.microsoftOnly) creates.push(pair.microsoftOnly + ' to Google');
+          if (creates.length) line += '; will create ' + creates.join(', ');
+          lines.push(line);
+        });
+        detail.textContent = lines.join(' • ') ||
+          bootstrap.pendingCreates + ' one-sided task(s) are waiting for your confirmation.';
+        card.hidden = false;
+      }
+
+      function confirmBootstrap() {
+        if (!window.google || !google.script || !google.script.run) return;
+        const btn = document.getElementById('btnBootstrapConfirm');
+        const status = document.getElementById('bootstrapStatus');
+        btn.disabled = true;
+        status.hidden = false;
+        status.textContent = 'Confirming…';
+        google.script.run.withSuccessHandler(function(res) {
+          if (res && res.ok) {
+            document.getElementById('bootstrapCard').hidden = true;
+            // Kick the first sync immediately so the user sees results
+            // without waiting for the 10-minute trigger.
+            runFirstSync();
+          } else {
+            btn.disabled = false;
+            status.textContent = (res && res.error) || 'Could not confirm. Try again.';
+          }
+        }).withFailureHandler(function(error) {
+          btn.disabled = false;
+          status.textContent = 'Confirmation error: ' + ((error && error.message) || error);
+        }).setupWizardConfirmBootstrap();
+      }
+
       function refreshStep3Overview() {
         if (!window.google || !google.script || !google.script.run) return;
         google.script.run.withSuccessHandler(function(data) {
+          if (data && data.preferences) {
+            document.getElementById('prefCalendarProjection').checked = data.preferences.calendarProjectionEnabled !== false;
+            document.getElementById('prefCalendarReminder').checked = data.preferences.calendarReminderEnabled === true;
+            document.getElementById('prefAlertEmail').value = data.preferences.alertEmail || '';
+          }
           if (data && data.microsoft && (data.microsoft.status === 'authorized' || data.microsoft.status === 'advanced')) {
             markRowSuccess('finalRowMs', 'finalIconBoxMs', 'finalDetailMs', data.microsoft.status === 'advanced' ? 'Connected via Advanced Entra OAuth.' : 'Connected & verified with Microsoft Graph.');
           }
+          renderOverviewHealth(data && data.health);
+          renderBootstrapCard(data && data.bootstrap);
           if (data && data.triggerCount > 0) {
             markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', data.triggerCount + ' active syncAll trigger(s) found (every ' + data.intervalMinutes + ' mins).');
-            markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth', 'Dry-run passed. System healthy.');
             document.getElementById('btnActivate').hidden = true;
             document.getElementById('btnRunSyncNow').hidden = false;
             document.getElementById('finalSuccessBanner').hidden = false;
           }
         }).setupWizardOverview();
+      }
+
+      function savePreferences() {
+        if (!window.google || !google.script || !google.script.run) return;
+        const status = document.getElementById('preferenceStatus');
+        const input = {
+          calendarProjectionEnabled: document.getElementById('prefCalendarProjection').checked,
+          calendarReminderEnabled: document.getElementById('prefCalendarReminder').checked,
+          alertEmail: document.getElementById('prefAlertEmail').value.trim()
+        };
+        status.hidden = false;
+        status.textContent = 'Saving preferences…';
+        google.script.run
+          .withSuccessHandler(function(saved) {
+            status.textContent = 'Preferences saved.';
+            if (saved) document.getElementById('prefAlertEmail').value = saved.alertEmail || '';
+          })
+          .withFailureHandler(function(error) {
+            status.textContent = 'Preferences could not be saved.';
+            alert('Preference error: ' + (error && error.message || error));
+          })
+          .setupWizardSavePreferences(input);
       }
 
       function refreshMsStatus() {
@@ -881,7 +1117,11 @@
           activateSpinner.hidden = true;
           if (res && res.ok) {
             markRowSuccess('finalRowTrigger', 'finalIconBoxTrigger', 'finalDetailTrigger', '10-minute automatic background trigger active.');
-            markRowSuccess('finalRowHealth', 'finalIconBoxHealth', 'finalDetailHealth', 'Dry-run passed. ' + (res.health && res.health.message || 'System healthy.'));
+            renderOverviewHealth({
+              state: res.health && res.health.ok === true ? 'pass' : 'fail',
+              message: res.health && res.health.ok === true ? 'No open issues.' : (((res.health && res.health.issues) || []).join(' | ') || 'Health check reported issues.'),
+              checkedAt: new Date().toISOString()
+            });
             document.getElementById('stepBadge3').textContent = '✓';
             document.getElementById('stepIndicator3').classList.add('done');
             document.getElementById('finalSuccessBanner').hidden = false;

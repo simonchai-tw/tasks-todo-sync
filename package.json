@@ -1,6 +1,6 @@
 {
   "name": "tasks-todo-sync",
-  "version": "0.8.4",
+  "version": "0.9.7-alpha.2",
   "private": false,
   "description": "Self-hosted, bidirectional sync between Google Tasks and Microsoft To Do that runs on Google Apps Script.",
   "keywords": [
@@ -15,7 +15,7 @@
     "microsoft-graph",
     "oauth2"
   ],
-  "author": "Simon Chai",
+  "author": "tasks-todo-sync",
   "contributors": [
     "ChatGPT",
     "Claude"
@@ -65,6 +65,8 @@
     "check:package": "node scripts/validate-package.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
     "test": "node --test",
+    "docs:sync": "node scripts/generate-doc-numbers.mjs",
+    "docs:check": "node scripts/generate-doc-numbers.mjs --check",
     "stress:600": "node scripts/stress-600.mjs",
     "baseline:step2": "node scripts/step2-baseline.mjs"
   },
