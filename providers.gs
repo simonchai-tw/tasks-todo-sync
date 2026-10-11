@@ -857,6 +857,23 @@ function googleNotesHaveTtsRecMarker_(notes) {
   return String(notes == null ? '' : notes).indexOf(TTS_REC_MARKER_PREFIX_) >= 0;
 }
 
+/* The marker line lives at the very top of the Google notes (create stamps it
+ * there). The ordinary notes merge treats it as user content, so an empty
+ * Microsoft body could overwrite the Google notes and erase the marker — that
+ * disarmed the both-recurrence guard and let the 2026-10-11 recurrence storm
+ * happen. The marker is engine metadata: callers strip it before merging and
+ * re-attach it when composing the Google payload. */
+function splitTtsRecMarkerLine_(notes) {
+  var s = String(notes == null ? '' : notes);
+  var nl = s.indexOf('\n');
+  var first = nl >= 0 ? s.slice(0, nl) : s;
+  var rest = nl >= 0 ? s.slice(nl + 1) : '';
+  if (/^\s*\[TTS-REC:[0-9A-Fa-f]{6}\]\s*$/.test(first)) {
+    return { notes: rest, markerLine: first.trim() };
+  }
+  return { notes: s, markerLine: null };
+}
+
 function googlePayloadFromMs_(task, mode) {
   const rawContent = task.body && task.body.content ? task.body.content : '';
   const isHtml = task.body && String(task.body.contentType || '').toLowerCase() === 'html';

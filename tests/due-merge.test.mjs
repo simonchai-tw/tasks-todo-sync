@@ -194,3 +194,116 @@ test('v0.8.3: putMapping_ preserves the canonical time record across mapping reb
 });
 
 
+
+/* ------------------------------------------------------------------ */
+/* 2026-10-11 recurrence storm: marker preservation + REC immutability */
+/* ------------------------------------------------------------------ */
+
+function stormState() {
+  return {
+    schema: 4, listMap: { 'g-list': 'ms-list' },
+    g2m: { 'g-task': { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} } },
+    m2g: { 'ms-task': 'g-task' },
+    subtasks: { mappings: {}, parents: {}, createJournal: {}, pendingDeletions: {}, deletionJournal: {}, moveJournal: {}, conflicts: {}, tombstones: { g: {}, ms: {} } },
+    tombstones: { g: {}, ms: {} }, listFaults: { g: {}, ms: {} }, health: {}
+  };
+}
+
+const STORM_REC = { pattern: { type: 'monthly' } };
+
+test('storm fix 1: an empty Microsoft body never erases the [TTS-REC] marker from Google notes', () => {
+  const c = load();
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
+  // Aftermath shape: the Google notes carry only the marker line.
+  const gTask = { id: 'g-task', title: 'T', notes: '[TTS-REC:AB12CD]', status: 'needsAction', due: null };
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: '' }, dueDateTime: null, isReminderOn: false, status: 'notStarted', recurrence: STORM_REC };
+  const gProj = c.ordinaryProjectGoogle_(gTask, rec, ON);
+  assert.equal(gProj.notes, '', 'the marker is stripped from the merge projection');
+  assert.equal(gProj.gMarkerLine, '[TTS-REC:AB12CD]', 'the marker line survives on the projection');
+  const mProj = c.ordinaryProjectMicrosoft_(msTask, rec, ON);
+  rec.fp = { v: 1, notes: c.ordinaryFieldFp_(gProj, 'notes'), completed: c.ordinaryFieldFp_(gProj, 'completed') };
+  const plan = c.ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec);
+  assert.ok(!Object.prototype.hasOwnProperty.call(plan.toGoogle, 'notes'),
+    'an empty Microsoft body must never plan a Google notes write (the old marker wipe)');
+});
+
+test('storm fix 2: a Microsoft body edit lands on Google with the marker re-attached on top', () => {
+  const c = load();
+  const state = stormState();
+  const rec = state.g2m['g-task'];
+  const gTask = { id: 'g-task', title: 'T', notes: '[TTS-REC:AB12CD]\nold body', status: 'needsAction', due: null };
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'new body from MS' }, dueDateTime: null, isReminderOn: false, status: 'notStarted', recurrence: STORM_REC };
+  rec.fp = { v: 1, notes: c.ordinaryFieldFp_(c.ordinaryProjectGoogle_(gTask, rec, ON), 'notes') };
+  // The user (or the next occurrence render) changed the Microsoft body.
+  const msTask2 = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'new body from MS' }, dueDateTime: null, isReminderOn: false, status: 'notStarted', recurrence: STORM_REC };
+  const mProj2 = c.ordinaryProjectMicrosoft_(msTask2, rec, ON);
+  const gProj = c.ordinaryProjectGoogle_(gTask, rec, ON);
+  const plan = c.ordinaryMergeMappedFields_(rec.fp, gProj, mProj2, rec);
+  assert.equal(plan.toGoogle.notes, 'new body from MS', 'the MS edit travels to Google');
+  // G->M direction is silent here, and the marker text never leaks into any MS write.
+  assert.ok(!Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'notes'));
+
+  const gPatches = [];
+  c.updateGTask_ = (listId, id, payload) => { gPatches.push(payload); return Object.assign({ id }, gTask, payload); };
+  c.updateMsTask_ = () => ({ id: 'ms-task' });
+  c.putMapping_ = () => {};
+  // W4 pre-PATCH re-read, stubbed as "no user edit raced in".
+  c.rereadProviderNotes_ = (side) => side === 'google'
+    ? { ok: true, notes: gTask.notes }
+    : { ok: true, notes: 'new body from MS' };
+  rec.fp = { v: 1, notes: c.ordinaryFieldFp_(gProj, 'notes') };
+  c.ordinaryReconcileMappedPair_(state, rec, gTask, msTask2, 'g-list', ON);
+  const notesWrite = gPatches.find((p) => Object.prototype.hasOwnProperty.call(p, 'notes'));
+  assert.ok(notesWrite, 'the Microsoft edit must reach Google');
+  assert.ok(String(notesWrite.notes).indexOf('[TTS-REC:AB12CD]') === 0, 'the marker is re-attached on top of the composed notes');
+});
+
+test('storm fix 3: the merge never writes completed or due into a Microsoft-native recurring task', () => {
+  const c = load();
+  const state = stormState();
+  const rec = state.g2m['g-task'];
+  // Baseline = the Microsoft side, then the user completes + redates on Google.
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-11-01T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: false, status: 'notStarted', recurrence: STORM_REC }; // FIXED-DATE-OK
+  const mProj = c.ordinaryProjectMicrosoft_(msTask, rec, ON);
+  rec.fp = { v: 1, completed: c.ordinaryFieldFp_(mProj, 'completed'), due: c.ordinaryFieldFp_(mProj, 'due') };
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'completed', due: new Date(Date.now() + 8 * 86400000).toISOString().slice(0, 10) + 'T00:00:00.000Z' };
+  const msPatches = [];
+  c.updateGTask_ = () => ({ id: 'g-task' });
+  c.updateMsTask_ = (listId, id, payload) => { msPatches.push(payload); return Object.assign({ id }, msTask, payload); };
+  c.putMapping_ = () => {};
+  const warns = [];
+  c.console = { log: () => {}, warn: (m) => warns.push(String(m)), error: () => {} };
+  c.ordinaryReconcileMappedPair_(state, rec, gTask, msTask, 'g-list', ON);
+  assert.ok(msPatches.every((p) => !Object.prototype.hasOwnProperty.call(p, 'status')),
+    'completed is never written to a native recurring task');
+  assert.ok(msPatches.every((p) => !Object.prototype.hasOwnProperty.call(p, 'dueDateTime')),
+    'due is never written to a native recurring task');
+  assert.ok(warns.some((w) => w.indexOf('MS_RECURRENCE_IMMUTABLE') >= 0), 'the drop is visible in the log');
+});
+
+test('storm fix 4: a Google-side delete of a Microsoft-native recurring task is held', () => {
+  const c = load();
+  const snap = { msListByTask: { 'ms-task': 'ms-list' }, gListByTask: {} };
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', msUpdated: '2026-10-01T00:00:00.000Z', gUpdated: '2026-10-01T00:00:00.000Z' };
+  const gTask = null; // the Google side is gone: the engine would remote-delete MS
+  const msTask = { id: 'ms-task', lastModifiedDateTime: '2026-10-01T00:00:00.000Z', recurrence: STORM_REC };
+  const held = c.deletionTargetIsSafe_('g-task', rec, 'google', gTask, msTask, snap);
+  assert.equal(held.ok, false, 'the delete is held');
+  assert.equal(held.reason, 'MS_NATIVE_RECURRENCE');
+  const msTaskPlain = { id: 'ms-task', lastModifiedDateTime: '2026-10-01T00:00:00.000Z' };
+  assert.equal(c.deletionTargetIsSafe_('g-task', rec, 'google', gTask, msTaskPlain, snap).ok, true,
+    'a plain task keeps the historical delete path');
+});
+
+test('storm fix 5: the time bridge renderer never writes due or reminder into a native recurring task', () => {
+  const c = load();
+  const state = stormState();
+  const rec = state.g2m['g-task'];
+  rec.td = { date: '2026-10-02', time: '15:30', v: 1 }; // FIXED-DATE-OK
+  const msTask = { id: 'ms-task', title: 'T', dueDateTime: { dateTime: '2026-10-02T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: false, status: 'notStarted', recurrence: STORM_REC }; // FIXED-DATE-OK
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => { patches.push(payload); return Object.assign({ id }, msTask, payload); };
+  const result = c.timeBridgeMsRenderer_(state, { msTasksById: { 'ms-task': msTask } }, 'Asia/Taipei', Date.now(), 'Asia/Taipei');
+  assert.equal(patches.length, 0, 'no reminder and no due write may reach a native recurring task');
+  assert.equal(result.patched, 0);
+});

@@ -491,6 +491,11 @@ function timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZon
     if (!rec.td.time && !pendingClear) return;
     var msTask = snap.msTasksById[rec.msId];
     if (!msTask) return;
+    // 2026-10-11 recurrence storm: a Microsoft-native recurring task is owned
+    // by Microsoft's recurrence engine. Rendering due/reminder into it
+    // re-anchors the series and makes Microsoft spawn the next occurrence.
+    // The time bridge never writes to native recurring tasks.
+    if (msTaskHasRecurrence_(msTask)) return;
     // While a due conflict is unresolved the merge owns the outcome: writing a
     // due here would pick a side silently.
     if (rec.fc && rec.fc.due) return;
