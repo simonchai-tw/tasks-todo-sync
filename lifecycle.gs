@@ -1442,6 +1442,13 @@ function deletionTargetIsSafe_(gId, rec, missingSide, gTask, msTask, snap) {
   if (observed > mapped) {
     return { ok: false, reason: 'DELETE_VS_EDIT_CONFLICT' };
   }
+  // 2026-10-11 recurrence storm: deleting a Microsoft-native recurring task
+  // makes Microsoft spawn the next occurrence, which the engine then copies to
+  // Google as a "new" task. The engine never deletes a native recurring task;
+  // the user removes the series on the Microsoft side instead.
+  if (missingSide === 'google' && msTaskHasRecurrence_(msTask)) {
+    return { ok: false, reason: 'MS_NATIVE_RECURRENCE' };
+  }
   return { ok: true };
 }
 

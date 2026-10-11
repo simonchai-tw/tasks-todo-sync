@@ -129,9 +129,16 @@ function ordinaryUserNotesFromGoogle_(gTask, rec) {
   if (!notesWriteAllowed_(parsed.status) && parsed.status !== RESOURCE_BLOCK_STATUS_.REMOVED) {
     return { ok: false, notes: null, status: parsed.status };
   }
+  // The [TTS-REC] marker line is engine metadata, not user content. Strip it
+  // from the merge projection so an empty Microsoft body can never erase it
+  // (2026-10-11 recurrence storm) and the G->M direction never carries the
+  // marker text into the Microsoft body. ordinaryReconcileMappedPair_ re-attaches
+  // it when composing the Google payload.
+  var stripped = splitTtsRecMarkerLine_(googleNotesPlainTextProjection_(parsed.canonicalUserNotes));
   return {
     ok: true,
-    notes: googleNotesPlainTextProjection_(parsed.canonicalUserNotes),
+    notes: stripped.notes,
+    markerLine: stripped.markerLine,
     status: parsed.status
   };
 }
@@ -157,6 +164,7 @@ function ordinaryProjectGoogle_(gTask, rec, safety) {
     notes: notes.ok ? notes.notes : null,
     notesOk: notes.ok,
     notesStatus: notes.status,
+    gMarkerLine: notes.ok ? (notes.markerLine || null) : null,
     completed: ordinaryCanonicalCompleted_(gTask && gTask.status),
     due: ordinaryDueUnitFromGoogle_(gTask, rec, safety),
     dueOk: true
@@ -340,6 +348,22 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   var gProj = ordinaryProjectGoogle_(gTask, rec, safety);
   var mProj = ordinaryProjectMicrosoft_(msTask, rec, safety);
   var plan = ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec);
+  // 2026-10-11 recurrence storm: a Microsoft-native recurring task is owned by
+  // Microsoft's recurrence engine. Writing completed or due into it re-anchors
+  // the series and makes Microsoft spawn the next occurrence, which the engine
+  // then copies to Google as a "new" task — the storm loop. Title and notes
+  // stay writable (no series side effects); the G->M completed/due writes are
+  // dropped here, before any payload is built.
+  if (msTaskHasRecurrence_(msTask)) {
+    ['completed', 'due'].forEach(function(field) {
+      if (Object.prototype.hasOwnProperty.call(plan.toMicrosoft, field)) {
+        delete plan.toMicrosoft[field];
+        plan.skipped.push({ field: field, reason: 'MS_RECURRENCE_IMMUTABLE' });
+        console.warn('[Recurrence] Microsoft-native recurring task: ' + field +
+          ' write dropped (MS_RECURRENCE_IMMUTABLE): ' + taskLabel_(gTask && gTask.id, null));
+      }
+    });
+  }
   var gId = gTask && gTask.id;
   ordinaryStoreFieldConflicts_(rec, plan, gId);
   var gPayload = ordinaryGooglePatchFromPlan_(plan);
@@ -357,6 +381,12 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   if ((Object.prototype.hasOwnProperty.call(gPayload, 'notes') || resources.writeGoogle) &&
       notesWriteAllowed_(resources.gParseStatus) && !googleNotesWriteBlocked_(gTask)) {
     gPayload.notes = composeManagedNotes_(userNotesG, resources.googleBlock);
+    // Re-attach the [TTS-REC] marker line on top: the merge projection carries
+    // user content only, so a Microsoft body edit (even an empty one) must
+    // never erase the engine's marker (2026-10-11 recurrence storm).
+    if (gProj.gMarkerLine) {
+      gPayload.notes = gProj.gMarkerLine + (gPayload.notes ? '\n' + gPayload.notes : '');
+    }
   }
   if ((Object.prototype.hasOwnProperty.call(msPayload, 'body') || resources.writeMicrosoft) &&
       notesWriteAllowed_(resources.msParseStatus) && resources.microsoftBody) {

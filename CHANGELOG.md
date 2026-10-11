@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.9.7 — 2026-10-11
+
+### Recurrence storm fixes (2026-10-11 incident)
+
+Microsoft-native recurring tasks (recurrence set on the Microsoft side) are now owned entirely by Microsoft's recurrence engine; the sync engine never writes to them. The 2026-10-11 incident produced 12 duplicate Google copies in 40 minutes: the engine touched native recurring tasks (complete/delete/due write), Microsoft spawned the next occurrence, and the engine copied each spawn to Google as a "new" task while its own notes merge kept erasing the safety marker.
+
+- **The `[TTS-REC]` marker can no longer be erased**: the marker line that the Microsoft→Google create path stamps on top of the Google notes was treated as user content by the ordinary notes merge, so an empty Microsoft body overwrote the Google notes and disarmed the both-recurrence guard. The merge now strips the marker before comparing and re-attaches it when composing the Google payload.
+- **Completed and due writes are dropped for native recurring tasks**: writing completed or due into a Microsoft recurring task re-anchors the series and makes Microsoft spawn the next occurrence. The merge drops these two writes (`MS_RECURRENCE_IMMUTABLE` in the execution log) while title and notes stay writable.
+- **The Time Bridge renderer never writes due or reminder into a native recurring task**: the same re-anchoring hazard through the reminder/due render path.
+- **A Google-side delete of a native recurring task is held** (`MS_NATIVE_RECURRENCE`): deleting the recurring task on the Microsoft side — which ends the series properly — is the supported way to remove it.
+
 ## 0.9.5-alpha — Unreleased
 
 ### Defaults
