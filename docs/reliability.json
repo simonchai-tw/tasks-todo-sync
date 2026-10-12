@@ -1,8 +1,8 @@
 {
-  "version": "0.9.5-alpha",
-  "tests": 491,
-  "pass": 491,
+  "version": "0.9.7",
+  "tests": 530,
+  "pass": 530,
   "fail": 0,
   "runner": "node --test --test-reporter=tap",
-  "generatedAt": "2026-10-03T02:09:31.286Z"
+  "generatedAt": "2026-10-12T17:27:53.034Z"
 }
