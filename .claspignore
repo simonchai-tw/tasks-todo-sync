@@ -16,5 +16,6 @@
 !lists.gs
 !time-bridge.gs
 !sync.gs
+!task-create-recovery.gs
 !operations.gs
 !appsscript.json

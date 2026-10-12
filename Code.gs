@@ -869,6 +869,12 @@ var WEB_APP_ACTIONS = {
   },
   syncAll: function () {
     return syncAll();
+  },
+  previewTaskCreateBatchRelease: function () {
+    return previewTaskCreateBatchRelease();
+  },
+  applyTaskCreateBatchRelease: function (params) {
+    return applyTaskCreateBatchRelease(params);
   }
 };
 
