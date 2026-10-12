@@ -1767,6 +1767,82 @@ function applyTaskCreateBatchOperation() {
   });
 }
 
+function previewTaskCreateBatchRelease() {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('TASK_CREATE_RELEASE');
+    const state = loadStateForSync_();
+    const batch = state.taskCreateBatch;
+    if (!batch) return { active: false, note: 'No active taskCreateBatch; nothing to release.' };
+    const report = classifyTaskCreateBatchRelease_(state);
+    report.active = true;
+    report.note = 'Read-only preview. Call applyTaskCreateBatchRelease with confirmation ' +
+      '"' + TASK_CREATE_RELEASE_CONFIRMATION + '" when verdict is SAFE. ' +
+      'Apply re-verifies all evidence live before clearing the batch; it never deletes a task.';
+    console.log('TASK_CREATE_RELEASE_PREVIEW ' + JSON.stringify(report));
+    return report;
+  });
+}
+
+function applyTaskCreateBatchRelease(params) {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('TASK_CREATE_RELEASE');
+    const confirmation = params && params.confirmation;
+    if (confirmation !== TASK_CREATE_RELEASE_CONFIRMATION) {
+      throw new Error('TASK_CREATE_RELEASE_CONFIRMATION_REQUIRED: pass confirmation="' +
+        TASK_CREATE_RELEASE_CONFIRMATION + '" (explicit duplicate-risk acknowledgement).');
+    }
+    const state = loadStateForSync_();
+    const batch = state.taskCreateBatch;
+    if (!batch) return { active: false, released: 0, note: 'No active taskCreateBatch.' };
+    const report = classifyTaskCreateBatchRelease_(state);
+    if (report.verdict !== 'SAFE') {
+      throw new Error('TASK_CREATE_RELEASE_NOT_SAFE: ' + report.reasons.join(' | '));
+    }
+    // Strip create sentinels from surviving Google twins (microsoft_to_google
+    // embeds a sentinel in the created G task's notes; the survivor will be
+    // reposted as a fresh create and must not carry the marker text).
+    if (batch.direction === 'microsoft_to_google') {
+      report.items.forEach(function(entry) {
+        if (entry.verdict !== 'SOURCE_LOST_DEST_ALIVE') return;
+        let task = null;
+        try {
+          task = getGTask_(entry.destinationListId, entry.destinationId);
+        } catch (e) {
+          if (isNotFoundError_(e)) throw new Error('TASK_CREATE_RELEASE_EVIDENCE_CHANGED: destination ' +
+            entry.destinationId + ' vanished between classification and apply.');
+          throw e;
+        }
+        if (!task) throw new Error('TASK_CREATE_RELEASE_EVIDENCE_CHANGED: destination ' +
+          entry.destinationId + ' vanished between classification and apply.');
+        const notes = String(task.notes == null ? '' : task.notes);
+        const item = batch.items[entry.index];
+        const first = notes.indexOf(item.sentinel);
+        if (first >= 0) {
+          updateGTask_(entry.destinationListId, entry.destinationId,
+            { notes: notes.slice(0, first) + notes.slice(first + item.sentinel.length) });
+          const verified = getGTask_(entry.destinationListId, entry.destinationId);
+          if (!verified || String(verified.notes || '').indexOf(item.sentinel) >= 0) {
+            throw new Error('TASK_CREATE_RELEASE_SENTINEL_STRIP_FAILED: destination ' +
+              entry.destinationId + ' could not be verified clean; batch left untouched.');
+          }
+        }
+      });
+    }
+    state.taskCreateBatch = null;
+    taskCreateProgressClear_();
+    normalizeState_(state);
+    saveState_(state);
+    report.released = batch.items.length;
+    report.note = 'Batch cleared. Surviving tasks return to the ordinary unmapped-create flow ' +
+      'and will be reposted with fresh dedup machinery on the next syncAll.';
+    console.log('TASK_CREATE_RELEASE_APPLIED ' + JSON.stringify({ batchId: report.batchId,
+      released: report.released }));
+    return report;
+  });
+}
+
 function previewTaskMoveJournalOperation() {
   initializeExecutionBudget_();
   return withGlobalLock_(function() {

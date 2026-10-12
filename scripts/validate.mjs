@@ -69,9 +69,12 @@ for (const { filename, source } of gasSources) {
   }
 }
 const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
-// 56 since 2026-10-07: doPost joined doGet as a public web app entrypoint
-// (the companion's JSON API replaced the scripts.run transport).
-assert(publicEntrypoints.length === 56, `Expected 56 public entrypoints, found ${publicEntrypoints.length}`);
+// 58 since 2026-10-12: previewTaskCreateBatchRelease and
+// applyTaskCreateBatchRelease joined doGet/doPost as public web app
+// entrypoints — the operator release exit for finalize-wedged task-create
+// batches.  56 was the count from 2026-10-07, when doPost joined doGet
+// after the companion's JSON API replaced the scripts.run transport.
+assert(publicEntrypoints.length === 58, `Expected 58 public entrypoints, found ${publicEntrypoints.length}`);
 assert(publicEntrypoints.every(([, filename]) => filename === 'Code.gs'),
   'All public and compatibility entrypoints must remain in Code.gs');
 
@@ -81,8 +84,9 @@ function claspGasAllowlist(text) {
     .map((line) => line.slice(1))
     .sort();
 }
+// 19 since 2026-10-12: task-create-recovery.gs joined the deployable set.
 const canonicalGasFiles = [...GAS_SOURCE_FILES].sort();
-assert(canonicalGasFiles.length === 18, `Expected 18 canonical .gs files, found ${canonicalGasFiles.length}`);
+assert(canonicalGasFiles.length === 19, `Expected 19 canonical .gs files, found ${canonicalGasFiles.length}`);
 assert(JSON.stringify(claspGasAllowlist(rootClaspignore)) === JSON.stringify(canonicalGasFiles),
   'Root .claspignore GAS allowlist must match canonical deployable set');
 assert(JSON.stringify(claspGasAllowlist(packagedClaspignore)) === JSON.stringify(canonicalGasFiles),
@@ -132,6 +136,8 @@ const requiredFunctions = [
   'inspectTaskCreateBatch',
   'previewTaskCreateBatchOperation',
   'applyTaskCreateBatchOperation',
+  'previewTaskCreateBatchRelease',
+  'applyTaskCreateBatchRelease',
   'healthCheck'
 ];
 

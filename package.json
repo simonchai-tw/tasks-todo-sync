@@ -55,6 +55,7 @@
     "time-bridge.gs",
     "sync.gs",
     "operations.gs",
+    "task-create-recovery.gs",
     "Setup.html",
     "appsscript.json",
     "LICENSE",
