@@ -685,9 +685,22 @@ function subtaskFinalizeLocalDelete_(state, key, row, options) {
   subtaskPersist_(state, options);
 }
 
+/* The operator-wide delete switch (SYNC_ALLOW_DELETIONS) gates subtask
+// deletions too (2026-10-13 decision): a switch named "allow deletions" must
+// mean every deletion the engine can perform.  An explicit value in options
+// wins; otherwise the round snapshot's safety view decides; an absent value
+// means off, matching the conservative default of every other destructive
+// path.  Observation is never gated — it is read-only evidence. */
+function subtaskDeletionsAllowed_(options, snap) {
+  if (options && Object.prototype.hasOwnProperty.call(options, 'allowDeletions')) {
+    return options.allowDeletions === true;
+  }
+  return !!(snap && snap.safety && snap.safety.allowDeletions === true);
+}
+
 function subtaskRecoverDeletionJournals_(state, snap, options) {
   var sub = subtaskEnsureNamespace_(state);
-  var result = { finalized: 0, retried: 0, uncertain: 0 };
+  var result = { finalized: 0, retried: 0, uncertain: 0, paused: 0 };
   Object.keys(sub.deletionJournal).sort().forEach(function(key) {
     var row = sub.deletionJournal[key];
     if (!row) return;
@@ -711,6 +724,14 @@ function subtaskRecoverDeletionJournals_(state, snap, options) {
       }
       if ((row.missingSide === 'GOOGLE' && msComplete && item) ||
           (row.missingSide === 'MICROSOFT' && googleComplete && gTask)) {
+        if (!subtaskDeletionsAllowed_(options, snap)) {
+          // Rows whose remote side is already gone finalized above as pure
+          // bookkeeping; the remote delete itself waits for the switch.  The
+          // row stays in its current phase so recovery resumes when the
+          // operator turns deletions back on.
+          result.paused += 1;
+          return;
+        }
         var exec = subtaskRemoteDeleteOnce_(row);
         if (exec.ok) {
           row.phase = SUBTASK_DELETE_PHASES_.REMOTE_DELETED;
@@ -753,6 +774,13 @@ function subtaskRemoteDeleteOnce_(row) {
 function subtaskExecuteEligibleDeletes_(state, snap, options) {
   var sub = subtaskEnsureNamespace_(state);
   var result = { deleted: 0, writes: 0, skipped: 0 };
+  // SYNC_ALLOW_DELETIONS gates this phase too: while it is off, arm no new
+  // deletion journals and issue no remote deletes.  Observation still records
+  // the missing streak, and the mapping survives, so nothing is lost and
+  // recovery resumes the moment the switch is turned back on.
+  if (!subtaskDeletionsAllowed_(options, snap)) {
+    return { deleted: 0, writes: 0, skipped: 0, paused: 'DELETIONS_DISABLED' };
+  }
   var gLists = snap && snap.gListByTask || {};
   Object.keys(sub.pendingDeletions).sort().forEach(function(gId) {
     var cand = sub.pendingDeletions[gId];
@@ -1103,6 +1131,21 @@ function subtaskApplyLocalOperation_(state, operation, entry, options) {
           gChildId: row.gChildId, msChecklistId: row.msChecklistId, gParentId: row.gParentId,
           reason: 'SUBTASK_ABANDONED'
         };
+        /* An 'ms:' journal abandoned before its Google child existed has no
+        // gChildId, so the conflict above lands under the journal key — a key
+        // the reconcile loops never look up (they key conflicts by Google
+        // child id).  Without a tombstone the Microsoft checklist item then
+        // looks un-journaled and satisfies the create condition again next
+        // round; if the abandoned attempt had in fact reached Google, that is
+        // a duplicate child (advisory review 2026-10-13, §3.4).  The tombstone
+        // is keyed by the Microsoft checklist id, which the M->G loop does
+        // check, so the item is never recreated. */
+        if (!row.gChildId && row.msChecklistId) {
+          subtaskWriteTombstones_(state, {
+            gChildId: null, msChecklistId: row.msChecklistId, gParentId: row.gParentId,
+            parentMsId: row.parentMsId, parentMsListId: row.parentMsListId
+          }, options && options.now);
+        }
       }
       delete sub.createJournal[key];
     } else if (entry.kind === 'DELETE') {

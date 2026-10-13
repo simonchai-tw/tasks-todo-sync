@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// P1 (advisory review): "文件數字由 CI 同源產生 — 版本與測試數單一來源".
+// P1 (advisory review): "Doc numbers generated from CI single source — single source of truth for version and test counts".
 //
 // The version badge, README test count, and audit test counts used to be hand
 //-edited and drifted apart (the review caught 445 vs 465 vs 470 in the wild).

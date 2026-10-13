@@ -1,8 +1,8 @@
 {
-  "version": "0.9.8",
-  "tests": 530,
-  "pass": 530,
+  "version": "0.9.9",
+  "tests": 540,
+  "pass": 540,
   "fail": 0,
   "runner": "node --test --test-reporter=tap",
-  "generatedAt": "2026-10-13T00:51:57.513Z"
+  "generatedAt": "2026-10-13T14:58:08.779Z"
 }

@@ -17,7 +17,7 @@
 #     Linux nvm path on real devices (no Mac in hand). Needs a community smoke
 #     test before being called stable — do not market this as "tested on Mac".
 #
-# Environment override: TTS_VERSION=0.9.5-alpha pins the package version;
+# Environment override: TTS_VERSION=<version> pins the package version;
 # default is `latest`.
 
 set -u
@@ -55,7 +55,7 @@ case "$(uname -s)" in
   Linux) OS=linux ;;
   *)
     say "This bootstrap supports macOS and Linux only."
-    say "Windows: download the TasksToDoSync Setup installer from"
+    say "Windows: download the Tasks-ToDo-Sync Setup installer from"
     say "https://github.com/simonchai-tw/tasks-todo-sync/releases — Node.js is bundled."
     exit 1
     ;;

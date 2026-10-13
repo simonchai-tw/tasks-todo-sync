@@ -472,6 +472,15 @@ function planResourceProjection_(googleTask, msTask, rec, safety, userNotesGoogl
       var nextMsFp = managedBlockFingerprint_(microsoftBlock);
       if ((microsoftBlock || '') !== (msParsed.block || '')) writeMicrosoft = true;
       nextRes.msBlockFp = nextMsFp;
+    } else if (msParsed.block) {
+      /* Every Google link was removed.  The managed block has to be cleared,
+      // not left behind: rendering an empty set is what removal means.  Before
+      // this branch the block only ever got rewritten while links existed, so
+      // a stale block survived on the Microsoft side for as long as the pair
+      // did (advisory review 2026-10-13, §3.16). */
+      microsoftBlock = null;
+      writeMicrosoft = true;
+      nextRes.msBlockFp = null;
     }
     var composedMs = composeManagedNotes_(msUser, microsoftBlock);
     microsoftBody = {

@@ -147,16 +147,17 @@ test('unknown baseline plus divergence is a bootstrap conflict not LWW', () => {
 
 test('one-side notes change keeps the owned managed resource block on the PATCH payload', () => {
   const c = load();
-  const block = [
-    '--- tasks-todo-sync ---',
-    'Microsoft To Do links',
-    '- Example',
-    '  https://example.invalid/file',
-    '--- tasks-todo-sync end ---'
-  ].join('\n');
+  // Coherent fixture: an owned block always mirrors the source side's link
+  // set, so derive it from a real Google link instead of seeding a block that
+  // no link could ever render.
+  const links = [{ type: 'email', description: 'Example', link: 'https://example.invalid/file' }];
+  const block = c.renderManagedResourceBlock_(c.projectGoogleResources_({
+    id: 'g-task', title: 'Same', notes: 'note', status: 'needsAction', links
+  }), 'g2m', 'note', c.RESOURCE_NOTES_MAX_).block;
   const blockFp = c.managedBlockFingerprint_(block);
 
   const msTarget = pair(c, { res: { msBlockFp: blockFp } });
+  msTarget.gTask.links = links;
   // WO-9: the harness default no longer fakes the pre-PATCH notes re-read;
   // state explicitly that the provider still holds the inventory-read task.
   c.getGTask_ = () => ({ ...msTarget.gTask });

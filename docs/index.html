@@ -741,9 +741,18 @@ p.hero-desc {
 .feat-card:nth-child(4n+3) .feat-icon-box { background: rgba(139, 124, 246, 0.14); }
 .feat-card:nth-child(4n) .feat-icon-box { background: rgba(251, 191, 36, 0.14); }
 
+.feat-card {
+  display: flex;
+  flex-direction: column;
+}
+.feat-card p {
+  flex: 1;
+}
+
 .feat-dir-tag {
   display: inline-block;
-  margin-top: 12px;
+  margin-top: auto;
+  align-self: flex-start;
   font-size: 11px;
   font-weight: 700;
   color: var(--teal);
@@ -1169,6 +1178,105 @@ code {
   opacity: 1;
 }
 
+/* Before You Connect Card */
+.know-box {
+  margin-top: 36px;
+  background: #0d1322;
+  border: 1px solid rgba(148, 163, 214, 0.16);
+  border-radius: var(--radius-xl);
+  padding: 30px 32px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.4);
+}
+.know-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.know-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: rgba(45, 212, 191, 0.12);
+  color: var(--teal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.know-title {
+  font-size: clamp(19px, 2.5vw, 22px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f1f5f9;
+  margin: 3px 0 0;
+}
+.know-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.know-item {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(148, 163, 214, 0.03);
+  border: 1px solid rgba(148, 163, 214, 0.07);
+}
+.know-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(148, 163, 214, 0.1);
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin-top: 2px;
+}
+.know-content {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+.know-content b {
+  color: #e2e8f0;
+}
+.know-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(148, 163, 214, 0.08);
+}
+.know-footer-icon {
+  color: var(--teal);
+  font-size: 14px;
+  flex: none;
+}
+.know-footer-text {
+  font-size: 13px;
+  color: var(--text-dim);
+  margin: 0;
+}
+.know-footer-text a {
+  color: var(--teal);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (max-width: 640px) {
+  .know-box { padding: 22px 18px; }
+  .know-header { gap: 12px; margin-bottom: 16px; }
+  .know-badge { width: 34px; height: 34px; border-radius: 9px; }
+  .know-item { padding: 10px 12px; gap: 10px; }
+}
+
 /* macOS & Linux Terminal Command Modal */
 .cli-modal-backdrop {
   position: fixed;
@@ -1309,6 +1417,7 @@ code {
   gap: 10px;
   padding: 12px 14px;
   overflow: hidden;
+  min-width: 0;
 }
 .cli-prompt {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1331,6 +1440,7 @@ code {
   border: none;
   padding: 0;
   flex: 1;
+  min-width: 0;
 }
 .cli-copy-code::-webkit-scrollbar {
   display: none;
@@ -1364,6 +1474,30 @@ code {
   border-color: rgba(45, 212, 191, 0.4);
   color: var(--teal);
   transform: translateY(-1px);
+}
+
+@media (max-width: 640px) {
+  .cli-modal-backdrop {
+    padding: 12px;
+  }
+  .cli-modal-card {
+    padding: 20px 16px 16px;
+    border-radius: var(--radius-md);
+  }
+  .cli-modal-header h3 {
+    font-size: 17px;
+  }
+  .cli-modal-desc {
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .cli-terminal-body {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .cli-copy-code {
+    font-size: 11.5px;
+  }
 }
 
 @media (max-width: 960px) {
@@ -1664,7 +1798,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       <div class="badges">
         <span class="badge"><i class="badge-dot"></i><span data-i18n="badge_selfhosted">Self-Hosted</span></span>
         <span class="badge mit"><i class="badge-dot"></i>MIT License</span>
-        <span class="badge ver"><i class="badge-dot"></i>v0.9.8</span>
+        <span class="badge ver"><i class="badge-dot"></i>v0.9.9</span>
       </div>
 
       <h1 class="hero-title">
@@ -1823,11 +1957,12 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   <div class="container">
     <div class="reveal">
       <span class="eyebrow" data-i18n="eyebrow_feat">Engine Capabilities</span>
-      <h2 class="sec-title" data-i18n="feat_title">Full task lifecycle, <span class="grad-text">synced end to end</span></h2>
+      <h2 class="sec-title" data-i18n="feat_title">Full task lifecycle, <span class="grad-text">synced across 8 dimensions</span></h2>
       <p class="lead-text" data-i18n="feat_lead">More than a one-time create trigger: titles, notes, due dates, subtasks, lists, moves, and deletions all stay aligned — with recovery built in.</p>
     </div>
 
     <div class="feat-grid">
+      <!-- 1: Create & Edit Tasks -->
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -1837,6 +1972,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
         <span class="feat-dir-tag" data-i18n="tag_twoway">Two-way ⇄</span>
       </div>
 
+      <!-- 2: Complete & Reopen -->
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
@@ -1846,76 +1982,64 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
         <span class="feat-dir-tag" data-i18n="tag_status">State Loop ⇄</span>
       </div>
 
-      <div class="feat-card reveal">
-        <div class="feat-icon-box">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8b7cf6" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
-        </div>
-        <h3 data-i18n="feat3_h">Notes &amp; Body Text</h3>
-        <p data-i18n="feat3_p">Notes travel both ways with line breaks intact, carried as clean plain text — rich formatting stays with the original app.</p>
-        <span class="feat-dir-tag" data-i18n="tag_content">Body Sync ⇄</span>
-      </div>
-
-      <div class="feat-card reveal">
-        <div class="feat-icon-box">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-        </div>
-        <h3 data-i18n="feat4_h">Due Date &amp; Timezone</h3>
-        <p data-i18n="feat4_p">Timezone-accurate due dates that never slip a day. They can also appear in your Google Calendar (on by default); calendar reminders stay off until you switch them on.</p>
-        <span class="feat-dir-tag" data-i18n="tag_tz">Timezone Aware ⇄</span>
-      </div>
-
-      <div class="feat-card reveal">
-        <div class="feat-icon-box">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2.2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
-        </div>
-        <h3 data-i18n="feat5_h">Cross-List Moves</h3>
-        <p data-i18n="feat5_p">Move a task to a different list and it lands on the other side too — with a safety record so nothing gets lost in transit.</p>
-        <span class="feat-dir-tag" data-i18n="tag_move">List Moves ⇄</span>
-      </div>
-
-      <div class="feat-card reveal">
-        <div class="feat-icon-box">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-        </div>
-        <h3 data-i18n="feat6_h">Deletion Safeguards</h3>
-        <p data-i18n="feat6_p">Deletions ask for a second confirmation, so a dropped connection can never quietly wipe a list.</p>
-        <span class="feat-dir-tag" data-i18n="tag_deletion">Protected 🛡️</span>
-      </div>
-
-      <div class="feat-card reveal">
-        <div class="feat-icon-box">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8b7cf6" stroke-width="2.2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-        </div>
-        <h3 data-i18n="feat7_h">No Ghost Tasks</h3>
-        <p data-i18n="feat7_p">Deleted tasks stay deleted — they never reappear on a later sync as leftovers.</p>
-        <span class="feat-dir-tag" data-i18n="tag_tombstone">No Zombies 👻</span>
-      </div>
-
-      <div class="feat-card reveal">
-        <div class="feat-icon-box">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        </div>
-        <h3 data-i18n="feat8_h">Resumes Where It Left Off</h3>
-        <p data-i18n="feat8_p">If a sync run hits the platform's time limit, progress is saved and picked up on the next run — nothing is left half-done.</p>
-        <span class="feat-dir-tag" data-i18n="tag_heal">Self-Healing ⚙️</span>
-      </div>
-
+      <!-- 3: Subtasks & Checklists -->
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8b7cf6" stroke-width="2.2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="14" y1="6.5" x2="21" y2="6.5"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>
         </div>
-        <h3 data-i18n="feat9_h">Subtasks &amp; Checklists</h3>
-        <p data-i18n="feat9_p">Nested subtasks and checklist items keep their order and completion state on both sides — on by default for new setups.</p>
+        <h3 data-i18n="feat3_h">Subtasks &amp; Checklists</h3>
+        <p data-i18n="feat3_p">Nested subtasks and checklist items keep their order and completion state on both sides — on by default.</p>
         <span class="feat-dir-tag" data-i18n="tag_subtask">Hierarchies ⇄</span>
       </div>
 
+      <!-- 4: Notes & Body Text -->
+      <div class="feat-card reveal">
+        <div class="feat-icon-box">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+        </div>
+        <h3 data-i18n="feat4_h">Notes &amp; Body Text</h3>
+        <p data-i18n="feat4_p">Notes travel both ways with line breaks intact, carried as clean plain text — rich formatting stays with the original app.</p>
+        <span class="feat-dir-tag" data-i18n="tag_content">Body Sync ⇄</span>
+      </div>
+
+      <!-- 5: Due Date & Calendar -->
+      <div class="feat-card reveal">
+        <div class="feat-icon-box">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#4285F4" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <h3 data-i18n="feat5_h">Due Date &amp; Calendar</h3>
+        <p data-i18n="feat5_p">Timezone-accurate due dates that never slip a day. Also projects timed tasks into Google Calendar automatically.</p>
+        <span class="feat-dir-tag" data-i18n="tag_tz">Timezone Aware ⇄</span>
+      </div>
+
+      <!-- 6: Lists & Cross-Moves -->
       <div class="feat-card reveal">
         <div class="feat-icon-box">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2.2"><line x1="9" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="9" y1="18" x2="21" y2="18"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/></svg>
         </div>
-        <h3 data-i18n="feat10_h">Personal Lists</h3>
-        <p data-i18n="feat10_p">Your own lists are discovered and paired automatically, so matching lists on both sides stay linked without manual setup.</p>
-        <span class="feat-dir-tag" data-i18n="tag_lists">Auto-Paired ⇄</span>
+        <h3 data-i18n="feat6_h">Lists &amp; Cross-Moves</h3>
+        <p data-i18n="feat6_p">Personal lists pair automatically. Moving a task across lists relocates it on both sides with audit-safe records.</p>
+        <span class="feat-dir-tag" data-i18n="tag_move">List Moves ⇄</span>
+      </div>
+
+      <!-- 7: Safe Deletions & No Ghosts -->
+      <div class="feat-card reveal">
+        <div class="feat-icon-box">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8b7cf6" stroke-width="2.2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        </div>
+        <h3 data-i18n="feat7_h">Safe Deletions &amp; No Ghosts</h3>
+        <p data-i18n="feat7_p">Two-round confirmation safeguards against network drop wipeouts, while durable tombstones keep deleted items from returning.</p>
+        <span class="feat-dir-tag" data-i18n="tag_deletion">Protected 🛡️</span>
+      </div>
+
+      <!-- 8: Resumes Where It Left Off -->
+      <div class="feat-card reveal">
+        <div class="feat-icon-box">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2.2"><path d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+        </div>
+        <h3 data-i18n="feat8_h">Resumes Where It Left Off</h3>
+        <p data-i18n="feat8_p">If a sync run hits the execution budget limit, progress is saved and picked up on the next run — nothing is left half-done.</p>
+        <span class="feat-dir-tag" data-i18n="tag_heal">Self-Healing ⚙️</span>
       </div>
     </div>
   </div>
@@ -1970,7 +2094,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     <div class="stat-strip">
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="530">530</div>
+        <div class="stat-num" data-count="540">540</div>
         <div class="stat-label" data-i18n="stat_1">Automated tests covering sync engine</div>
       </div>
       <div class="stat-card reveal">
@@ -2032,7 +2156,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
             <div class="step-num-pill">1</div>
             <div class="step-text-wrap">
               <h4 data-i18n="wiz_s1_h">Authorize Google Tasks</h4>
-              <p data-i18n="wiz_s1_p">Confirms permissions for your private runtime. If Google shows an "Unverified app" notice, choose Advanced → Allow — nothing passes through a third-party relay.</p>
+              <p data-i18n="wiz_s1_p">Confirms private runtime permissions (allow unverified app prompt) — zero relay.</p>
             </div>
             <div class="step-progress-line"></div>
           </div>
@@ -2072,6 +2196,45 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
           <span class="preview-dot" data-step="1"></span>
           <span class="preview-dot" data-step="2"></span>
         </div>
+      </div>
+    </div>
+
+    <!-- Honest setup boundaries & Pre-flight checklist -->
+    <div class="know-box reveal">
+      <div class="know-header">
+        <div class="know-badge">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        </div>
+        <div>
+          <span class="eyebrow" data-i18n="eyebrow_know">Before You Connect</span>
+          <h3 class="know-title" data-i18n="know_title">Good to know before you connect</h3>
+        </div>
+      </div>
+      <div class="know-grid">
+        <div class="know-item">
+          <span class="know-num">1</span>
+          <div class="know-content" data-i18n="know_account"><b>Microsoft account type.</b> The guided flow works with a <b>personal</b> Microsoft account. Work or school (organizational) accounts take the self-managed Azure/Entra route in the deployment guide — a longer setup than this five-minute path.</div>
+        </div>
+        <div class="know-item">
+          <span class="know-num">2</span>
+          <div class="know-content" data-i18n="know_scope"><b>What the engine touches.</b> Google Tasks, a dedicated secondary calendar the engine creates itself, and email for alerts; Microsoft To Do tasks plus your mailbox time zone. The full scope list with purposes is in the deployment guide.</div>
+        </div>
+        <div class="know-item">
+          <span class="know-num">3</span>
+          <div class="know-content" data-i18n="know_capacity"><b>Operating envelope.</b> About <b>300 synced task pairs</b> is the conservative recommendation; 600 pairs is an observed stress boundary, not a support promise. Rounds run every 10 minutes inside the Apps Script execution budget.</div>
+        </div>
+        <div class="know-item">
+          <span class="know-num">4</span>
+          <div class="know-content" data-i18n="know_calendar"><b>Calendar projection is on by default.</b> Timed tasks appear as silent 30-minute events; the popup reminder stays off until you switch it on.</div>
+        </div>
+        <div class="know-item">
+          <span class="know-num">5</span>
+          <div class="know-content" data-i18n="know_marker"><b>Time of day.</b> Google Tasks stores dates only. Put <b>[TTS-TIME:15:30]</b> on the first line of a note and the engine records that time, sets the Microsoft due time and reminder, then splices the marker out.</div>
+        </div>
+      </div>
+      <div class="know-footer">
+        <span class="know-footer-icon">ℹ</span>
+        <p class="know-footer-text" data-i18n="know_more">The full limitations, scope table, and operating advice live in the <a href="docs/deployment.md"><b>deployment guide</b></a> — worth a read before you install.</p>
       </div>
     </div>
   </div>
@@ -2227,7 +2390,6 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
           <span class="dot-yellow"></span>
           <span class="dot-green"></span>
         </div>
-        <span class="cli-terminal-title">sh</span>
         <button class="cli-copy-btn" id="copyCliBtn" type="button" aria-label="Copy command">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           <span id="copyCliText" data-i18n="btn_copy">Copy</span>
@@ -2745,38 +2907,32 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'pain4_h': 'Apple 提醒事項與 Siri 串聯',
     'pain4_p': '透過微軟 Exchange 帳戶無縫橋接至 iOS「提醒事項」，實現 iPhone、Mac、Android、Windows 四平臺全面無縫對齊。',
     'eyebrow_feat': '核心能力',
-    'feat_title': '任務完整生命週期，<span class="grad-text">從頭到尾全面同步</span>',
+    'feat_title': '任務完整生命週期，<span class="grad-text">涵蓋 8 大同步維度</span>',
     'feat_lead': '不只是單次觸發建立：標題、備忘、到期日、子任務、清單、移動與刪除全部保持一致，並具備自動復原保護。',
     'feat1_h': '新增與標題雙向同步',
     'feat1_p': '任一端新增或重新命名任務，另一端隨即精準更新——不會產生重複項目。',
     'feat2_h': '完成與重新開啟判定',
     'feat2_p': '隨時勾選完成或重新開啟，完成狀態平穩同步，已完工的項目不會自己冒出來。',
-    'feat3_h': '詳細備忘與內文保留',
-    'feat3_p': '多行備忘雙向同步、換行完整保留，以純文字形式傳遞——粗體、色彩等富文本格式則留在原本的應用程式裡。',
-    'feat4_h': '到期日智慧換算',
-    'feat4_p': '精確換算時區，跨國或跨日曆檢視時日期絕不偏移。到期日也可一併出現在你的 Google 日曆（預設開啟）；日曆提醒則預設關閉，需要時再自行打開。',
-    'feat5_h': '跨清單移動轉移',
-    'feat5_p': '把任務拖到不同分類清單，另一端的對應項目也會一起搬移，並留下安全記錄確保途中不遺失。',
-    'feat6_h': '刪除防護與二次校驗',
-    'feat6_p': '刪除前會再次確認，偶爾的網路斷線也不會無聲清掉你的整個清單。',
-    'feat7_h': '刪除不復返',
-    'feat7_p': '刪除的任務不會在下次同步時又冒出來，兩端狀態永遠一致。',
+    'feat3_h': '階層子任務與清單',
+    'feat3_p': '巢狀子任務與檢查項目在兩端保持相同順序與完成狀態——新安裝預設啟用。',
+    'feat4_h': '詳細備忘與內文保留',
+    'feat4_p': '多行備忘雙向同步、換行完整保留，以純文字形式傳遞——粗體、色彩等富文本格式則留在原本的應用程式裡。',
+    'feat5_h': '到期日與日曆投影',
+    'feat5_p': '精確換算時區防跨日偏移，帶時間的任務還會自動投影至 Google 日曆（預設開啟）。',
+    'feat6_h': '多清單配對與跨清單移動',
+    'feat6_p': '自動配對個人自訂清單，把任務拖到不同分類清單，另一端也會安全同步搬移。',
+    'feat7_h': '安全刪除與防幽靈任務',
+    'feat7_p': '兩輪確認防範斷線誤清空清單，持久化墓碑機制確保刪除的任務絕不在後續同步中復生。',
     'feat8_h': '中斷後自動接續',
     'feat8_p': '同步若遇到平台執行時間上限，進度會自動保存，下一輪從中斷處繼續，不會半途而廢。',
     'tag_twoway': '雙向即時 ⇄',
     'tag_status': '狀態閉環 ⇄',
+    'tag_subtask': '階層同步 ⇄',
     'tag_content': '內文同步 ⇄',
     'tag_tz': '時區校準 ⇄',
     'tag_move': '跨清單保護 ⇄',
-    'tag_deletion': '安全刪除 🛡️',
-    'tag_tombstone': '幽靈防護 👻',
+    'tag_deletion': '安全防護 🛡️',
     'tag_heal': '自癒容錯 ⚙️',
-    'feat9_h': '子任務與檢查清單',
-    'feat9_p': '巢狀子任務與檢查項目在兩端保持相同順序與完成狀態——新安裝預設啟用。',
-    'tag_subtask': '階層同步 ⇄',
-    'feat10_h': '個人清單自動配對',
-    'feat10_p': '自動偵測並配對你的個人清單，兩端對應的清單無需手動設定即可保持連結。',
-    'tag_lists': '自動配對 ⇄',
     'eyebrow_engine': '架構差異',
     'engine_title': '為什麼你需要的是 <span class="grad-text">專用狀態引擎</span>，而非 Zapier 拼裝觸發器？',
     'engine_lead': 'Zapier、Make 或 IFTTT 能靠觸發器串接 API，但維持兩套任務庫一致是嚴格的分散式狀態問題。',
@@ -2803,8 +2959,16 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'eyebrow_install': '快速開始',
     'install_title': '數分鐘內，<span class="grad-text">今晚立即搞定同步</span>',
     'install_lead': '啟動安裝工具後，瀏覽器將自動開啟個人私有設定精靈，只需依序完成以下 3 步：',
+    'eyebrow_know': '開始連接前',
+    'know_title': '開始連接前，先了解這幾件事',
+    'know_account': '<b>Microsoft 帳號類型。</b>精靈流程適用<b>個人</b> Microsoft 帳號。公司或學校（組織）帳號需改走部署指南中的自助 Azure/Entra 路線——設定時間比這條五分鐘路徑長。',
+    'know_scope': '<b>引擎會碰什麼。</b>Google Tasks、一個由引擎自己建立的次要日曆，以及告警 email；Microsoft To Do 工作項目加上信箱時區。完整的權限範圍清單與各項用途見部署指南。',
+    'know_capacity': '<b>建議規模。</b>約 <b>300 組同步任務</b>是保守建議值；600 組是實測壓力邊界，不是支援承諾。每 10 分鐘執行一輪，每輪都必須在 Apps Script 執行時間預算內完成。',
+    'know_calendar': '<b>日曆投影預設開啟。</b>帶時間的任務會以 30 分鐘靜音事件呈現；彈出提醒預設關閉，需要時再自行開啟。',
+    'know_marker': '<b>時間成分。</b>Google Tasks 只儲存日期。在備註第一行加上 <b>[TTS-TIME:15:30]</b>，引擎會記錄該時間、寫入 Microsoft 到期時間與提醒，然後把標記從備註中移除。',
+    'know_more': '完整的限制、權限範圍表與操作建議，都寫在 <b>部署指南</b>裡——安裝前值得先讀一遍。',
     'wiz_s1_h': '授權 Google Tasks',
-    'wiz_s1_p': '確認私有執行環境的權限與安全預設值。若 Google 顯示「未驗證的應用程式」，請選「進階」→「允許」——過程中不經過任何第三方中繼。',
+    'wiz_s1_p': '確認私有執行權限與安全設定（若遇未驗證提示請選允許），絕無第三方中繼。',
     'wiz_s2_h': '連接 Microsoft To Do',
     'wiz_s2_p': '於 <b>microsoft.com/link</b> 輸入 8 位官方設備碼快速登入，無須繁瑣 Azure 設定。',
     'wiz_s3_h': '啟動 10 分鐘自動同步',
@@ -2812,10 +2976,10 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'wiz_pause': '暫停',
     'wiz_play': '播放',
     'eyebrow_video': '概念影片',
-    'video_title': '觀看專案 <span class="grad-text">官方概念宣傳片</span>',
+    'video_title': '觀看 <span class="grad-text">官方概念宣傳片</span>',
     'video_lead': '從出門在外的語音隨手記，到桌面 Outlook 辦公：呈現跨生態無縫任務流的真實一日。',
     'video_badge_live': 'Official Concept · 720p HD',
-    'video_h3': 'Tasks–To Do Sync 專案概念宣傳片',
+    'video_h3': 'Tasks–To Do Sync 的概念宣傳片',
     'video_p': '體驗雙生態無縫閉環的真實一日：外出路上用 Gemini 語音隨手記錄、在工作電腦 Outlook 勾選待辦、回家智慧音箱貼心提醒。點擊封面即可原地觀看。',
     'tag_promo': '概念宣傳片',
     'tag_youtube': 'YouTube 串流',
@@ -2837,7 +3001,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'road2_d': '提供更豐富的診斷工具與增量 Delta 處理，突破輕量無伺服器運行環境限制。',
     'road3_b': '跨雲端檔案保險庫',
     'road3_d': '將微軟 To Do 附件照片與文件轉存至 Google Drive，並在 Google Tasks 內直接連結存取。',
-    'btn_star': '給專案一顆 Star ⭐'
+    'btn_star': '在 GitHub 上給個 Star ⭐'
   };
 
     const dictEn = {
@@ -2887,38 +3051,32 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'pain4_h': 'Apple Reminders & Siri Bridge',
     'pain4_p': 'Connect through your Microsoft account to iOS Reminders, closing the loop across iPhone, Mac, Android, and Windows PCs.',
     'eyebrow_feat': 'Engine Capabilities',
-    'feat_title': 'Full task lifecycle, <span class="grad-text">synced end to end</span>',
+    'feat_title': 'Full task lifecycle, <span class="grad-text">synced across 8 dimensions</span>',
     'feat_lead': 'More than a one-time create trigger: titles, notes, due dates, subtasks, lists, moves, and deletions all stay aligned — with recovery built in.',
     'feat1_h': 'Create & Edit Tasks',
     'feat1_p': 'Create or rename a task on either side and its counterpart updates in place — never as a duplicate.',
     'feat2_h': 'Complete & Reopen',
     'feat2_p': 'Check items off or reopen them anytime. Completion state follows the task cleanly — finished work never comes back to life.',
-    'feat3_h': 'Notes & Body Text',
-    'feat3_p': 'Notes travel both ways with line breaks intact, carried as clean plain text — rich formatting stays with the original app.',
-    'feat4_h': 'Due Date & Timezone',
-    'feat4_p': 'Timezone-accurate due dates that never slip a day. They can also appear in your Google Calendar (on by default); calendar reminders stay off until you switch them on.',
-    'feat5_h': 'Cross-List Moves',
-    'feat5_p': 'Move a task to a different list and it lands on the other side too — with a safety record so nothing gets lost in transit.',
-    'feat6_h': 'Deletion Safeguards',
-    'feat6_p': 'Deletions ask for a second confirmation, so a dropped connection can never quietly wipe a list.',
-    'feat7_h': 'No Ghost Tasks',
-    'feat7_p': 'Deleted tasks stay deleted — they never reappear on a later sync as leftovers.',
+    'feat3_h': 'Subtasks & Checklists',
+    'feat3_p': 'Nested subtasks and checklist items keep their order and completion state on both sides — on by default.',
+    'feat4_h': 'Notes & Body Text',
+    'feat4_p': 'Notes travel both ways with line breaks intact, carried as clean plain text — rich formatting stays with the original app.',
+    'feat5_h': 'Due Date & Calendar',
+    'feat5_p': 'Timezone-accurate due dates that never slip a day. Also projects timed tasks into Google Calendar automatically.',
+    'feat6_h': 'Lists & Cross-Moves',
+    'feat6_p': 'Personal lists pair automatically. Moving a task across lists relocates it on both sides with audit-safe records.',
+    'feat7_h': 'Safe Deletions & No Ghosts',
+    'feat7_p': 'Two-round confirmation safeguards against network drop wipeouts, while durable tombstones keep deleted items from returning.',
     'feat8_h': 'Resumes Where It Left Off',
     'feat8_p': 'If a sync run hits the platform\'s time limit, progress is saved and picked up on the next run — nothing is left half-done.',
     'tag_twoway': 'Two-way ⇄',
     'tag_status': 'State Loop ⇄',
+    'tag_subtask': 'Hierarchies ⇄',
     'tag_content': 'Body Sync ⇄',
     'tag_tz': 'Timezone Aware ⇄',
     'tag_move': 'List Moves ⇄',
     'tag_deletion': 'Protected 🛡️',
-    'tag_tombstone': 'No Zombies 👻',
     'tag_heal': 'Self-Healing ⚙️',
-    'feat9_h': 'Subtasks & Checklists',
-    'feat9_p': 'Nested subtasks and checklist items keep their order and completion state on both sides — on by default for new setups.',
-    'tag_subtask': 'Hierarchies ⇄',
-    'feat10_h': 'Personal Lists',
-    'feat10_p': 'Your own lists are discovered and paired automatically, so matching lists on both sides stay linked without manual setup.',
-    'tag_lists': 'Auto-Paired ⇄',
     'eyebrow_engine': 'Architecture',
     'engine_title': 'Why you need a <span class="grad-text">stateful sync engine</span>, not Zapier recipes',
     'engine_lead': 'Trigger-action tools lack state memory: maintaining two live task databases is a distributed state consistency challenge.',
@@ -2945,8 +3103,16 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'eyebrow_install': 'Get Started',
     'install_title': 'Get synced tonight <span class="grad-text">in under 5 minutes</span>',
     'install_lead': 'After launching the tool, your private setup wizard opens automatically in your browser:',
+    'eyebrow_know': 'Before You Connect',
+    'know_title': 'Good to know before you connect',
+    'know_account': '<b>Microsoft account type.</b> The guided flow works with a <b>personal</b> Microsoft account. Work or school (organizational) accounts take the self-managed Azure/Entra route in the deployment guide — a longer setup than this five-minute path.',
+    'know_scope': '<b>What the engine touches.</b> Google Tasks, a dedicated secondary calendar the engine creates itself, and email for alerts; Microsoft To Do tasks plus your mailbox time zone. The full scope list with purposes is in the deployment guide.',
+    'know_capacity': '<b>Operating envelope.</b> About <b>300 synced task pairs</b> is the conservative recommendation; 600 pairs is an observed stress boundary, not a support promise. Rounds run every 10 minutes inside the Apps Script execution budget.',
+    'know_calendar': '<b>Calendar projection is on by default.</b> Timed tasks appear as silent 30-minute events; the popup reminder stays off until you switch it on.',
+    'know_marker': '<b>Time of day.</b> Google Tasks stores dates only. Put <b>[TTS-TIME:15:30]</b> on the first line of a note and the engine records that time, sets the Microsoft due time and reminder, then splices the marker out.',
+    'know_more': 'The full limitations, scope table, and operating advice live in the <b>deployment guide</b> — worth a read before you install.',
     'wiz_s1_h': 'Authorize Google Tasks',
-    'wiz_s1_p': 'Confirms permissions for your private runtime. If Google shows an "Unverified app" notice, choose Advanced → Allow — nothing passes through a third-party relay.',
+    'wiz_s1_p': 'Confirms private runtime permissions (allow unverified app prompt) — zero relay.',
     'wiz_s2_h': 'Connect Microsoft To Do',
     'wiz_s2_p': 'Authenticate securely via official device code at <b>microsoft.com/link</b> without Azure setup.',
     'wiz_s3_h': 'Activate 10-Min Auto-Sync',

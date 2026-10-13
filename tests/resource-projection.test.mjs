@@ -106,6 +106,34 @@ test('MS linkedResources observation opens the M->G branch; unobserved stays clo
   assert.equal(empty.diagnostic.indexOf('INCOMPLETE_MICROSOFT_RESOURCE_OBSERVATION'), -1);
 });
 
+test('removing every Google link clears the managed block instead of leaving it behind', () => {
+  const { c } = load();
+  const block = [
+    '--- tasks-todo-sync ---',
+    'Google links',
+    '- Mail',
+    '  https://mail.google.com/x',
+    '--- tasks-todo-sync end ---'
+  ].join('\n');
+  const fp = c.managedBlockFingerprint_(block);
+  const gTask = { id: 'g-task', title: 'Same', notes: 'note', status: 'needsAction' };
+  const msTask = {
+    id: 'ms-task', title: 'Same',
+    body: { contentType: 'text', content: 'note\n\n' + block },
+    status: 'notStarted'
+  };
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', res: { msBlockFp: fp } };
+  const plan = c.planResourceProjection_(gTask, msTask, rec, {}, 'note', 'note');
+  assert.equal(plan.writeMicrosoft, true, 'an emptied link set must rewrite the Microsoft notes');
+  assert.equal(plan.microsoftBody.content.includes('--- tasks-todo-sync ---'), false,
+    'the stale block must be cleared, not left behind (§3.16)');
+  assert.equal(plan.microsoftBody.content, 'note');
+  // Converges: once the block is gone the next pass plans no write at all.
+  const after = { id: 'ms-task', title: 'Same', body: { contentType: 'text', content: 'note' }, status: 'notStarted' };
+  const second = c.planResourceProjection_(gTask, after, rec, {}, 'note', 'note');
+  assert.equal(second.writeMicrosoft, false);
+});
+
 test('malformed managed block fails closed and does not merge notes', () => {
   const { c } = load();
   const parsed = c.parseManagedResourceBlock_(

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
-// P1 (advisory review): "Setup 讀取真實 health 結果" — the wizard's health row
+// P1 (advisory review): "Setup reads real health results" — the wizard's health row
 // must reflect the persisted outcome of a real check (unknown / fail / pass
 // distinguishable) and must never display "System healthy" merely because a
 // trigger exists.

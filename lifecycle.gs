@@ -2298,6 +2298,22 @@ function resyncGoogleTaskMove_(state, snap, gId, gTask, rec, currentGListId,
   clearTaskDeletionConflict_(state, gId);
   state.tombstones.m[journal.oldMsId] = { at: Date.now(), source: 'move' };
   putMapping_(state, gTask, currentGListId, movedMsTask, journal.targetMsListId);
+  // The destination payload carries only title/notes/due/status, so deleting
+  // the old Microsoft task took every uncarried field with it — a recurrence
+  // rule collapses the entire repeating series into one task.  Detection
+  // reuses the dry-run inspector (same snapshot object, no extra Graph calls)
+  // and the notification is best-effort: it runs only after the move has
+  // fully committed and can never fail or undo it.
+  const moveMetadataLoss = moveMetadataLossPreview_(freshOld || oldMsTask || null);
+  if (moveMetadataLoss.detectedNonPreserved.indexOf('recurrence') >= 0) {
+    sendMoveMetadataLossAlert_({
+      title: gTask.title,
+      gId: gId,
+      oldMsId: journal.oldMsId,
+      newMsId: journal.newMsId,
+      detectedNonPreserved: moveMetadataLoss.detectedNonPreserved
+    });
+  }
   delete state.taskMoveJournal[gId];
 
   delete snap.msTasksById[journal.oldMsId];

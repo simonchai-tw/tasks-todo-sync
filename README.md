@@ -83,7 +83,7 @@ General automation platforms such as [Zapier](https://zapier.com/apps/google-tas
 - **Built for these two services.** Conflict checks, recovery journals, rename handling, and tombstones address the failure modes of task synchronization directly.
 - **Owned by you.** The engine, credentials, and state stay in your Google Apps Script project. There is no Tasks–To Do Sync subscription, hosted account, or task database.
 
-The synchronization engine is covered by 530 automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md).
+The synchronization engine is covered by 540 automated tests, GitHub CI, CodeQL, and real-account validation. Detailed reliability evidence and runtime boundaries are documented in the [engineering audit](docs/audit.md).
 
 ## Get started
 
@@ -105,6 +105,15 @@ npx tasks-todo-sync init
 | **2 · Google sign-in** | Click through the consent screen | Validates safe defaults and script timezone ("Unverified app" → Advanced → Allow) |
 | **3 · Microsoft sign-in** | Enter short code at `microsoft.com/link` | Connects personal Microsoft To Do via Device Code Flow — no Azure setup or secrets |
 | **4 · Finalize** | Click "Activate" in the wizard | Schedules the 10-minute trigger, runs a health check, and starts synchronization |
+
+**Good to know before you connect:**
+
+- **Microsoft account types.** The guided flow uses Device Code Flow with a **personal** Microsoft account. Work or school (organizational) accounts are not supported by it — those deployments take the self-managed Azure/Entra route in the deployment guide, which is a longer setup than the five-minute personal path.
+- **What the engine touches.** Google: Tasks, a dedicated secondary calendar (`Tasks-ToDo-Sync`) that the engine creates itself, and email for alerts. Microsoft: To Do tasks, plus `MailboxSettings.Read` for the account's time zone. The full scope list with the purpose of each entry is in the [deployment guide](docs/deployment.md#oauth-scopes).
+- **Operating envelope.** Around **300 synced task pairs** is the conservative recommendation; **600 pairs** is an observed stress boundary, not a support promise. Rounds run every 10 minutes and each must finish inside the Apps Script execution budget.
+- **Calendar projection is on by default.** Timed tasks appear as silent 30-minute events on the dedicated calendar; the popup reminder stays off unless you turn it on (`SYNC_CALENDAR_PROJECTION_REMINDER`).
+- **Desktop companion credentials.** The Windows companion reuses the OAuth credentials that `clasp login` already stores on your machine (`~/.clasprc.json`) to reach your private deployment — it never handles your Microsoft secrets, and deleting that file only costs you the transport until the next `clasp login`.
+- **`detect` briefly reads your project list.** The CLI's `detect` command downloads every Apps Script project visible to your account into a temporary local folder to fingerprint them, then deletes the copies. Nothing leaves your machine, but unrelated private scripts are read in the process.
 
 > **Alternative deployment and authorization options:**
 >

@@ -22,7 +22,7 @@ These fields and operations are covered by the current implementation and automa
 
 The following may exist in a provider UI or payload but are not part of the verified cross-provider projection. They must not be treated as supported-field failures, and this list does not assert that either provider's API makes them impossible:
 
-- recurrence (guarded by fail-closed contract gate `RECURRING_TASK_UNSUPPORTED` / `sendBothRecurrenceAlert_`);
+- recurrence (guarded by fail-closed contract gate `RECURRING_TASK_UNSUPPORTED` / `sendBothRecurrenceAlert_`). **One documented exception:** a cross-list move recreates the Microsoft task, so a recurring series collapses into a single task without its schedule. The move preview reports `recurrence` as metadata loss, and the operator receives an alert email when such a move completes. Set `SYNC_ALLOW_TASK_MOVES=false` to avoid it entirely;
 - categories, color tags, and other Microsoft-only metadata;
 - binary file attachments and raw attachment payloads;
 - rich text styling and HTML formatting beyond plain text and managed resource blocks.

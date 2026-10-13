@@ -237,6 +237,9 @@ function listGoogleTaskLists() {
       ? 'Auto mode syncs every regular Google list with selected=true; excluded names are controlled by SYNC_EXCLUDED_LIST_NAMES.'
       : 'Add the IDs to sync to Script Property SYNC_GOOGLE_LIST_IDS; separate multiple IDs with commas.'
   }, null, 2));
+  // The wizard's bootstrap confirmation card resolves list titles from this
+  // return value; without it the card silently degraded to raw IDs.
+  return lists;
 }
 
 function listMicrosoftTaskLists() {
@@ -774,8 +777,10 @@ function setupWizardFinalize() {
     return { ok: false, checks: checks, health: null };
   }
 
+  let dryRunOk = false;
   try {
     const report = dryRunReport();
+    dryRunOk = true;
     const warningCount = Array.isArray(report.warnings) ? report.warnings.length : 0;
     const pendingMoveCount = Array.isArray(report.pendingMoves) ? report.pendingMoves.length : 0;
     record('dryRun', 'Read-only sync preview', true,
@@ -787,13 +792,21 @@ function setupWizardFinalize() {
     record('dryRun', 'Read-only sync preview', false, error);
   }
 
-  try {
-    createTrigger();
-    const after = setupTriggerCount_();
-    record('trigger', 'Sync schedule created', after.count === 1,
-      after.available ? after.count + ' syncAll trigger(s) exist.' : 'Trigger status is unavailable.');
-  } catch (error) {
-    record('trigger', 'Sync schedule created', false, error);
+  if (dryRunOk) {
+    try {
+      createTrigger();
+      const after = setupTriggerCount_();
+      record('trigger', 'Sync schedule created', after.count === 1,
+        after.available ? after.count + ' syncAll trigger(s) exist.' : 'Trigger status is unavailable.');
+    } catch (error) {
+      record('trigger', 'Sync schedule created', false, error);
+    }
+  } else {
+    // A failed read-only preview means the engine cannot yet enumerate both
+    // sides; scheduling on top of that starts rounds that will keep failing.
+    // Fix the reported issue, then run setupWizardFinalize() again.
+    record('trigger', 'Sync schedule created', false,
+      'The read-only preview failed, so no schedule was created. Resolve the dry-run failure above, then run setupWizardFinalize() again.');
   }
 
   let boundedHealth = null;
@@ -847,12 +860,25 @@ function setupWizardRunFirstSync() {
  *       { ok: false, action, error: { code, message } }
  *   - Unknown or missing actions are rejected with UNKNOWN_ACTION /
  *     MISSING_ACTION; the whitelist below is the whole surface.
- *   - doGet with ?action=... serves the same envelope (handy for read-only
- *     probes); without ?action it serves the human wizard page, unchanged.
+ *   - doGet with ?action=... serves the read-only actions only (handy for
+ *     manual probes); without ?action it serves the human wizard page,
+ *     unchanged.  Anything with side effects is POST-only: a GET carries the
+ *     user's Google cookie, so any page that learned the deployment URL could
+ *     otherwise make the user's browser trigger a sync or a batch release
+ *     (advisory review 2026-10-13, §3.10).  Nothing is lost by this: the
+ *     companion client has always used POST.
  *   - doPost takes { action, params } as a JSON body.
  *   - google.script.run from the wizard page is untouched.
  * ------------------------------------------------------------------------- */
 var WEB_APP_API_VERSION = 1;
+
+/* Actions safe to answer over GET: they read state and provider snapshots
+ * but never write.  Everything else must arrive as a POST. */
+var WEB_APP_READONLY_ACTIONS = {
+  webAppHandshake: true,
+  setupWizardOverview: true,
+  previewTaskCreateBatchRelease: true
+};
 
 var WEB_APP_ACTIONS = {
   webAppHandshake: function () {
@@ -878,12 +904,22 @@ var WEB_APP_ACTIONS = {
   }
 };
 
-function dispatchWebAppAction_(action, params) {
+function dispatchWebAppAction_(action, params, method) {
   if (!action) {
     return { ok: false, error: { code: 'MISSING_ACTION', message: 'Provide an action name.' } };
   }
   if (!Object.prototype.hasOwnProperty.call(WEB_APP_ACTIONS, action)) {
     return { ok: false, action: action, error: { code: 'UNKNOWN_ACTION', message: 'Action is not in the web app whitelist: ' + action } };
+  }
+  if (method === 'GET' && !Object.prototype.hasOwnProperty.call(WEB_APP_READONLY_ACTIONS, action)) {
+    return {
+      ok: false, action: action,
+      error: {
+        code: 'POST_REQUIRED',
+        message: 'Action "' + action + '" has side effects and is POST-only. ' +
+          'Send it as a POST with a JSON body: {"action":"' + action + '","params":{}}.'
+      }
+    };
   }
   try {
     return { ok: true, action: action, apiVersion: WEB_APP_API_VERSION, result: WEB_APP_ACTIONS[action](params) };
@@ -908,7 +944,7 @@ function webAppJsonResponse_(payload) {
 function doGet(e) {
   const params = (e && e.parameter) || {};
   if (params.action) {
-    return webAppJsonResponse_(dispatchWebAppAction_(params.action, params));
+    return webAppJsonResponse_(dispatchWebAppAction_(params.action, params, 'GET'));
   }
   return HtmlService.createHtmlOutputFromFile('Setup')
     .setTitle('Tasks-ToDo-Sync Setup')
@@ -926,7 +962,7 @@ function doPost(e) {
   } catch (error) {
     return webAppJsonResponse_({ ok: false, error: { code: 'BAD_REQUEST', message: 'Request body must be JSON: {"action":...,"params":...}.' } });
   }
-  return webAppJsonResponse_(dispatchWebAppAction_(action, params));
+  return webAppJsonResponse_(dispatchWebAppAction_(action, params, 'POST'));
 }
 
 function checkpointTaskCreateBatch_(state) {
@@ -999,7 +1035,13 @@ function syncAll() {
       snap = buildSnapshot_(state, startedAt);
       if (safetyAtStart.enableSubtasks && typeof discoverSubtaskRelationships_ === 'function') {
         discoverSubtaskRelationships_(state, snap, startedAt, roundId, Date.now());
-        reconcileSubtasks_(state, snap, { enableSubtasks: true, roundId: roundId });
+        // SYNC_ALLOW_DELETIONS is the operator-wide delete switch and subtask
+        // deletes are deletions too (2026-10-13 decision): pass it down so the
+        // subtask module arms no journals and issues no remote deletes while
+        // it is off.  Observation stays on — it is read-only evidence.
+        reconcileSubtasks_(state, snap, {
+          enableSubtasks: true, allowDeletions: safetyAtStart.allowDeletions, roundId: roundId
+        });
       }
       while (true) {
         if (state.taskCreateBatch) {
@@ -1107,6 +1149,11 @@ function syncAll() {
       }
       if (isTimeBudget) {
         console.warn('[Sync] Near the time limit; durable state was saved safely. The next round will rerun the full inventory, with no persisted page cursor.');
+        // A budget-exhausted round commits no final state, so
+        // lastSuccessfulSyncAt stops advancing while syncAll keeps looking
+        // healthy from the outside.  Once no round has completed for a few
+        // trigger intervals, say so by email (cooldowned; §3.6).
+        maybeSendSyncStaleAlert_(state);
         logSyncSummary_('time_budget');
         return {
           partial: true,
@@ -1910,6 +1957,32 @@ function applyTaskMoveJournalOperation() {
   });
 }
 
+/* Threshold for "sync has gone quiet": three trigger intervals.  One slow
+// round is normal (first builds are the documented worst case); three missed
+// windows means rounds are systematically over budget. */
+function syncStaleThresholdMinutes_() {
+  return 3 * SYNC_TRIGGER_INTERVAL_MINUTES;
+}
+
+function maybeSendSyncStaleAlert_(state) {
+  try {
+    const stamp = state && state.health && state.health.lastSuccessfulSyncAt || null;
+    const parsed = stamp === null ? null : Date.parse(stamp);
+    // An unparsable stamp is treated as stale: a health signal that cannot be
+    // read must fail loud, not silent.
+    const ageMinutes = parsed === null || !isFinite(parsed) ? Infinity :
+      (Date.now() - parsed) / 60000;
+    if (!(ageMinutes >= syncStaleThresholdMinutes_())) return false;
+    return sendSyncStaleAlert_({
+      thresholdMinutes: syncStaleThresholdMinutes_(),
+      lastSuccessfulSyncAt: stamp
+    });
+  } catch (e) {
+    console.error('[Sync] Stale-sync alert failed: ' + e.message);
+    return false;
+  }
+}
+
 function healthCheck() {
   initializeExecutionBudget_();
   const issues = [];
@@ -2006,6 +2079,19 @@ function healthCheck() {
   if (roundFence.active) {
     issues.push('An unfinished sync-round safety fence exists; the next syncAll will verify final commit or preserve baseline proof before recovering safely.');
   }
+  // §3.6: a budget-exhausted round commits no final state, so a permanently
+  // half-finished sync used to look healthy here.  Only flag a *previously
+  // working* deployment that went quiet — a never-synced install is covered by
+  // the trigger/mapping issues above and by the wizard flow.
+  if (state.health && state.health.lastSuccessfulSyncAt) {
+    const lastSync = Date.parse(state.health.lastSuccessfulSyncAt);
+    const ageMinutes = isFinite(lastSync) ? (Date.now() - lastSync) / 60000 : Infinity;
+    if (ageMinutes >= syncStaleThresholdMinutes_()) {
+      issues.push('No successful sync in the last ' + Math.floor(ageMinutes) +
+        ' minutes (threshold ' + syncStaleThresholdMinutes_() +
+        '). Rounds may be exceeding the execution time budget; nothing is lost, but syncing is paused until a round fits.');
+    }
+  }
   const report = {
     ok: issues.length === 0,
     issues: issues,
@@ -2054,7 +2140,11 @@ function exportRawSyncState() {
     exportedAt: new Date().toISOString(),
     properties: raw
   };
-  console.warn('[Export] WARNING: raw state may contain sensitive provider data or OAuth state.');
+  // The exported keys are state-only (manifest, generation blobs, create
+  // progress, round fence): mappings, tombstones and journal evidence carry
+  // provider IDs, but no OAuth token or credential key is ever included.  The
+  // warning says exactly that instead of over-claiming "OAuth state".
+  console.warn('[Export] WARNING: raw state contains sync mappings, tombstones and journal evidence with provider IDs — handle as private data. It contains no OAuth tokens or credentials.');
   console.log(JSON.stringify(bundle, null, 2));
   return bundle;
 }

@@ -1166,6 +1166,49 @@ test('setupWizardFinalize runs full setup pipeline when Microsoft is authorized'
   assert.equal(finalRes.health.ok, true);
 });
 
+test('setupWizardFinalize creates no schedule when the read-only preview fails', () => {
+  const { context } = loadContext({
+    userValues: {
+      MS_PERSONAL_REFRESH_TOKEN: 'refresh-token',
+      MS_PERSONAL_ACCESS_TOKEN: 'access-token',
+      MS_PERSONAL_ACCESS_EXPIRES_AT: '9999999999999'
+    }
+  });
+  let triggers = [];
+  context.ScriptApp = {
+    getOAuthToken: () => 'test-token',
+    getProjectTriggers: () => triggers,
+    deleteTrigger: (t) => { triggers = triggers.filter(x => x !== t); },
+    newTrigger: () => ({
+      timeBased: () => ({
+        everyMinutes: () => ({
+          create: () => {
+            const t = { getHandlerFunction: () => 'syncAll' };
+            triggers.push(t);
+            return t;
+          }
+        })
+      })
+    })
+  };
+  context.UrlFetchApp = {
+    fetch: () => ({
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({ value: [{ id: 'ms-list-1', displayName: 'Tasks' }] })
+    })
+  };
+  context.fetchGoogle_ = () => ({ items: [{ id: 'g-list-1', title: 'Tasks' }] });
+  context.withGlobalLock_ = (fn) => fn();
+  context.dryRunReport = () => { throw new Error('DRY_RUN_EXPLODED'); };
+
+  const finalRes = context.setupWizardFinalize();
+  assert.equal(finalRes.ok, false);
+  assert.equal(triggers.length, 0, 'a failed read-only preview must not start a schedule');
+  const triggerCheck = finalRes.checks.find((check) => check.key === 'trigger');
+  assert.equal(triggerCheck.ok, false);
+  assert.match(triggerCheck.detail, /no schedule was created/);
+});
+
 test('private setup web app serves only the bundled Setup file with a bounded title', () => {
   const calls = [];
   const { context } = loadContext();
@@ -1185,6 +1228,81 @@ test('private setup web app serves only the bundled Setup file with a bounded ti
     ['title', 'Tasks-ToDo-Sync Setup'],
     ['xframe', 'DEFAULT']
   ]);
+});
+
+test('web app GET serves read-only actions only; side effects are POST-only', () => {
+  const envelopes = [];
+  const { context } = loadContext();
+  context.ContentService = {
+    MimeType: { JSON: 'application/json' },
+    createTextOutput(text) {
+      envelopes.push(JSON.parse(text));
+      return { setMimeType() { return this; } };
+    }
+  };
+  context.syncAll = () => ({ completed: true });
+  context.previewTaskCreateBatchRelease = () => ({ active: false });
+  for (const action of ['syncAll', 'setupWizardSavePreferences', 'applyTaskCreateBatchRelease']) {
+    context.doGet({ parameter: { action: action } });
+    assert.equal(envelopes.at(-1).ok, false, action + ' must not run over GET');
+    assert.equal(envelopes.at(-1).error.code, 'POST_REQUIRED');
+  }
+  for (const action of ['webAppHandshake', 'previewTaskCreateBatchRelease']) {
+    context.doGet({ parameter: { action: action } });
+    assert.equal(envelopes.at(-1).ok, true, action + ' stays probeable over GET');
+  }
+  assert.equal(context.dispatchWebAppAction_('syncAll', [], 'POST').ok, true);
+  context.doPost({ postData: { contents: JSON.stringify({ action: 'syncAll', params: [] }) } });
+  assert.equal(envelopes.at(-1).ok, true);
+  assert.deepEqual(envelopes.at(-1).result, { completed: true });
+});
+
+test('a deployment whose rounds never complete is not left silent: stale-sync alert and healthCheck', () => {
+  const sent = [];
+  const { context } = loadContext({
+    effectiveUserEmail: 'operator@example.com',
+    mailApp: { getRemainingDailyQuota: () => 50, sendEmail: (message) => sent.push(message) }
+  });
+  const recent = context.newState_();
+  recent.health.lastSuccessfulSyncAt = new Date().toISOString();
+  assert.equal(context.maybeSendSyncStaleAlert_(recent), false);
+  assert.equal(sent.length, 0, 'a recently completed round is not stale');
+
+  const stale = context.newState_();
+  stale.health.lastSuccessfulSyncAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  assert.equal(context.maybeSendSyncStaleAlert_(stale), true);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].subject, /Sync has not completed recently/);
+  assert.match(sent[0].body, /Last successful sync: /);
+  assert.equal(context.maybeSendSyncStaleAlert_(stale), false, 'cooldown suppresses repeats');
+  assert.equal(sent.length, 1);
+
+  const neverContext = loadContext({
+    effectiveUserEmail: 'operator@example.com',
+    mailApp: { getRemainingDailyQuota: () => 50, sendEmail: (message) => sent.push(message) }
+  });
+  const neverState = neverContext.context.newState_();
+  neverState.health.lastSuccessfulSyncAt = null;
+  assert.equal(neverContext.context.maybeSendSyncStaleAlert_(neverState), true,
+    'rounds that keep running without ever completing must not stay silent');
+  assert.match(sent[1].body, /\(never recorded\)/);
+});
+
+test('healthCheck reports a deployment that has not completed a sync within three trigger intervals', () => {
+  const { context } = loadContext({
+    scriptApp: {
+      getOAuthToken: () => 'test-token',
+      getProjectTriggers: () => [{ getHandlerFunction: () => 'syncAll' }]
+    }
+  });
+  const state = context.newState_();
+  state.health.lastSuccessfulSyncAt = new Date(Date.now() - 45 * 60 * 1000).toISOString();
+  context.microsoftAuth_ = () => ({ hasAccess: () => true, mode: 'personal_device' });
+  context.loadStateForInspection_ = () => ({ corrupt: false, state: state });
+  const report = context.healthCheck();
+  assert.equal(report.ok, false);
+  assert.ok(report.issues.some((issue) => /No successful sync in the last/.test(issue)),
+    'a deployment that went quiet must be visible in healthCheck');
 });
 
 test('fatal alerts are bounded and raw state export explicitly warns about sensitivity', () => {
@@ -1264,8 +1382,15 @@ test('network public entrypoints initialize a fresh execution budget', () => {
   context.getGLists_ = () => [];
   context.console = { log: () => {}, warn: () => {}, error: () => {} };
   assert.equal(vm.runInContext('RUN_STARTED_AT', context), 0);
-  context.listGoogleTaskLists();
+  assert.deepEqual(JSON.parse(JSON.stringify(context.listGoogleTaskLists())), []);
   assert.ok(vm.runInContext('RUN_STARTED_AT', context) > 0);
+  // The wizard's bootstrap confirmation card resolves list titles from this
+  // return value; a console.log-only function silently degraded the card to
+  // raw provider IDs.
+  context.getGLists_ = () => [{ id: 'g-list-1', title: 'Tasks' }];
+  assert.deepEqual(JSON.parse(JSON.stringify(context.listGoogleTaskLists())), [
+    { id: 'g-list-1', title: 'Tasks', selected: true }
+  ]);
 });
 
 test('Google and Graph pagination fail closed for repeated cursors, page caps, and exhausted time budgets', () => {
@@ -8270,6 +8395,64 @@ test('destructive task and list delete paths stop at the reserve with journals i
   assert.ok(catchSaves.length > 0);
   assert.equal(catchSaves.at(-1).pendingTaskDeletions['g-task'].confirmations, 1);
   assert.equal(catchSaves.at(-1).deletionJournal['g-task'], undefined);
+});
+
+test('completed move that loses a recurrence rule notifies the operator once, without raw ids', () => {
+  const sent = [];
+  const { context } = loadContext({
+    effectiveUserEmail: 'operator@example.com',
+    mailApp: {
+      getRemainingDailyQuota: () => 50,
+      sendEmail: (message) => sent.push(message)
+    }
+  });
+  const fixture = rc6MoveFixture(context);
+  delete fixture.state.taskMoveJournal['g-task'];
+  fixture.oldMsTask.recurrence = { pattern: { type: 'daily', interval: 1 } };
+  const destination = rc6Destination(context, fixture);
+  const snap = rc6MoveSnapshot(fixture, [destination]);
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task' ? fixture.oldMsTask : destination;
+  context.createMsTask_ = () => destination;
+  context.deleteMsTask_ = () => {};
+
+  // The resource-observation probe makes a real Graph call in this bare test
+  // context; without a token it would raise an unrelated reauthorization
+  // alert.  Silence it so the assertion below counts move alerts only.
+  context.sendReauthorizationAlert_ = () => {};
+  context.reconcileMapped_(fixture.state, snap, Date.now(), 'move-notify-round');
+
+  assert.equal(sent.length, 1, 'one email per completed move that loses a recurrence rule: ' + JSON.stringify(sent.map((m) => m.subject)));
+  assert.match(sent[0].subject, /Task move completed without recurrence/);
+  assert.match(sent[0].body, /recurrence/);
+  assert.ok(sent[0].body.includes('Private moved title'), 'the sanitized title identifies the task');
+  assert.equal(sent[0].body.includes('ms-task'), false, 'raw provider ids never appear in operator mail');
+  assert.equal(sent[0].body.includes('g-task'), false);
+  assert.equal(fixture.state.g2m['g-task'].msId, 'ms-task-new');
+});
+
+test('completed move without a recurrence rule sends no metadata-loss email', () => {
+  const sent = [];
+  const { context } = loadContext({
+    effectiveUserEmail: 'operator@example.com',
+    mailApp: {
+      getRemainingDailyQuota: () => 50,
+      sendEmail: (message) => sent.push(message)
+    }
+  });
+  const fixture = rc6MoveFixture(context);
+  delete fixture.state.taskMoveJournal['g-task'];
+  const destination = rc6Destination(context, fixture);
+  const snap = rc6MoveSnapshot(fixture, [destination]);
+  context.persistSyncState_ = () => {};
+  context.getMsTask_ = (listId, taskId) => taskId === 'ms-task' ? fixture.oldMsTask : destination;
+  context.createMsTask_ = () => destination;
+  context.deleteMsTask_ = () => {};
+  context.sendReauthorizationAlert_ = () => {};
+
+  context.reconcileMapped_(fixture.state, snap, Date.now(), 'move-quiet-round');
+
+  assert.equal(sent.length, 0);
 });
 
 test('completed move preserves its durable journal when the delete boundary runs out of time', () => {

@@ -4,7 +4,7 @@
  * Every one of them is worth a retry, so the default is TRANSIENT and only
  * argument-level mistakes (which can never succeed) are excluded.  The old
  * allowlist of localized message fragments could not survive Google's
- * translations: the 2026-10-02 zh-TW round ("無法開啟網址") failed without a
+ * translations: the 2026-10-02 localized round ("cannot open URL") failed without a
  * single retry. */
 function isUrlFetchTransientError_(err) {
   if (!err) return false;

@@ -38,8 +38,8 @@ The two modes use the same synchronization engine and store OAuth tokens in the 
 
 | Mode | Intended use | Entra app, secret, and redirect URI |
 | --- | --- | --- |
-| **Personal Device Code** | Recommended fresh setup for a personal Microsoft account | Uses the project's shared public client ID; no client secret or redirect URI |
-| **Advanced self-managed Entra** | Existing installations, organization-specific authority, or operators who require their own app registration | Requires your own client ID, client secret, and web redirect URI |
+| **Personal Device Code** | Recommended fresh setup for a **personal** Microsoft account. Work or school (organizational) accounts are **not** supported in this mode | Uses the project's shared public client ID; no client secret or redirect URI |
+| **Advanced self-managed Entra** | Existing installations, **organization accounts**, or operators who require their own app registration | Requires your own client ID, client secret, and web redirect URI |
 
 An explicit valid `MS_AUTH_MODE` wins. Without that property, an installation that already contains `MS_CLIENT_ID` or `MS_CLIENT_SECRET` stays in Advanced mode. A fresh installation with neither property uses Personal mode. Invalid explicit values fail closed. Existing Advanced credentials are not deleted or migrated when Personal authorization is attempted.
 
@@ -47,7 +47,7 @@ The shared Personal-mode client ID is a public application identifier, not a cre
 
 ## Personal Device Code authorization (recommended)
 
-Personal mode supports personal Microsoft accounts and requests only delegated `Tasks.ReadWrite` plus `offline_access`. The Microsoft password is entered only on Microsoft's official site; Tasks–To Do Sync and the Apps Script web app never request or receive it.
+Personal mode supports personal Microsoft accounts and requests delegated `Tasks.ReadWrite`, `MailboxSettings.Read` (mailbox time zone), and `offline_access`. The Microsoft password is entered only on Microsoft's official site; Tasks–To Do Sync and the Apps Script web app never request or receive it.
 
 ### Deploy the private setup web app
 
@@ -104,6 +104,31 @@ If the tenant UI or policy permits it, create secrets with a 24-month expiry and
 
 Rotation does not change the client ID, redirect URI, mappings, tombstones, move or deletion journals, Google authorization, or required Graph permissions. If the old secret has already expired, follow the same procedure; synchronization remains paused until the new authorization succeeds.
 
+## OAuth scopes
+
+Everything the engine asks for, why it asks, and whether you can live without it.
+
+**Google** (granted once, on the Apps Script consent screen):
+
+| Scope | Why it is needed | Can you decline it? |
+| --- | --- | --- |
+| `.../auth/tasks` | Read and write Google Tasks — the core sync surface | No |
+| `.../auth/calendar` | Create and update events on the dedicated secondary `Tasks-ToDo-Sync` calendar that the engine itself creates. Nothing is written to your primary calendar | Only by turning calendar projection off — but the scope is requested either way, because the manifest is static. Set `SYNC_CALENDAR_PROJECTION=false` after install if you do not want the events |
+| `.../auth/script.external_request` | Call the Microsoft Graph API from Apps Script | No |
+| `.../auth/script.send_mail` | Send alert emails to the deploying account | No (alerts degrade to execution-log lines) |
+| `.../auth/script.scriptapp` | Create and manage the 10-minute `syncAll` trigger | No |
+| `.../auth/userinfo.email` | Resolve the alert recipient when `ALERT_EMAIL` is not set | No |
+
+**Microsoft** (Personal mode; Advanced mode requests the same delegated task scope through your own app registration):
+
+| Scope | Why it is needed | Can you decline it? |
+| --- | --- | --- |
+| `Tasks.ReadWrite` | Read and write Microsoft To Do tasks and checklists | No |
+| `MailboxSettings.Read` | Read the mailbox time zone so date-only due dates survive cross-time-zone setups | Only by declining it on the consent screen; date-only dues then assume the project time zone |
+| `offline_access` | Keep a refresh token so the 10-minute rounds run unattended | No |
+
+The web app itself is deployed with **access = MYSELF**: only the deploying Google account can reach it, and side-effecting actions accept POST requests only.
+
 ## Time Bridge: Due times, reminders, and calendar projection
 
 Google Tasks natively supports due dates without a time-of-day component. **Time Bridge** bridges this architectural gap:
@@ -120,17 +145,12 @@ Time Bridge includes three fail-closed configuration properties in **Project Set
 | Key | Default | Description |
 | --- | :---: | --- |
 | `SYNC_TIME_BRIDGE` | `true` | Master switch for Time Bridge processing. Set to `false` to disable all time and reminder synchronization; `due` then syncs as a date only and nothing is frozen. |
-| `SYNC_CALENDAR_PROJECTION` | `false` | When `true`, projects timed tasks to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false` (default), Microsoft To Do due times and reminders still synchronize; no calendar events are written, and existing events are left alone. |
-| `SYNC_CALENDAR_PROJECTION_REMINDER` | `true` | When `false`, projected events are created without a popup reminder: the task still occupies its slot on the calendar but does not ring. Use this when another notification path already covers the task. Changing it re-converges existing events one by one. |
+| `SYNC_CALENDAR_PROJECTION` | `true` | When `true` (default), timed tasks are projected to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false`, Microsoft To Do due times and reminders still synchronize; no calendar events are written, and existing events are left alone. |
+| `SYNC_CALENDAR_PROJECTION_REMINDER` | `false` | When `true`, projected events also carry a popup reminder, so a task can ring from both Microsoft To Do and Google Calendar. The default (`false`) keeps the projected event visible but silent — the Microsoft-side alarm is the only one. Changing it re-converges existing events one by one. |
 
 ### iPhone / Apple Reminders users
 
-If you use **Apple Reminders** connected to your Microsoft account **and** Apple Calendar subscribed to Google Calendar, both the Microsoft To Do alarm and the projected event's popup can fire for the same task. Two options:
-
-1. Set `SYNC_CALENDAR_PROJECTION_REMINDER=false` — the projected event stays visible but silent, and your Microsoft-side alarm remains the only one; or
-2. Keep the default and unsubscribe from the `Tasks-ToDo-Sync` calendar on the device that should not ring.
-
-Android users who rely on Google-side alarms (no Microsoft To Do app on the phone) should keep the default.
+If you use **Apple Reminders** connected to your Microsoft account **and** Apple Calendar subscribed to Google Calendar, both the Microsoft To Do alarm and the projected event's popup can fire for the same task. The defaults already prevent this — projection is on but its popup reminder is off — so the out-of-the-box setup rings once, from Microsoft To Do. If you previously turned the popup on, set `SYNC_CALENDAR_PROJECTION_REMINDER=false` to make the projected event silent again, or unsubscribe from the `Tasks-ToDo-Sync` calendar on the device that should not ring.
 
 ## First validation and scheduling
 

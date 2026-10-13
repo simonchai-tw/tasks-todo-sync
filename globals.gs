@@ -145,7 +145,8 @@ const ALERT_KEYS = {
   storagePressure: 'alert_storage_pressure_last_at',
   listFault: 'alert_listfault_last_at',
   bothRecurrence: 'alert_both_recurrence_last_at',
-  timeBridgeQuarantine: 'alert_tb_quarantine_last_at'
+  timeBridgeQuarantine: 'alert_tb_quarantine_last_at',
+  syncStale: 'alert_sync_stale_last_at'
 };
 let RUN_STARTED_AT = 0;
 let SYNC_OBSERVABILITY_ = null;

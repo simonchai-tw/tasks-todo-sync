@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.9.9 — 2026-10-13
+
+### Subtask deletions obey the master delete switch
+
+Turning off `SYNC_ALLOW_DELETIONS` now really means nothing gets deleted. Previously the switch governed tasks and lists but not subtasks: with subtask sync enabled (the default for fresh installs), Google subtasks and Microsoft checklist items could still be deleted while the operator believed deletion was off. Deletion evidence is still collected while the switch is off, mappings are kept, and everything resumes the moment you turn it back on.
+
+### Cross-list moves that lose a repeat rule now tell you
+
+Moving a task between lists recreates it on the Microsoft side with only title, notes, due date, and status. When the original was a Microsoft-native repeating task, the repeat rule cannot come along — the whole series becomes a single task. The move still proceeds (that is the documented behavior), but you now receive a de-identified alert email naming exactly what could not be carried over, so a vanished series is never a surprise.
+
+### Sync that runs out of time budget is no longer silent
+
+A round that hit the Apps Script execution limit used to return a partial result and update nothing: no failure counter, no alert, and no health signal — a permanently stalled sync looked healthy. `healthCheck()` now reports how long it has been since the last successful sync, and repeated exhaustion triggers a rate-limited alert email.
+
+### Setup, client, and wizard hardening
+
+- **Side-effect actions are POST-only.** The web app's `doGet` used to accept any whitelisted action, including `syncAll`, via URL parameters — a browser request carrying your login cookie could trigger them. Read-only actions stay on GET; anything that writes now requires POST. The desktop companion was already POST-only and is unaffected.
+- **A failed dry-run no longer schedules a broken deployment.** `setupWizardFinalize()` recorded a failed preview and created the trigger anyway, so the first round started from a known-bad state. It now stops before scheduling and tells you to fix the failure first.
+- **The client timeout covers the full server budget** (180s → 330s): first-round builds on large accounts used to time out client-side while the server kept syncing, and the retry then hit the global lock.
+- **The wizard's list confirmation shows real names.** `listGoogleTaskLists()` logged its result without returning it, so confirmation cards silently degraded to raw provider IDs.
+- **Time Bridge legacy migration no longer runs when the bridge is off.** It used to rewrite notes on every round regardless of the switch.
+- **Removing every Google link clears the managed block** in Microsoft notes instead of leaving a stale block behind.
+- **Abandoned checklist-item create records get tombstones**, so a Microsoft item abandoned mid-create is not re-posted to Google as a duplicate.
+
+### Documentation and website honesty pass
+
+- **Calendar defaults were documented backwards.** Projection is ON by default and the popup reminder is OFF; the guides claimed the reverse, and the iPhone double-ring advice was written against the wrong default.
+- **The recurring-task disclosure now matches the move path.** The compatibility guide claimed repeating tasks are always refused, while the cross-list move path discloses the loss and proceeds.
+- **The audit's file count is labeled as a point-in-time fact** (19 canonical files as of this release) instead of contradicting itself.
+- **The raw-state export warning matches what it exports.**
+- **The website states its boundaries before you connect**: personal Microsoft accounts only, the exact OAuth scopes, the ~300-pair operating envelope, calendar projection being on by default, and the `[TTS-TIME:15:30]` note marker.
+- **The Mac/Linux bootstrap references `@latest`** instead of a pinned version, and the website's terminal demo no longer overflows on small phones.
+
 ## 0.9.8 — 2026-10-13
 
 ### Operator release exit for wedged task-create batches
@@ -53,7 +86,7 @@ Microsoft-native recurring tasks (recurrence set on the Microsoft side) are now 
 
 ### Connection-layer UrlFetch failures are retried in every language
 
-- **What happened**: a single sync round failed with Google's localized "無法開啟網址" (cannot open URL) for the Microsoft Graph endpoint — 29 rounds succeeded around it, so this was a one-off network blip between the Apps Script and Microsoft data centers, not a code defect. A read-only probe pushed into the live project confirmed the Graph endpoint was healthy from the Apps Script environment (200/401/204 across three targets).
+- **What happened**: a single sync round failed with Google's localized "cannot open URL" error for the Microsoft Graph endpoint — 29 rounds succeeded around it, so this was a one-off network blip between the Apps Script and Microsoft data centers, not a code defect. A read-only probe pushed into the live project confirmed the Graph endpoint was healthy from the Apps Script environment (200/401/204 across three targets).
 - **Root cause of the harsh reaction**: `isUrlFetchTransientError_` matched a hardcoded allowlist of English message fragments, so a connection-layer failure reported in any other language (or any new phrasing) skipped the in-round retry entirely.
 - **Fix (semantic inversion)**: a UrlFetchApp exception means the request never produced an HTTP response — DNS, reset, timeout, quota, or a localized cannot-open-URL — and is **transient by default**, retried with the existing exponential backoff. Only argument-level mistakes (invalid argument/value/URL) are excluded as permanent. Language-independent, immune to Google rewording.
 - **Alert behaviour unchanged**: the fatal-error email still fires only after all in-round retries are exhausted, and its 24-hour cooldown still caps it at one per day.

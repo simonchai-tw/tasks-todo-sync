@@ -570,6 +570,7 @@ test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and
   assert.equal(offSummary.intaken, 0);
   assert.equal(offSummary.spliced, 0);
   assert.equal(offSummary.msPatched, 0);
+  assert.equal(offSummary.migrated, null, 'legacy-record migration waits for the knob too (§3.15)');
   assert.equal(offState.g2m['g-task'].td, undefined, 'no intake while the bridge is off');
 });
 

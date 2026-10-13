@@ -331,6 +331,65 @@ function sendBothRecurrenceAlert_(info) {
   return sent;
 }
 
+/* A completed cross-list move recreates the Microsoft task (Microsoft To Do
+// cannot move a task between lists while keeping its identity), so the old
+// task took every field the destination payload does not carry — a recurrence
+// rule collapses the whole repeating series into a single task.  Fires once
+// per completed move: each move is a distinct operator action, so there is no
+// cooldown, and sendMailAlert_ already skips silently when the daily mail
+// quota is gone.  Best-effort by contract: a mail failure must never fail or
+// undo a move that has already committed. */
+function sendMoveMetadataLossAlert_(info) {
+  try {
+    // WO-12: titles are user content and may contain newlines that would spoof
+    // the report layout; raw provider IDs never belong in operator mail.
+    const title = String((info && info.title) || '(Untitled)').replace(/[\r\n]+/g, ' ');
+    const fields = (info && info.detectedNonPreserved) || [];
+    const body = 'A task was moved between lists, so the sync engine recreated it on the Microsoft To Do side.\n\n' +
+      'The following task data could not be carried over and was skipped: ' +
+      (fields.length ? fields.join(', ') : '(unknown)') + '\n\n' +
+      (fields.indexOf('recurrence') >= 0 ?
+        'The repeating series on Microsoft To Do now exists as a single task without its schedule.\n\n' : '') +
+      'Task: ' + title + '\n' +
+      'Google task id: ' + ((info && info.gId) ? previewOpaqueId_('google-task', info.gId) : '(unknown)') + '\n' +
+      'Previous Microsoft task id: ' + ((info && info.oldMsId) ? previewOpaqueId_('microsoft-task', info.oldMsId) : '(unknown)') + '\n' +
+      'Replacement Microsoft task id: ' + ((info && info.newMsId) ? previewOpaqueId_('microsoft-task', info.newMsId) : '(unknown)') + '\n\n' +
+      'The mapping was updated and nothing else was deleted. ' +
+      'Run dryRunReport() and inspectSyncState() to review the current state. ' +
+      'To stop cross-list moves entirely, set SYNC_ALLOW_TASK_MOVES to false.';
+    return sendMailAlert_('[Sync engine] Task move completed without recurrence', body);
+  } catch (e) {
+    console.error('[Move] Metadata-loss alert failed: ' + e.message);
+    return false;
+  }
+}
+
+/* A time-budget-exhausted round is a partial round: it commits no final
+// state, so lastSuccessfulSyncAt stops advancing while syncAll keeps looking
+// healthy from the outside (advisory review 2026-10-13, §3.6).  Once no round
+// has completed for a few trigger intervals, say so.  Cooldowned: a condition
+// that persists until something changes needs one email per day, not one per
+// round. */
+function sendSyncStaleAlert_(info) {
+  if (!canSendAlert_(ALERT_KEYS.syncStale, ALERT_COOLDOWN_MS)) {
+    console.warn('[Sync] Stale-sync alert is still in its cooldown period; email skipped.');
+    return false;
+  }
+  const threshold = (info && info.thresholdMinutes) || 0;
+  const last = (info && info.lastSuccessfulSyncAt) || '(never recorded)';
+  const body = 'No sync round has completed in the last ' + threshold + ' minutes.\n\n' +
+    'Last successful sync: ' + last + '\n\n' +
+    'Rounds may be hitting the execution time budget before the final commit. ' +
+    'The next round always reruns the full inventory, so nothing is lost, but ' +
+    'synchronization is effectively paused until a round fits inside the budget.\n\n' +
+    'Check healthCheck() and the Apps Script execution log. Reducing the number ' +
+    'of mapped tasks, or splitting lists across deployments, brings rounds back ' +
+    'inside the budget.';
+  const sent = sendMailAlert_('[Sync engine] Sync has not completed recently', body);
+  if (sent) markAlertSent_(ALERT_KEYS.syncStale);
+  return sent;
+}
+
 function forceMicrosoftRefresh_(service) {
   if (!service || typeof service.refresh !== 'function') {
     return { ok: false, code: 'OAUTH_REFRESH_UNSUPPORTED' };

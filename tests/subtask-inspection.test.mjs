@@ -128,6 +128,34 @@ test('apply is local-only and never calls provider POST PATCH DELETE', () => {
   assert.equal(s.subtasks.conflicts.child.reason, 'SUBTASK_ABANDONED');
 });
 
+test('abandoning an ms: create journal tombstones the Microsoft item so it is not recreated', () => {
+  const { c } = load();
+  const s = c.newState_();
+  s.g2m.parent = { msId: 'ms-parent', gListId: 'g-list', msListId: 'ms-list' };
+  s.subtasks.createJournal['ms:check-1'] = {
+    phase: 'UNCERTAIN', gChildId: null, msChecklistId: 'check-1', gParentId: 'parent',
+    parentMsId: 'ms-parent', parentMsListId: 'ms-list',
+    intended: { title: 'Child', completed: false }, at: 't'
+  };
+  c.subtaskApplyLocalOperation_(s, { action: 'ABANDON' }, { kind: 'CREATE', key: 'ms:check-1' },
+    { persist() {} });
+  assert.equal(s.subtasks.createJournal['ms:check-1'], undefined);
+  assert.equal(c.subtaskHasTombstone_(s, null, 'ms-parent', 'check-1'), true,
+    'the tombstone is keyed the way the M->G reconcile loop looks items up (§3.4)');
+
+  let creates = 0;
+  c.createGChecklistChildNoRetry_ = () => { creates += 1; return { id: 'never' }; };
+  const snap = {
+    safety: { enableSubtasks: true, allowDeletions: true },
+    googleInventoryComplete: true,
+    gTasksById: { parent: { id: 'parent', title: 'Parent', status: 'needsAction' } },
+    gListByTask: { parent: 'g-list' },
+    msChecklistItemsByParentId: { 'ms-parent': [{ id: 'check-1', displayName: 'Child', isChecked: false }] }
+  };
+  c.reconcileSubtasks_(s, snap, { enableSubtasks: true, allowDeletions: true, roundId: 'r1', persist() {} });
+  assert.equal(creates, 0, 'the abandoned Microsoft item must not be recreated');
+});
+
 test('RESOLVE create commits stored remote identity without a provider POST', () => {
   const { c } = load();
   const s = c.newState_();

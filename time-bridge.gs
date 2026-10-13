@@ -9,7 +9,8 @@
  * Microsoft renderer must precede the merge because the merge fingerprints the
  * whole {date,time} unit, and the date sync must follow it or a stale td.date
  * would write the user's Microsoft date edit back away.
- * All top-level declarations end with _ to preserve publicEntrypoints === 53.
+ * All top-level declarations end with _ to preserve publicEntrypoints === 58
+ * (scripts/validate.mjs is the authority on that count).
  */
 
 /* Digest, marker and time-zone helpers (behaviour unchanged since v0.7.x). */
@@ -550,7 +551,8 @@ function timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZon
   return { patched: patched, quarantined: quarantined };
 }
 
-/* §3.7 Calendar renderer (opt-in; SYNC_CALENDAR_PROJECTION is off by default). */
+/* §3.7 Calendar renderer (SYNC_CALENDAR_PROJECTION ships ON by default since
+ * the 2026-09-30 product decision; the popup reminder knob stays OFF). */
 
 function timeBridgeGetOrCreateCalendar_(state, syncTimeZone) {
   if (typeof CalendarApp === 'undefined') return null;
@@ -807,13 +809,18 @@ function timeBridgeRun_(state, snap, startedAt, roundId) {
   var authoredTimeZone = timeBridgeAuthoredTimeZone_(syncTimeZone);
   var summary = { migrated: null, intaken: 0, spliced: 0, msPatched: 0, quarantined: [] };
 
-  summary.migrated = timeBridgeMigrateLegacyRem_(state, snap, syncTimeZone, authoredTimeZone);
-
   if (!safety.enableTimeBridge) {
-    // Knob OFF: no intake, no renderers.  `due` is fully owned by the merge and
-    // the time component is ignored there, so nothing has to be released here.
+    // Knob OFF: no intake, no renderers, and no legacy-record migration.  A
+    // disabled feature must not rewrite state either — the migration used to
+    // run before this check, rebuilding rec.td and deleting legacy rem keys
+    // on deployments that had turned the bridge off (advisory review
+    // 2026-10-13, §3.15).  It waits here until the knob is on.  `due` stays
+    // fully owned by the merge and the time component is ignored there, so
+    // nothing has to be released here.
     return summary;
   }
+
+  summary.migrated = timeBridgeMigrateLegacyRem_(state, snap, syncTimeZone, authoredTimeZone);
 
   summary.intaken = timeBridgeIntake_(state, snap, syncTimeZone, nowMs, authoredTimeZone);
   if (!remainingTimeOk_(startedAt, 30000)) return summary;
