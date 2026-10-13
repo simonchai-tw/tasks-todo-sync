@@ -106,7 +106,10 @@ npx tasks-todo-sync init
 | **3 · Microsoft sign-in** | Enter short code at `microsoft.com/link` | Connects personal Microsoft To Do via Device Code Flow — no Azure setup or secrets |
 | **4 · Finalize** | Click "Activate" in the wizard | Schedules the 10-minute trigger, runs a health check, and starts synchronization |
 
-> **Self-Hosted & Advanced Entra:** For full self-hosted control without device codes, self-managed Entra OAuth (custom Client ID, Client Secret, and redirect URI) remains fully supported. See the [deployment guide](docs/deployment.md) for custom credentials and manual clasp workflows.
+> **Alternative deployment and authorization options:**
+>
+> - **Standalone runtime with automatic updates:** For environments without preconfigured Node.js, the [Windows Desktop Companion (.exe)](https://github.com/simonchai-tw/tasks-todo-sync/releases/latest/download/Tasks-ToDo-Sync-Setup.exe) bundles its runtime and manages self-updates, while the [macOS & Linux bootstrap script](https://raw.githubusercontent.com/simonchai-tw/tasks-todo-sync/main/bootstrap.sh) (`curl -fsSL https://raw.githubusercontent.com/simonchai-tw/tasks-todo-sync/main/bootstrap.sh | sh`) automates runtime provisioning.
+> - **Self-managed Azure / Entra OAuth:** For environments requiring dedicated Azure tenant control (custom Client ID, Client Secret, and redirect URI) instead of Device Code Flow, manual `clasp` deployment remains fully supported. See the [deployment guide](docs/deployment.md).
 
 Follow the **[quick start](docs/quick-start.md)** for the guided walkthrough, or open the **[deployment guide](docs/deployment.md)** for manual setup, upgrades, rollback, and cross-list moves.
 
