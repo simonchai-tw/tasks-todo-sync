@@ -30,7 +30,7 @@ Microsoft-native recurring tasks (recurrence set on the Microsoft side) are now 
 - **The Time Bridge renderer never writes due or reminder into a native recurring task**: the same re-anchoring hazard through the reminder/due render path.
 - **A Google-side delete of a native recurring task is held** (`MS_NATIVE_RECURRENCE`): deleting the recurring task on the Microsoft side — which ends the series properly — is the supported way to remove it.
 
-## 0.9.5-alpha — Unreleased
+## 0.9.5-alpha — Shipped in the v0.9.x line (no standalone tag or release)
 
 ### Defaults
 

@@ -6,8 +6,8 @@ Thank you for your interest in contributing to Tasks–To Do Sync! This project 
 
 Tasks–To Do Sync is stateful infrastructure. Because tasks represent real personal and work commitments, all contributions must uphold strict correctness and data-safety guarantees:
 
-1. **The 17 Canonical `.gs` Files**:
-   The Apps Script runtime consists of exactly 17 root-level `.gs` files listed in `lib/gas-files.mjs`. Do not introduce new `.gs` files or remove existing ones without prior architectural review.
+1. **The 19 Canonical `.gs` Files**:
+   The Apps Script runtime consists of exactly 19 root-level `.gs` files listed in `lib/gas-files.mjs`. Do not introduce new `.gs` files or remove existing ones without prior architectural review.
 2. **Deterministic Architecture & Load Order**:
    Apps Script evaluates top-level scripts in an environment where declaration order matters. Every function or class must pass canonical, reverse, and shuffled load-order gates.
 3. **Core Scheduler Invariants**:
@@ -44,14 +44,14 @@ Before submitting any code changes, ensure all static validations and automated 
 # Run static architecture and package dry-run checks
 npm run check
 
-# Run full hermetic unit test suite (416 tests)
+# Run full hermetic unit test suite (530 tests)
 npm test
 
 # (Optional) Run 600-pair deterministic stress simulation
 npm run stress:600
 ```
 
-All 416 automated tests and package checks must pass with exit code `0`.
+All 530 automated tests and package checks must pass with exit code `0`.
 
 ## Submitting Pull Requests
 
@@ -60,6 +60,15 @@ All 416 automated tests and package checks must pass with exit code `0`.
 3. **Add Tests**: If modifying synchronization logic, field merge, or setup workflows, add corresponding unit tests under `tests/`.
 4. **Check Validations**: Run `npm run check && npm test` locally.
 5. **Use the PR Template**: Fill out the pull request template completely, explaining the motivation, changes made, and verification steps.
+
+## Commit Message Shorthand
+
+The maintainer's commit history uses a few internal references. They are bookkeeping, not requirements:
+
+- **`WO-<n>`** — an internal work-order ID (`WO-1` … `WO-14`) that labels one piece of engineering work. Commit subjects and the CHANGELOG use it to cross-reference the same item. The work-order list itself lives in the maintainer's private engineering log and is not part of this repository.
+- **`advisory P0` / `advisory P1`** — a priority tier from a periodic engineering advisory review of the engine. P0 items are expected to be resolved before the next release; P1 items are scheduled follow-ups.
+
+You do not need to use either convention. A clear description of what changed and why is enough.
 
 ## Code of Conduct & Communication
 
