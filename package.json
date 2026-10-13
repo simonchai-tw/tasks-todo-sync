@@ -1,6 +1,6 @@
 {
   "name": "tasks-todo-sync",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "private": false,
   "description": "Self-hosted, bidirectional sync between Google Tasks and Microsoft To Do that runs on Google Apps Script.",
   "keywords": [
@@ -55,6 +55,7 @@
     "time-bridge.gs",
     "sync.gs",
     "operations.gs",
+    "task-create-recovery.gs",
     "Setup.html",
     "appsscript.json",
     "LICENSE",

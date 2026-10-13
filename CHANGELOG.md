@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 0.9.8 — 2026-10-13
+
+### Operator release exit for wedged task-create batches
+
+A `microsoft_to_google` batch that reached CLEANUP_PENDING with every entry ACKED — and then lost its Microsoft sources mid-flight — had no exit: the finalize guard correctly refused to commit a mapping whose source vanished, but the batch stayed active, ordinary sync stayed fenced, and every trigger round re-threw the same fatal error forever (`TASK_CREATE_FINALIZE_MISSING`). Two new operator actions close that hole, gated on live evidence:
+
+- **`previewTaskCreateBatchRelease()`** re-reads both sides of every item under the global lock and classifies it. Release is allowed only when every item is `SOURCE_LOST_DEST_ALIVE`, `DEST_LOST_SOURCE_ALIVE`, or `BOTH_LOST`; ALIVE+ALIVE (the batch should finalize normally), non-ACKED entries (owned by the existing HELD_* flows), and any failed read are NOT_SAFE.
+- **`applyTaskCreateBatchRelease(params)`** clears the batch only after re-verifying the same evidence live, strips create sentinels from surviving Google twins, and hands every survivor back to the ordinary unmapped-create flow, which reposts it with fresh dedup machinery. Nothing is deleted by this action; it requires the same duplicate-risk confirmation as `RELEASE_FOR_REPOST`.
+
+### Installer size and download stability
+
+- **The Windows installer is 31% smaller** (84.5 MB → 58.2 MB): TypeScript declaration files (`*.d.ts` — 168 MiB unpacked, 71% of the bundled engine, pulled in transitively by `@google/clasp` and never loaded by Node at runtime) and .NET debugger/designer assemblies are excluded from the package. Runtime behavior is unchanged.
+- **The installer filename is fixed** (`Tasks-ToDo-Sync-Setup.exe`), so the website and docs can bind one permanent download URL that always resolves to the newest release.
+- **Update-check failures read as plain language** instead of raw HTTP errors such as "403 (rate limit exceeded)".
+
 ## 0.9.7 — 2026-10-11
 
 ### Recurrence storm fixes (2026-10-11 incident)

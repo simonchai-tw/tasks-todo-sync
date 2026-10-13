@@ -24,7 +24,6 @@
 
 <!-- Preload video poster & setup wizard slides for instantaneous transitions -->
 <link rel="preload" as="image" href="assets/concept-video-poster.webp" type="image/webp" fetchpriority="high">
-<link rel="preload" as="image" href="assets/step-1-terminal.webp" type="image/webp">
 <link rel="preload" as="image" href="assets/step-2-google.webp" type="image/webp">
 <link rel="preload" as="image" href="assets/step-3-microsoft.webp" type="image/webp">
 <link rel="preload" as="image" href="assets/step-4-activate.webp" type="image/webp">
@@ -443,22 +442,6 @@ p.hero-desc {
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 32px;
-}
-
-.hero-note {
-  margin-top: 16px;
-  font-size: 13px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.hero-note code {
-  font-family: ui-monospace, Menlo, Consolas, monospace;
-  color: var(--teal);
-  background: rgba(45, 212, 191, 0.08);
-  padding: 2px 6px;
-  border-radius: 4px;
 }
 
 /* ==========================================================================
@@ -902,25 +885,28 @@ code {
 /* Wizard Showcase Card */
 .wizard-showcase {
   margin-top: 28px;
-  background: var(--card);
-  border: 1px solid var(--card-border);
+  background: #0d1322;
+  border: 1px solid rgba(148, 163, 214, 0.16);
   border-radius: var(--radius-xl);
   overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+.wizard-showcase-body {
   display: grid;
-  grid-template-columns: 1.10fr 1fr;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  grid-template-columns: 1.12fr 1fr;
+  align-items: stretch;
 }
 .wizard-preview-col {
   position: relative;
-  background: #070b14;
-  border-right: 1px solid var(--card-border);
+  background: transparent;
+  border-right: none;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 22px 20px;
+  padding: 22px 22px 10px;
   overflow: hidden;
   user-select: none;
+  box-sizing: border-box;
 }
 .preview-slides-box {
   position: relative;
@@ -1000,32 +986,50 @@ code {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  margin-top: 14px;
-  padding: 0 4px;
-  font-size: 12.5px;
+  padding: 4px 24px 16px;
+  background: transparent;
+  border-top: none;
+  font-size: 12px;
   color: var(--text-dim);
+  box-sizing: border-box;
 }
 .preview-status-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .preview-step-badge {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
   color: var(--teal);
+  background: rgba(45, 212, 191, 0.08);
+  border: 1px solid rgba(45, 212, 191, 0.22);
   letter-spacing: 0.02em;
+  box-sizing: border-box;
+  user-select: none;
 }
 .preview-play-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  background: rgba(148, 163, 214, 0.08);
-  border: 1px solid rgba(148, 163, 214, 0.2);
-  color: var(--text-dim);
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
   font-size: 11.5px;
   font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 999px;
+  line-height: 1;
+  box-sizing: border-box;
+  background: rgba(148, 163, 214, 0.07);
+  border: 1px solid rgba(148, 163, 214, 0.18);
+  color: var(--text-dim);
   cursor: pointer;
   transition: all 0.2s ease;
   user-select: none;
@@ -1033,24 +1037,24 @@ code {
   touch-action: manipulation;
 }
 .preview-play-btn:active {
-  transform: scale(0.94);
+  transform: scale(0.95);
 }
 @media (hover: hover) and (pointer: fine) {
   .preview-play-btn:hover {
-    background: rgba(45, 212, 191, 0.15);
-    border-color: rgba(45, 212, 191, 0.4);
+    background: rgba(45, 212, 191, 0.12);
+    border-color: rgba(45, 212, 191, 0.35);
     color: var(--teal);
   }
   .preview-play-btn.paused:hover {
-    background: rgba(245, 158, 11, 0.22);
-    border-color: rgba(245, 158, 11, 0.6);
-    color: #fde68a;
+    background: rgba(45, 212, 191, 0.22);
+    border-color: rgba(45, 212, 191, 0.6);
+    color: #ffffff;
   }
 }
 .preview-play-btn.paused {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
+  background: rgba(45, 212, 191, 0.14);
+  border-color: rgba(45, 212, 191, 0.45);
+  color: #5eead4;
 }
 .preview-dots {
   display: flex;
@@ -1061,59 +1065,62 @@ code {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(148, 163, 214, 0.25);
+  background: rgba(148, 163, 214, 0.22);
   cursor: pointer;
   transition: all 0.25s ease;
   touch-action: manipulation;
 }
 .preview-dot.active {
-  width: 22px;
+  width: 20px;
   border-radius: 999px;
   background: var(--teal);
 }
 
 .wizard-steps-col {
-  padding: clamp(18px, 2.5vw, 22px);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 14px;
+  padding: 22px 24px 10px;
+  display: grid;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 12px;
+  box-sizing: border-box;
+  height: 100%;
 }
 .step-item-mini {
   display: flex;
-  gap: 14px;
-  align-items: flex-start;
-  padding: 13px 15px;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 18px;
   border-radius: var(--radius-md);
   border: 1px solid rgba(148, 163, 214, 0.08);
+  background: rgba(148, 163, 214, 0.025);
   cursor: pointer;
   transition: all 0.22s ease;
   position: relative;
   overflow: hidden;
-  background: rgba(148, 163, 214, 0.025);
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  margin: 0;
+  box-sizing: border-box;
 }
 @media (hover: hover) and (pointer: fine) {
   .step-item-mini:hover {
-    background: rgba(148, 163, 214, 0.07);
-    border-color: rgba(148, 163, 214, 0.2);
+    background: rgba(148, 163, 214, 0.06);
+    border-color: rgba(148, 163, 214, 0.18);
   }
 }
 .step-item-mini.active {
-  background: rgba(45, 212, 191, 0.09);
+  background: rgba(45, 212, 191, 0.07);
   border-color: rgba(45, 212, 191, 0.38);
-  box-shadow: 0 4px 20px rgba(45, 212, 191, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
 .step-num-pill {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: rgba(148, 163, 214, 0.15);
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(148, 163, 214, 0.12);
   color: var(--text-dim);
-  font-weight: 900;
-  font-size: 13.5px;
+  font-weight: 800;
+  font-size: 14px;
   display: grid;
   place-items: center;
   flex: none;
@@ -1122,22 +1129,31 @@ code {
 .step-item-mini.active .step-num-pill {
   background: var(--grad-primary);
   color: #070b14;
-  box-shadow: 0 2px 10px rgba(66, 133, 244, 0.35);
+  box-shadow: 0 2px 10px rgba(45, 212, 191, 0.35);
+}
+.step-text-wrap {
+  flex: 1;
 }
 .step-text-wrap h4 {
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   margin-bottom: 3px;
-  color: var(--text);
+  color: #e2e8f0;
   transition: color 0.22s ease;
 }
 .step-item-mini.active .step-text-wrap h4 {
   color: var(--teal);
+  font-weight: 700;
 }
 .step-text-wrap p {
-  font-size: 13px;
+  font-size: 12.8px;
   color: var(--text-dim);
-  line-height: 1.5;
+  line-height: 1.48;
+  margin: 0;
+  transition: color 0.22s ease;
+}
+.step-item-mini.active .step-text-wrap p {
+  color: #cbd5e1;
 }
 .step-progress-line {
   position: absolute;
@@ -1147,20 +1163,228 @@ code {
   width: 0%;
   background: var(--teal);
   transition: width 0.08s linear;
+  opacity: 0;
+}
+.step-item-mini.active .step-progress-line {
+  opacity: 1;
+}
+
+/* macOS & Linux Terminal Command Modal */
+.cli-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(4, 7, 14, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  opacity: 1;
+  transition: opacity 0.22s ease;
+}
+.cli-modal-backdrop[hidden] {
+  display: none;
+  opacity: 0;
+}
+.cli-modal-card {
+  width: 100%;
+  max-width: 580px;
+  background: #0d1322;
+  border: 1px solid rgba(148, 163, 214, 0.25);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
+  padding: 24px 24px 20px;
+  position: relative;
+  animation: modalPop 0.22s var(--ease-spring);
+}
+@keyframes modalPop {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+.cli-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.cli-modal-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--teal);
+  margin-bottom: 3px;
+}
+.cli-modal-header h3 {
+  font-size: 19px;
+  font-weight: 700;
+  color: #ffffff;
+}
+.cli-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.15s ease;
+}
+.cli-modal-close:hover {
+  color: #ffffff;
+}
+.cli-modal-desc {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+/* macOS Terminal Window */
+.cli-terminal {
+  background: #060913;
+  border: 1px solid rgba(148, 163, 214, 0.2);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.cli-terminal-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(15, 23, 42, 0.75);
+  border-bottom: 1px solid rgba(148, 163, 214, 0.12);
+}
+.cli-traffic-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dot-red, .dot-yellow, .dot-green {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-red { background: #ff5f56; }
+.dot-yellow { background: #ffbd2e; }
+.dot-green { background: #27c93f; }
+.cli-terminal-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+.cli-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  color: var(--teal);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  flex: none;
+  transition: all 0.2s ease;
+}
+.cli-copy-btn:hover {
+  background: var(--teal);
+  color: #070b14;
+}
+.cli-copy-btn.copied {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #4ade80;
+}
+.cli-terminal-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  overflow: hidden;
+}
+.cli-prompt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  color: var(--teal);
+  font-weight: 700;
+  user-select: none;
+  flex: none;
+}
+.cli-copy-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  user-select: all;
+  background: transparent;
+  border: none;
+  padding: 0;
+  flex: 1;
+}
+.cli-copy-code::-webkit-scrollbar {
+  display: none;
+}
+
+.cli-modal-footer {
+  display: flex;
+  justify-content: center;
+  border-top: 1px solid rgba(148, 163, 214, 0.1);
+  padding-top: 16px;
+  margin-top: 4px;
+}
+.cli-modal-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 22px;
+  border-radius: 999px;
+  background: rgba(148, 163, 214, 0.08);
+  border: 1px solid rgba(148, 163, 214, 0.2);
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+.cli-modal-pill-btn:hover {
+  background: rgba(45, 212, 191, 0.12);
+  border-color: rgba(45, 212, 191, 0.4);
+  color: var(--teal);
+  transform: translateY(-1px);
 }
 
 @media (max-width: 960px) {
-  .wizard-showcase { grid-template-columns: 1fr; }
+  .wizard-showcase-body { grid-template-columns: 1fr; }
   .wizard-preview-col {
     border-right: none;
-    border-bottom: 1px solid var(--card-border);
-    padding: 18px 16px 14px 16px;
+    border-bottom: 1px solid rgba(148, 163, 214, 0.08);
+    padding: 18px 16px;
   }
   .preview-slides-box { margin-top: 0; }
-  .wizard-steps-col { padding: 20px 16px; gap: 8px; }
-  .step-item-mini { padding: 10px 12px; }
+  .wizard-steps-col {
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+    gap: 10px;
+    height: auto;
+  }
+  .step-item-mini { padding: 12px 14px; flex: none; }
   .step-text-wrap h4 { font-size: 14.5px; }
   .step-text-wrap p { font-size: 12.5px; }
+  .preview-bottom-bar { padding: 10px 16px; }
 }
 
 /* CLI Pane */
@@ -1440,7 +1664,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       <div class="badges">
         <span class="badge"><i class="badge-dot"></i><span data-i18n="badge_selfhosted">Self-Hosted</span></span>
         <span class="badge mit"><i class="badge-dot"></i>MIT License</span>
-        <span class="badge ver"><i class="badge-dot"></i>v0.9.5-alpha</span>
+        <span class="badge ver"><i class="badge-dot"></i>v0.9.8</span>
       </div>
 
       <h1 class="hero-title">
@@ -1455,16 +1679,18 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
       </p>
 
       <div class="hero-actions">
-        <a href="#install" class="btn btn-teal" id="openWebSetupBtn">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-          <span data-i18n="btn_web_setup">Easy Setup Wizard (3 min)</span>
+        <!-- Fixed asset name + latest path: this URL is permanent. GitHub keeps
+             serving the newest release at /releases/latest/download/<name>, so
+             the button never needs editing when a version ships. -->
+        <a href="https://github.com/simonchai-tw/tasks-todo-sync/releases/latest/download/Tasks-ToDo-Sync-Setup.exe" class="btn btn-teal" id="btnDownloadWin" target="_blank" rel="noopener noreferrer">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-13.051-1.802"/></svg>
+          <span data-i18n="btn_dl_win">Download for Windows (.exe)</span>
         </a>
+        <button class="btn btn-secondary" id="btnMacLinuxModal" type="button">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <span data-i18n="btn_mac_linux">macOS &amp; Linux</span>
+        </button>
       </div>
-
-      <p class="hero-note">
-        <span>✨</span>
-        <span data-i18n="hero_note">One-time setup · Official OAuth sign-ins · Automatic background sync every 10 min</span>
-      </p>
     </div>
 
     <!-- Live Sync Simulation -->
@@ -1726,7 +1952,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     <div class="stat-strip">
       <div class="stat-card reveal">
-        <div class="stat-num" data-count="491">491</div>
+        <div class="stat-num" data-count="530">530</div>
         <div class="stat-label" data-i18n="stat_1">Automated tests covering sync engine</div>
       </div>
       <div class="stat-card reveal">
@@ -1768,73 +1994,65 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
 
     <!-- UNIFIED SETUP SHOWCASE -->
     <div class="wizard-showcase reveal" style="margin-top: 36px;">
-      <!-- Visual Screenshot Column (Interactive Slides) -->
-      <div class="wizard-preview-col" id="wizardShowcaseBox">
-        <div class="preview-slides-box" id="previewSlidesBox">
-          <img class="preview-slide active" id="slide0" src="assets/step-1-terminal.webp" alt="Step 1: Run Setup Command" fetchpriority="high" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-1-terminal.png'">
-          <img class="preview-slide" id="slide1" src="assets/step-2-google.webp" alt="Step 2: Google Tasks Authorization" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-2-google.png'">
-          <img class="preview-slide" id="slide2" src="assets/step-3-microsoft.webp" alt="Step 3: Connect Microsoft To Do" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-3-microsoft.png'">
-          <img class="preview-slide" id="slide3" src="assets/step-4-activate.webp" alt="Step 4: Activate 10-Minute Sync" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-4-activate.png'">
+      <div class="wizard-showcase-body">
+        <!-- Visual Screenshot Column -->
+        <div class="wizard-preview-col" id="wizardShowcaseBox">
+          <div class="preview-slides-box" id="previewSlidesBox">
+            <img class="preview-slide active" id="slide0" src="assets/step-2-google.webp" alt="Step 1: Authorize Google Tasks" fetchpriority="high" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-2-google.png'">
+            <img class="preview-slide" id="slide1" src="assets/step-3-microsoft.webp" alt="Step 2: Connect Microsoft To Do" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-3-microsoft.png'">
+            <img class="preview-slide" id="slide2" src="assets/step-4-activate.webp" alt="Step 3: Activate 10-Minute Sync" decoding="async" onerror="this.onerror=null;this.src='docs/assets/step-4-activate.png'">
 
-          <!-- Navigation buttons -->
-          <button class="preview-nav-btn prev" id="prevSlideBtn" type="button" aria-label="Previous step">‹</button>
-          <button class="preview-nav-btn next" id="nextSlideBtn" type="button" aria-label="Next step">›</button>
+            <!-- Navigation buttons -->
+            <button class="preview-nav-btn prev" id="prevSlideBtn" type="button" aria-label="Previous step">‹</button>
+            <button class="preview-nav-btn next" id="nextSlideBtn" type="button" aria-label="Next step">›</button>
+          </div>
         </div>
 
-        <div class="preview-bottom-bar">
-          <div class="preview-status-wrap">
-            <span class="preview-step-badge" id="previewStepBadge">Step 1 of 4</span>
-            <button class="preview-play-btn" id="togglePlayBtn" type="button" aria-label="Pause slideshow">
-              <svg class="icon-pause" id="barIconPause" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1.5"/><rect x="14" y="4" width="4" height="16" rx="1.5"/></svg>
-              <svg class="icon-play" id="barIconPlay" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><polygon points="6 4 20 12 6 20 6 4"/></svg>
-              <span id="playBtnText" data-i18n="wiz_pause">Pause</span>
-            </button>
+        <!-- 3 Step Guide Column (Interactive Tabs) -->
+        <div class="wizard-steps-col" id="wizardStepsCol">
+          <div class="step-item-mini active" data-step="0" role="button" tabindex="0">
+            <div class="step-num-pill">1</div>
+            <div class="step-text-wrap">
+              <h4 data-i18n="wiz_s1_h">Authorize Google Tasks</h4>
+              <p data-i18n="wiz_s1_p">Confirms your private Google Apps Script runtime permissions with zero third-party relay.</p>
+            </div>
+            <div class="step-progress-line"></div>
           </div>
-          <div class="preview-dots" id="previewDots">
-            <span class="preview-dot active" data-step="0"></span>
-            <span class="preview-dot" data-step="1"></span>
-            <span class="preview-dot" data-step="2"></span>
-            <span class="preview-dot" data-step="3"></span>
+
+          <div class="step-item-mini" data-step="1" role="button" tabindex="0">
+            <div class="step-num-pill">2</div>
+            <div class="step-text-wrap">
+              <h4 data-i18n="wiz_s2_h">Connect Microsoft To Do</h4>
+              <p data-i18n="wiz_s2_p">Authenticate securely via official device code at <b>microsoft.com/link</b> without Azure setup.</p>
+            </div>
+            <div class="step-progress-line"></div>
+          </div>
+
+          <div class="step-item-mini" data-step="2" role="button" tabindex="0">
+            <div class="step-num-pill">3</div>
+            <div class="step-text-wrap">
+              <h4 data-i18n="wiz_s3_h">Activate 10-Min Auto-Sync</h4>
+              <p data-i18n="wiz_s3_p">Starts the automatic background trigger with bidirectional loop protection and self-healing.</p>
+            </div>
+            <div class="step-progress-line"></div>
           </div>
         </div>
       </div>
 
-      <!-- 4 Step Guide Column (Interactive Tabs) -->
-      <div class="wizard-steps-col" id="wizardStepsCol">
-        <div class="step-item-mini active" data-step="0" role="button" tabindex="0">
-          <div class="step-num-pill">1</div>
-          <div class="step-text-wrap">
-            <h4 data-i18n="wiz_s1_h">Run Setup Command</h4>
-            <p data-i18n="wiz_s1_p">Open terminal and run <code>npx tasks-todo-sync init</code> to create your private project.</p>
-          </div>
-          <div class="step-progress-line"></div>
+      <!-- Full-Width Bottom Bar -->
+      <div class="preview-bottom-bar">
+        <div class="preview-status-wrap">
+          <span class="preview-step-badge" id="previewStepBadge">Step 1 of 3</span>
+          <button class="preview-play-btn" id="togglePlayBtn" type="button" aria-label="Pause slideshow">
+            <svg class="icon-pause" id="barIconPause" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1.5"/><rect x="14" y="4" width="4" height="16" rx="1.5"/></svg>
+            <svg class="icon-play" id="barIconPlay" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><polygon points="6 4 20 12 6 20 6 4"/></svg>
+            <span id="playBtnText" data-i18n="wiz_pause">Pause</span>
+          </button>
         </div>
-
-        <div class="step-item-mini" data-step="1" role="button" tabindex="0">
-          <div class="step-num-pill">2</div>
-          <div class="step-text-wrap">
-            <h4 data-i18n="wiz_s2_h">Deploy &amp; Open Wizard</h4>
-            <p data-i18n="wiz_s2_p">Open the printed URL, click <b>Deploy → Web app</b>, and open the generated link.</p>
-          </div>
-          <div class="step-progress-line"></div>
-        </div>
-
-        <div class="step-item-mini" data-step="2" role="button" tabindex="0">
-          <div class="step-num-pill">3</div>
-          <div class="step-text-wrap">
-            <h4 data-i18n="wiz_s3_h">Connect Microsoft Account</h4>
-            <p data-i18n="wiz_s3_p">In the wizard, click "Connect" and enter the code at <b>microsoft.com/link</b>.</p>
-          </div>
-          <div class="step-progress-line"></div>
-        </div>
-
-        <div class="step-item-mini" data-step="3" role="button" tabindex="0">
-          <div class="step-num-pill">4</div>
-          <div class="step-text-wrap">
-            <h4 data-i18n="wiz_s4_h">Activate 10-Minute Sync</h4>
-            <p data-i18n="wiz_s4_p">Click "Activate" in the wizard to start automatic background synchronization!</p>
-          </div>
-          <div class="step-progress-line"></div>
+        <div class="preview-dots" id="previewDots">
+          <span class="preview-dot active" data-step="0"></span>
+          <span class="preview-dot" data-step="1"></span>
+          <span class="preview-dot" data-step="2"></span>
         </div>
       </div>
     </div>
@@ -1970,10 +2188,44 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     <div style="font-size: 13.5px; color: var(--text-muted);">
       © 2026 <a href="mailto:simonchai@outlook.com" class="author-mail">Simon Chai</a> · MIT License
     </div>
-  </div>
 </footer>
 
-
+<!-- macOS & Linux Command Modal -->
+<div class="cli-modal-backdrop" id="cliModal" hidden>
+  <div class="cli-modal-card">
+    <div class="cli-modal-header">
+      <div class="cli-modal-title-wrap">
+        <span class="cli-modal-badge">macOS &amp; Linux</span>
+        <h3 data-i18n="modal_cli_h">One-Line Terminal Setup</h3>
+      </div>
+      <button class="cli-modal-close" id="closeCliModalBtn" type="button" aria-label="Close modal">&times;</button>
+    </div>
+    <p class="cli-modal-desc" data-i18n="modal_cli_p">Paste this into Terminal. It automatically checks Node.js 22+, downloads components, and opens your private setup wizard:</p>
+    <div class="cli-terminal">
+      <div class="cli-terminal-bar">
+        <div class="cli-traffic-dots">
+          <span class="dot-red"></span>
+          <span class="dot-yellow"></span>
+          <span class="dot-green"></span>
+        </div>
+        <span class="cli-terminal-title">sh</span>
+        <button class="cli-copy-btn" id="copyCliBtn" type="button" aria-label="Copy command">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <span id="copyCliText" data-i18n="btn_copy">Copy</span>
+        </button>
+      </div>
+      <div class="cli-terminal-body">
+        <span class="cli-prompt">$</span>
+        <code id="cliCommandText" class="cli-copy-code">curl -fsSL https://raw.githubusercontent.com/simonchai-tw/tasks-todo-sync/main/bootstrap.sh | sh</code>
+      </div>
+    </div>
+    <div class="cli-modal-footer">
+      <button class="cli-modal-pill-btn" id="modalViewStepsLink" type="button">
+        <span data-i18n="modal_view_steps">✦ Preview 3-step setup ↓</span>
+      </button>
+    </div>
+  </div>
+</div>
 
 <div class="toast-notice" id="toastNotice">Copied to clipboard! ✓</div>
 
@@ -2036,8 +2288,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     const slides = [
       document.getElementById('slide0'),
       document.getElementById('slide1'),
-      document.getElementById('slide2'),
-      document.getElementById('slide3')
+      document.getElementById('slide2')
     ];
     const stepItems = stepsCol.querySelectorAll('.step-item-mini');
     const dots = document.querySelectorAll('.preview-dot');
@@ -2061,8 +2312,8 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     function updateBadge(idx) {
       if (!badge) return;
       badge.textContent = currentLang === 'zh-TW' 
-        ? `步驟 ${idx + 1} / 4` 
-        : `Step ${idx + 1} of 4`;
+        ? `步驟 ${idx + 1} / 3` 
+        : `Step ${idx + 1} of 3`;
     }
 
     function updatePlayUi(paused) {
@@ -2107,7 +2358,7 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     }
 
     function setActiveStep(idx, manual = false) {
-      currentIndex = (idx + 4) % 4;
+      currentIndex = (idx + slides.length) % slides.length;
 
       // Update slides
       slides.forEach((sl, i) => {
@@ -2301,6 +2552,62 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     };
   })();
 
+  // macOS & Linux Terminal Command Modal Controller
+  (function initCliModal() {
+    const btnMacLinuxModal = document.getElementById('btnMacLinuxModal');
+    const cliModal = document.getElementById('cliModal');
+    const closeCliModalBtn = document.getElementById('closeCliModalBtn');
+    const copyCliBtn = document.getElementById('copyCliBtn');
+    const cliCommandText = document.getElementById('cliCommandText');
+    const modalViewStepsLink = document.getElementById('modalViewStepsLink');
+
+    function openCliModal() {
+      if (!cliModal) return;
+      cliModal.removeAttribute('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeCliModal() {
+      if (!cliModal) return;
+      cliModal.setAttribute('hidden', '');
+      document.body.style.overflow = '';
+    }
+
+    if (btnMacLinuxModal) btnMacLinuxModal.addEventListener('click', openCliModal);
+    if (closeCliModalBtn) closeCliModalBtn.addEventListener('click', closeCliModal);
+    if (cliModal) {
+      cliModal.addEventListener('click', (e) => {
+        if (e.target === cliModal) closeCliModal();
+      });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && cliModal && !cliModal.hasAttribute('hidden')) {
+        closeCliModal();
+      }
+    });
+    if (modalViewStepsLink) {
+      modalViewStepsLink.addEventListener('click', (e) => {
+        closeCliModal();
+        const installSec = document.getElementById('install');
+        if (installSec) {
+          e.preventDefault();
+          installSec.scrollIntoView({ behavior: 'smooth' });
+        }
+      });
+    }
+    if (copyCliBtn && cliCommandText) {
+      copyCliBtn.addEventListener('click', () => {
+        copyText(cliCommandText.textContent.trim());
+        copyCliBtn.classList.add('copied');
+        const copySpan = document.getElementById('copyCliText');
+        if (copySpan) copySpan.textContent = currentLang === 'zh-TW' ? '已複製！' : 'Copied!';
+        setTimeout(() => {
+          copyCliBtn.classList.remove('copied');
+          if (copySpan) copySpan.textContent = currentLang === 'zh-TW' ? '複製' : 'Copy';
+        }, 2000);
+      });
+    }
+  })();
+
   // Video in-place YouTube embed
   const videoPoster = document.getElementById('videoPoster');
   const videoPlayerBox = document.getElementById('videoPlayerBox');
@@ -2384,7 +2691,12 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'hero_h1_2': '完美無縫同步',
     'hero_desc': '專為雙向串聯打造的私有自託管同步橋梁。隨處記錄，隨處勾選完成。零第三方伺服器、無需訂閱月費，完全運行在您自己的 <strong>Google Apps Script</strong> 專案內。',
     'btn_web_setup': '快速安裝精靈 (3 分鐘)',
-    'hero_note': '一次性快速部署 · 官方標準 OAuth 授權 · 10 分鐘背景靜默同步',
+    'btn_dl_win': '下載 Windows 版 (.exe)',
+    'btn_mac_linux': 'macOS & Linux',
+    'modal_cli_h': '一行終端指令完成安裝',
+    'modal_cli_p': '在終端機貼上以下指令，自動檢查 Node.js 22+、取得最新組件並喚起私有安裝精靈：',
+    'btn_copy': '複製',
+    'modal_view_steps': '✦ 預覽 3 步驟設定流程 ↓',
     'demo_live_sync': '即時雙向模擬',
     'demo_interval': '排程：每 10 分鐘',
     'task_g1': '審查 Q3 專案規劃',
@@ -2465,15 +2777,13 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'privacy_p': '無外部後台託管、無中央資料庫、無任何廣告與追蹤代碼——同步全數在您個人的 Google Apps Script 私人環境內運算。開源採用 MIT 授權，受 GitHub CI 與 CodeQL 靜態分析嚴格檢查。',
     'eyebrow_install': '快速開始',
     'install_title': '數分鐘內，<span class="grad-text">今晚立即搞定同步</span>',
-    'install_lead': '數分鐘輕鬆搞定：一行指令在雲端建立私有專案，接著在瀏覽器安裝精靈中完成授權與啟動。',
-    'wiz_s1_h': '一行指令建立專案',
-    'wiz_s1_p': '打開終端機執行 <code>npx tasks-todo-sync init</code>，自動在雲端建立私有專案。',
-    'wiz_s2_h': '部署並開啟安裝精靈',
-    'wiz_s2_p': '點開專案網址，點擊 <b>Deploy → Web app</b>，打開 Google 產生的私有精靈網址。',
-    'wiz_s3_h': '安全授權微軟帳號',
-    'wiz_s3_p': '在精靈點擊 Connect，前往 <b>microsoft.com/link</b> 輸入短碼授權。',
-    'wiz_s4_h': '啟動背景自動同步',
-    'wiz_s4_p': '在精靈點擊 Activate，立即建立排程，每 10 分鐘自動背景靜默同步！',
+    'install_lead': '啟動安裝工具後，瀏覽器將自動開啟個人私有設定精靈，只需依序完成以下 3 步：',
+    'wiz_s1_h': '授權 Google Tasks',
+    'wiz_s1_p': '確認私有 Google Apps Script 執行階段權限與安全預設值，零第三方中繼。',
+    'wiz_s2_h': '連接 Microsoft To Do',
+    'wiz_s2_p': '於 <b>microsoft.com/link</b> 輸入 8 位官方設備碼快速登入，無須繁瑣 Azure 設定。',
+    'wiz_s3_h': '啟動 10 分鐘自動同步',
+    'wiz_s3_p': '啟動每 10 分鐘自動背景觸發，具備雙向防迴圈閉包與逾時中斷自癒機制。',
     'wiz_pause': '暫停',
     'wiz_play': '播放',
     'eyebrow_video': '概念影片',
@@ -2517,7 +2827,12 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'hero_h1_2': 'in one seamless loop.',
     'hero_desc': 'A private, self-hosted bridge that keeps your daily tasks effortlessly in sync across both ecosystems. Capture anywhere, check off anywhere. No third-party sync server, no subscriptions. Runs privately inside <strong>your own Google Apps Script</strong> project.',
     'btn_web_setup': 'Easy Setup Wizard (3 min)',
-    'hero_note': 'One-time setup · Official OAuth sign-ins · Automatic background sync every 10 min',
+    'btn_dl_win': 'Download for Windows (.exe)',
+    'btn_mac_linux': 'macOS & Linux',
+    'modal_cli_h': 'One-Line Terminal Setup',
+    'modal_cli_p': 'Paste this into Terminal. It automatically checks Node.js 22+, downloads components, and opens your private setup wizard:',
+    'btn_copy': 'Copy',
+    'modal_view_steps': '✦ Preview 3-step setup ↓',
     'demo_live_sync': 'Live Sync Simulation',
     'demo_interval': 'Trigger: Every 10 min',
     'task_g1': 'Review Q3 Roadmap',
@@ -2598,15 +2913,13 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
     'privacy_p': 'No external database, no SaaS middleware, no tracking cookies. Everything executes inside your private Google Apps Script. Open source under MIT, audited by GitHub CI and CodeQL static analysis.',
     'eyebrow_install': 'Get Started',
     'install_title': 'Get synced tonight <span class="grad-text">in under 5 minutes</span>',
-    'install_lead': 'Deploy in minutes: one command creates your private Google project, then the guided web wizard finishes setup in your browser.',
-    'wiz_s1_h': 'Run Setup Command',
-    'wiz_s1_p': 'Open terminal and run <code>npx tasks-todo-sync init</code> to create your private project.',
-    'wiz_s2_h': 'Deploy & Open Wizard',
-    'wiz_s2_p': 'Open the printed URL, click <b>Deploy → Web app</b>, and open the generated link.',
-    'wiz_s3_h': 'Connect Microsoft Account',
-    'wiz_s3_p': 'In the wizard, click "Connect" and enter the code at <b>microsoft.com/link</b>.',
-    'wiz_s4_h': 'Activate 10-Minute Sync',
-    'wiz_s4_p': 'Click "Activate" in the wizard to start automatic background synchronization!',
+    'install_lead': 'After launching the tool, your private setup wizard opens automatically in your browser:',
+    'wiz_s1_h': 'Authorize Google Tasks',
+    'wiz_s1_p': 'Confirms your private Google Apps Script runtime permissions with zero third-party relay.',
+    'wiz_s2_h': 'Connect Microsoft To Do',
+    'wiz_s2_p': 'Authenticate securely via official device code at <b>microsoft.com/link</b> without Azure setup.',
+    'wiz_s3_h': 'Activate 10-Min Auto-Sync',
+    'wiz_s3_p': 'Starts the automatic background trigger with bidirectional loop protection and self-healing.',
     'wiz_pause': 'Pause',
     'wiz_play': 'Play',
     'eyebrow_video': 'Concept Video',

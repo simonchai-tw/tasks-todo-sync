@@ -8784,13 +8784,15 @@ test('managedGasSourceName maps pulled .js names onto canonical .gs names', () =
   assert.equal(managedGasSourceName('time-bridge.js'), 'time-bridge.gs');
   assert.equal(managedGasSourceName('globals.js'), 'globals.gs');
   // The exact file list observed live from the installed project.
+  // task-create-recovery.gs joined on 2026-10-12 (finalize-wedge operator exit).
   const pulled = ['auth.js','Code.js','config.js','field-merge.js','globals.js','lifecycle.js',
     'lists.js','operations.js','providers.js','relationship-discovery.js','resource-projection.js',
-    'runtime.js','setup.js','state.js','subtask-classification.js','subtask-sync.js','sync.js','time-bridge.js'];
+    'runtime.js','setup.js','state.js','subtask-classification.js','subtask-sync.js','sync.js','time-bridge.js',
+    'task-create-recovery.js'];
   for (const name of pulled) {
     assert.ok(isManagedGasSourceFile(name), `${name} must be recognized as managed`);
   }
-  // 18 pulled files map onto exactly the 18 managed sources: no leftovers.
+  // 19 pulled files map onto exactly the 19 managed sources: no leftovers.
   assert.equal(pulled.length, GAS_SOURCE_FILES.length);
   assert.deepEqual(
     [...pulled].map(managedGasSourceName).sort(),
