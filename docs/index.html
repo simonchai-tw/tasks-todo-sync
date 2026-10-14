@@ -1285,9 +1285,13 @@ code {
   background: rgba(4, 7, 14, 0.78);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  padding: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
   opacity: 1;
   transition: opacity 0.22s ease;
 }
@@ -1297,12 +1301,14 @@ code {
 }
 .cli-modal-card {
   width: 100%;
-  max-width: 580px;
+  max-width: 560px;
+  min-width: 0;
+  box-sizing: border-box;
   background: #0d1322;
   border: 1px solid rgba(148, 163, 214, 0.25);
   border-radius: var(--radius-lg);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7);
-  padding: 24px 24px 20px;
+  padding: 24px 22px 20px;
   position: relative;
   animation: modalPop 0.22s var(--ease-spring);
 }
@@ -1358,6 +1364,10 @@ code {
   overflow: hidden;
   margin-bottom: 16px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .cli-terminal-bar {
   display: flex;
@@ -1366,6 +1376,8 @@ code {
   padding: 8px 12px;
   background: rgba(15, 23, 42, 0.75);
   border-bottom: 1px solid rgba(148, 163, 214, 0.12);
+  width: 100%;
+  box-sizing: border-box;
 }
 .cli-traffic-dots {
   display: flex;
@@ -1413,11 +1425,13 @@ code {
 }
 .cli-terminal-body {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 12px 14px;
   overflow: hidden;
   min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 .cli-prompt {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1426,10 +1440,11 @@ code {
   font-weight: 700;
   user-select: none;
   flex: none;
+  line-height: 1.5;
 }
 .cli-copy-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12.5px;
+  font-size: 12px;
   color: #e2e8f0;
   white-space: nowrap;
   overflow-x: auto;
@@ -1441,6 +1456,9 @@ code {
   padding: 0;
   flex: 1;
   min-width: 0;
+  max-width: 100%;
+  display: block;
+  line-height: 1.5;
 }
 .cli-copy-code::-webkit-scrollbar {
   display: none;
@@ -1478,25 +1496,55 @@ code {
 
 @media (max-width: 640px) {
   .cli-modal-backdrop {
-    padding: 12px;
+    padding: 16px 12px;
   }
   .cli-modal-card {
-    padding: 20px 16px 16px;
+    padding: 18px 14px 14px;
     border-radius: var(--radius-md);
+    width: 100%;
+    max-width: 100%;
   }
   .cli-modal-header h3 {
-    font-size: 17px;
+    font-size: 16px;
+  }
+  .cli-modal-close {
+    font-size: 24px;
+    padding: 0 4px;
   }
   .cli-modal-desc {
-    font-size: 13px;
-    margin-bottom: 14px;
+    font-size: 12.5px;
+    margin-bottom: 12px;
+    line-height: 1.45;
+  }
+  .cli-terminal-bar {
+    padding: 6px 10px;
+  }
+  .cli-copy-btn {
+    padding: 4px 9px;
+    font-size: 11px;
   }
   .cli-terminal-body {
-    padding: 10px 12px;
+    padding: 10px 10px;
     gap: 8px;
   }
-  .cli-copy-code {
+  .cli-prompt {
     font-size: 11.5px;
+    line-height: 1.45;
+  }
+  .cli-copy-code {
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+  .cli-modal-footer {
+    padding-top: 14px;
+    margin-top: 0;
+  }
+  .cli-modal-pill-btn {
+    padding: 7px 16px;
+    font-size: 12px;
   }
 }
 
