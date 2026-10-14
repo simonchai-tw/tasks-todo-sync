@@ -393,10 +393,14 @@ function storePersonalMicrosoftTokens_(token, requireRefreshToken) {
 function pollPersonalMicrosoftAuth_() {
   const lock = LockService.getUserLock();
   lock.waitLock(5000);
-  const mode = resolveMicrosoftAuthMode_();
   let properties = null;
   let session = null;
+  let mode;
   try {
+    // Inside the try: a throw here must still run the finally that releases
+    // the user lock, or every later poll deadlocks on the orphaned lock
+    // (0.9.9 review P2).
+    mode = resolveMicrosoftAuthMode_();
     properties = PropertiesService.getUserProperties();
     const raw = properties.getProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);
     if (!raw) return { status: 'not_started' };

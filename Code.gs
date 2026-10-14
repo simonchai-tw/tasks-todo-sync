@@ -780,9 +780,15 @@ function setupWizardFinalize() {
   let dryRunOk = false;
   try {
     const report = dryRunReport();
-    dryRunOk = true;
+    // Read every field the check below depends on BEFORE declaring the preview
+    // a success: dryRunReport() returns null when the script lock is held by
+    // another round (Code.gs LOCK_HELD path), and dereferencing that null used
+    // to throw into the catch with dryRunOk already true — the wizard then
+    // created a trigger on top of a preview it never actually saw (0.9.9
+    // review P1).
     const warningCount = Array.isArray(report.warnings) ? report.warnings.length : 0;
     const pendingMoveCount = Array.isArray(report.pendingMoves) ? report.pendingMoves.length : 0;
+    dryRunOk = true;
     record('dryRun', 'Read-only sync preview', true,
       warningCount === 0
         ? 'The read-only inventory reported no warnings.'

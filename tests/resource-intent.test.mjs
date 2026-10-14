@@ -178,3 +178,13 @@ test('a stored intent lets a crash-orphaned block be recognised as ours', () => 
   assert.equal(c.notesWriteAllowed_(recovered.status), true);
   assert.equal(recovered.blockFp, fp, 'the recovered fingerprint can be promoted to confirmed');
 });
+
+test('a display-name truncation never splits a surrogate pair (0.9.9 review P2)', () => {
+  const c = load();
+  // 199 ASCII units + one rocket (2 units): a code-unit slice lands mid-pair
+  // and writes a lone surrogate into the managed block.
+  const name = 'a'.repeat(199) + '\u{1F680}';
+  const cleaned = c.resourceNormalizeDisplayName_(name);
+  const hasLoneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/.test(cleaned);
+  assert.equal(hasLoneSurrogate, false, 'truncation must not leave a lone surrogate');
+});

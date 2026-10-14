@@ -384,6 +384,26 @@ test('Microsoft auth mode defaults to Personal, preserves legacy Advanced instal
   assert.throws(() => invalid.context.resolveMicrosoftAuthMode_(), /MICROSOFT_AUTH_MODE_INVALID/);
 });
 
+test('auth user-lock: an invalid MS_AUTH_MODE still releases the user lock (0.9.9 review P2)', () => {
+  const held = [];
+  const makeLock = (name) => ({
+    waitLock() { held.push(name); },
+    releaseLock() { const i = held.indexOf(name); if (i >= 0) held.splice(i, 1); }
+  });
+  const lockService = {
+    getUserLock: () => makeLock('user'),
+    getScriptLock: () => makeLock('script')
+  };
+  const { context } = loadContext({
+    lockService,
+    scriptValues: { MS_AUTH_MODE: 'garbage-mode-sentinel' }
+  });
+  // resolveMicrosoftAuthMode_ throws for this value; the finally must still
+  // release the user lock or every later poll deadlocks on the orphaned lock.
+  assert.throws(() => context.pollPersonalMicrosoftAuth_(), /MICROSOFT_AUTH_MODE_INVALID/);
+  assert.deepEqual(held, [], 'user lock must be released by the finally block');
+});
+
 test('Personal Device Flow begins with bounded public output and reuses an unexpired session', () => {
   const calls = [];
   const providerBody = {
@@ -1778,9 +1798,23 @@ test('sync summaries expose only bounded success, failure, and time-budget metri
       assert.equal(Number.isInteger(result.mappingCount), true);
       assert.equal(typeof result.completedAt, 'string');
     } else {
+      const staleAlerts = [];
+      context.sendSyncStaleAlert_ = (payload) => { staleAlerts.push(payload); return true; };
+      state.health.lastSuccessfulSyncAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
       const result = context.syncAll();
       assert.equal(result.partial, true);
       assert.equal(result.reason, 'TIME_BUDGET');
+      // A budget-exhausted round commits no final state, so lastSuccessfulSyncAt
+      // stops advancing; once no round has completed for three trigger intervals
+      // the operator must hear about it instead of watching a silent stall.
+      assert.equal(staleAlerts.length, 1,
+        'a budget-exhausted round with an aged last-success stamp notifies the operator once');
+      assert.equal(staleAlerts[0].thresholdMinutes, 30);
+      // A recent successful round is not stale: the alert must stay quiet.
+      state.health.lastSuccessfulSyncAt = new Date().toISOString();
+      const fresh = context.syncAll();
+      assert.equal(fresh.reason, 'TIME_BUDGET');
+      assert.equal(staleAlerts.length, 1, 'a fresh last-success stamp keeps the stale alert quiet');
     }
     const summary = logs.map((value) => {
       try { return JSON.parse(value); } catch (e) { return null; }
@@ -4260,9 +4294,8 @@ test('Google cross-list move re-syncs only that task and retires the old Microso
     return movedMsTask;
   };
 
-  context.reconcileMapped_(state, snap, Date.now(), 'move-round', {
-    durableJournalTaskIds: {}, invalidatedCandidateTaskIds: {}, discardCandidateTaskIds: {}
-  });
+  const progress = { durableJournalTaskIds: {}, invalidatedCandidateTaskIds: {}, discardCandidateTaskIds: {} };
+  context.reconcileMapped_(state, snap, Date.now(), 'move-round', progress);
 
   assert.deepEqual(calls, [
     ['create', 'ms-new', 'Moved'],
@@ -4278,6 +4311,38 @@ test('Google cross-list move re-syncs only that task and retires the old Microso
   assert.equal(state.taskDeletionConflicts['g-task'], undefined);
   assert.ok(state.tombstones.m['ms-task-old']);
   assert.equal(state.tombstones.g['g-task'], undefined);
+  assert.ok(progress.invalidatedCandidateTaskIds['g-task'],
+    'a committed move invalidates the stale deletion candidate in the round accounting');
+});
+
+test('a rollback never restores a deletion candidate the round invalidated', () => {
+  const { context } = loadContext();
+  const pendingBeforeRound = {
+    'g-task': { gId: 'g-task', msId: 'ms-task', confirmations: 1, firstConfirmedAt: '2026-10-01T00:00:00Z' }
+  };
+  function seed() {
+    const state = context.newState_();
+    state.g2m['g-task'] = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list' };
+    state.pendingTaskDeletions = { 'g-task': { ...pendingBeforeRound['g-task'] } };
+    return state;
+  }
+  // A committed move invalidates the candidate AND clears it from state; the
+  // round then fails and rolls back.  Without the invalidation record the
+  // rollback would restore evidence gathered against the OLD Microsoft task,
+  // which the mapping rewrite has since repointed at a new target.
+  const invalidated = seed();
+  const savedInvalidated = context.captureTaskDeletionState_(invalidated);
+  delete invalidated.pendingTaskDeletions['g-task'];
+  context.rollbackUndurableTaskDeletionChanges_(invalidated, savedInvalidated, pendingBeforeRound, {}, { 'g-task': true }, {}, true);
+  assert.equal(invalidated.pendingTaskDeletions['g-task'], undefined,
+    'an invalidated candidate stays invalidated across a rollback');
+  // Control: the same cleared candidate WITHOUT the invalidation is restored.
+  const control = seed();
+  const savedControl = context.captureTaskDeletionState_(control);
+  delete control.pendingTaskDeletions['g-task'];
+  context.rollbackUndurableTaskDeletionChanges_(control, savedControl, pendingBeforeRound, {}, {}, {}, true);
+  assert.equal(control.pendingTaskDeletions['g-task'].confirmations, 1,
+    'a normal rollback restores the pre-round candidate');
 });
 
 test('Google move retries from its still-live source when the old Microsoft task is already gone', () => {

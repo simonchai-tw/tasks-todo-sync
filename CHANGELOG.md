@@ -4,6 +4,26 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 1.0.0 — 2026-10-14
+
+First stable release. The engine fixes below came out of a five-axis adversarial review of 0.9.9 (state machines, fuzzing, concurrency, mutation testing, static consistency); each one ships with a regression test, and the full suite stands at 549 tests.
+
+### A timed due date edited on Google now reaches Microsoft
+
+Under Time Bridge, changing only the DATE of a due that carries a reminder on Google never landed on Microsoft: the merge deliberately leaves the due write to the Microsoft renderer (which owns due + reminder as one payload), but the renderer compared its target against Microsoft's unchanged current value and concluded there was nothing to do — a deadlock where the edit silently never arrived, on every round, forever. The merge now treats its own planned outcome as authoritative, and clearing the date also clears Microsoft's due in the same round while parking the leftover reminder for one cleanup pass.
+
+### A locked-out dry-run can no longer schedule a deployment
+
+0.9.9 claimed the setup wizard stops before scheduling when the read-only preview fails; the fix was incomplete. When another sync round holds the script lock, `dryRunReport()` returns null, the check dereferenced that null into the error path — but only after the "preview passed" flag was already set, so the trigger was created anyway on top of a preview that never ran. The flag is now set only after every value the check depends on has been read, and a null preview genuinely schedules nothing.
+
+### An invalid auth mode no longer wedges the next poll
+
+`pollPersonalMicrosoftAuth_()` resolved the auth mode before entering its try block, so an invalid `MS_AUTH_MODE` threw while still holding the user lock — every later poll then deadlocked on the orphaned lock until the execution timed out. The resolution now happens inside the try, and the existing finally releases the lock on every exit path.
+
+### Managed-block display names no longer corrupt emoji
+
+Resource display names are truncated at 200 code units; a name ending near the limit could split a surrogate pair in half, writing a lone surrogate into the managed block in Microsoft notes, where it fails to round-trip through JSON and Graph. Truncation now counts code points, so an emoji at the boundary survives whole.
+
 ## 0.9.9 — 2026-10-13
 
 ### Subtask deletions obey the master delete switch

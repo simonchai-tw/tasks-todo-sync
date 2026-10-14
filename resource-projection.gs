@@ -195,7 +195,10 @@ function resourceNormalizeDisplayName_(text) {
   cleaned = cleaned.replace(/\r\n|\r/g, '\n').replace(/\n+/g, ' ').replace(/[ \t]+/g, ' ').trim();
   if (!cleaned) return '';
   if (cleaned.length <= RESOURCE_DISPLAY_NAME_MAX_) return cleaned;
-  return cleaned.slice(0, RESOURCE_DISPLAY_NAME_MAX_);
+  // Split by code point, not code unit: a naive slice can cut a surrogate
+  // pair in half and write a lone surrogate into the managed block, which
+  // then fails to round-trip through JSON/Graph (0.9.9 review P2).
+  return Array.from(cleaned).slice(0, RESOURCE_DISPLAY_NAME_MAX_).join('');
 }
 
 function resourceLabelForGoogleLinkType_(type) {

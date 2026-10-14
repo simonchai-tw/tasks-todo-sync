@@ -290,8 +290,12 @@ function ordinaryMicrosoftPatchFromPlan_(plan) {
   }
   if (Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'due')) {
     // A timed due is written by the Microsoft renderer (due + reminder in one
-    // payload) so the round never PATCHes the same field twice.
-    if (!plan.toMicrosoft.due) {
+    // payload) so the round never PATCHes the same field twice.  A cleared
+    // DATE is the exception: with no date left to converge to, the clear has
+    // to travel in this payload.  Graph ignores reminder fields beside
+    // dueDateTime, so the leftover reminder is wiped separately by the
+    // renderer through the pending-clear record the merge parks below.
+    if (!plan.toMicrosoft.due || !plan.toMicrosoft.due.date) {
       payload.dueDateTime = null;
     } else if (!plan.toMicrosoft.due.time) {
       payload.dueDateTime = msDue_(plan.toMicrosoft.due.date + 'T00:00:00.000Z');
@@ -573,9 +577,34 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   // cleared date clears the time with it.  A pair with an unresolved due
   // conflict is left alone (fail-closed) until one side changes again.
   if (rec.td && !(rec.fc && rec.fc.due)) {
-    var convergedDate = (mNow.due && mNow.due.date) || (gNow.due && gNow.due.date) || null;
-    if (!convergedDate) delete rec.td;
-    else if (rec.td.date !== convergedDate) rec.td.date = convergedDate;
+    // A planned Microsoft due write is the authoritative outcome of the round:
+    // for a TIMED due the ordinary patch deliberately sends nothing (the
+    // renderer owns the write), so reading the date back off Microsoft would
+    // lock in the stale pre-round value and the user's edit would never arrive
+    // — the renderer would compare its target against the very value it was
+    // supposed to change.  0.9.9 review P1 (G→M deadlock).
+    var plannedDue = Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'due') ? plan.toMicrosoft.due : undefined;
+    var plannedClear = Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'due') && (!plannedDue || !plannedDue.date);
+    var convergedDate = (plannedDue && plannedDue.date) || (mNow.due && mNow.due.date) || (gNow.due && gNow.due.date) || null;
+    if (plannedClear) {
+      if (rec.td.clear === true) {
+        // Already parked: the renderer still owes a reminder wipe.  Re-parking
+        // is a no-op and dropping the record would strand it forever.
+      } else if (rec.td.time) {
+        // A cleared date on a timed pair parks the record as a pending clear
+        // (the NONE-marker form): the patch clears the due, and the renderer
+        // then wipes the engine-authored leftover reminder.
+        rec.td.time = null;
+        rec.td.clear = true;
+      } else {
+        // Date-only pair: no engine-authored reminder to wipe.
+        delete rec.td;
+      }
+    } else if (!convergedDate) {
+      delete rec.td;
+    } else if (rec.td.date !== convergedDate) {
+      rec.td.date = convergedDate;
+    }
   }
 
   putMapping_(state, gAfter, currentGListId || rec.gListId, msAfter, rec.msListId);

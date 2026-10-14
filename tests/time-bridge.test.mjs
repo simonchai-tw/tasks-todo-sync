@@ -734,4 +734,25 @@ test('NONE clears the leftover Microsoft reminder once and then the pair rests (
   assert.equal(second.patched, 0, 'a cleared date-only pair rests');
 });
 
+test('the Microsoft renderer converges a provider that has not caught up to rec.td (0.9.9 review P1)', () => {
+  const { c } = loadContext();
+  // rec.td.date is the PLANNED date (the merge deferred the write to this
+  // renderer); Microsoft still holds the previous date.  The renderer must
+  // write the planned date, not declare victory against its own target.
+  const state = tbState('g-task', { td: { date: '2026-10-09', time: '15:30', v: 1 } }); // FIXED-DATE-OK
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-09T00:00:00.000Z' }, // FIXED-DATE-OK
+    { id: 'ms-task', title: 'T', dueDateTime: { dateTime: '2026-10-02T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, reminderDateTime: { dateTime: '2026-10-09T15:30:00', timeZone: 'Asia/Taipei' }, status: 'notStarted' } // FIXED-DATE-OK
+  );
+  const writes = [];
+  c.updateMsTask_ = (listId, id, payload) => { writes.push(payload); };
+  const result = c.timeBridgeMsRenderer_(state, snap, 'Asia/Taipei', Date.parse('2026-10-01T00:00:00Z'), 'Asia/Taipei');
+  // v0.8.0 contract: result.patched counts REMINDER patches only (a due PATCH is
+  // silent), so assert on the writes themselves.
+  assert.equal(result.patched, 0, 'the due PATCH is silent by contract');
+  assert.equal(writes.length, 1);
+  assert.ok(writes.some((w) => w.dueDateTime && w.dueDateTime.dateTime === '2026-10-09T00:00:00'), // FIXED-DATE-OK
+    'the renderer writes the date Microsoft has not caught up to');
+});
+
 

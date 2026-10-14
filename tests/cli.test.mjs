@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import test from 'node:test';
 import { createNodeRuntime, main } from '../lib/cli.mjs';
+import { WEB_APP_DEFAULT_TIMEOUT_MS } from '../lib/web-app-client.mjs';
 import { GAS_SOURCE_FILES } from '../lib/gas-files.mjs';
 
 const PACKAGE = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -924,4 +925,10 @@ test('init adoption gives clasp a project settings file in the directory it pull
     true,
     'the adoption path must actually pull'
   );
+});
+
+test('the web-app client budget outlives the 315-second engine round', () => {
+  // The engine round budgets ~315s; a client that gives up at 180s reports a
+  // timeout for work the server is still allowed to finish.
+  assert.equal(WEB_APP_DEFAULT_TIMEOUT_MS, 330000);
 });

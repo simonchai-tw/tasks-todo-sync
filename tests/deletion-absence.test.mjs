@@ -302,3 +302,19 @@ test('the absence-terminal capability reaches snap.safety and defaults to off', 
   bad.PropertiesService.getScriptProperties().setProperty('SYNC_ENABLE_ABSENCE_TERMINAL', 'yes');
   assert.throws(() => bad.getSafetyConfig_(), /SYNC_ABSENCE_TERMINAL_FLAG_INVALID/);
 });
+
+test('an operator disable keeps provider-proven deletion evidence and drops the rest', () => {
+  const c = load();
+  const state = c.newState_();
+  state.pendingTaskDeletions = {
+    'g-proven': { gId: 'g-proven', msId: 'ms-proven', confirmations: 2, providerProven: true },
+    'g-plain': { gId: 'g-plain', msId: 'ms-plain', confirmations: 1 }
+  };
+  c.pauseTaskDeletions_(state);
+  // Discarding the only evidence of a confirmed genuine deletion would let the
+  // next round resurrect the task on the side the user deleted it from.
+  assert.ok(state.pendingTaskDeletions['g-proven'],
+    'provider-proven evidence survives the operator disable');
+  assert.equal(state.pendingTaskDeletions['g-plain'], undefined,
+    'an unproven candidate is dropped by the disable');
+});

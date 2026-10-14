@@ -307,3 +307,58 @@ test('storm fix 5: the time bridge renderer never writes due or reminder into a 
   assert.equal(patches.length, 0, 'no reminder and no due write may reach a native recurring task');
   assert.equal(result.patched, 0);
 });
+
+test('a Google timed-due DATE edit reaches Microsoft instead of deadlocking (0.9.9 review P1)', () => {
+  const c = load();
+  const state = {
+    schema: 4, listMap: { 'g-list': 'ms-list' },
+    g2m: { 'g-task': { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } } }, // FIXED-DATE-OK
+    m2g: { 'ms-task': 'g-task' },
+    subtasks: { mappings: {}, parents: {}, createJournal: {}, pendingDeletions: {}, deletionJournal: {}, moveJournal: {}, conflicts: {}, tombstones: { g: {}, ms: {} } },
+    tombstones: { g: {}, ms: {} }, listFaults: { g: {}, ms: {} }, health: {}
+  };
+  const rec = state.g2m['g-task'];
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2026-10-09T00:00:00.000Z' }; // FIXED-DATE-OK
+  rec.fp = { v: 1, due: c.ordinaryFieldFp_(c.ordinaryProjectGoogle_({ ...gTask, due: '2026-10-02T00:00:00.000Z' }, rec, ON), 'due') }; // FIXED-DATE-OK
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-02T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, status: 'notStarted' }; // FIXED-DATE-OK
+  const msWrites = [];
+  c.updateMsTask_ = (listId, id, payload) => { msWrites.push(payload); return msTask; };
+  c.updateGTask_ = (listId, id, payload) => gTask;
+  c.putMapping_ = () => {};
+
+  c.ordinaryReconcileMappedPair_(state, rec, gTask, msTask, 'g-list', ON);
+
+  // The merge plans the write but deliberately sends nothing for a timed due
+  // (the renderer owns it).  rec.td.date must therefore follow the PLAN: reading
+  // the date back off Microsoft locks in the stale value and the renderer then
+  // compares its target against the very value it was supposed to change.
+  assert.equal(state.g2m['g-task'].td.date, '2026-10-09', // FIXED-DATE-OK
+    'rec.td.date follows the planned Microsoft write, not the stale provider value');
+  assert.equal(msWrites.length, 0, 'a timed due is still written by the renderer, not the merge');
+});
+
+test('a cleared Google due on a timed pair clears Microsoft and parks the reminder wipe (0.9.9 review P1)', () => {
+  const c = load();
+  const state = {
+    schema: 4, listMap: { 'g-list': 'ms-list' },
+    g2m: { 'g-task': { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {}, td: { date: '2026-10-02', time: '15:30', v: 1 } } }, // FIXED-DATE-OK
+    m2g: { 'ms-task': 'g-task' },
+    subtasks: { mappings: {}, parents: {}, createJournal: {}, pendingDeletions: {}, deletionJournal: {}, moveJournal: {}, conflicts: {}, tombstones: { g: {}, ms: {} } },
+    tombstones: { g: {}, ms: {} }, listFaults: { g: {}, ms: {} }, health: {}
+  };
+  const rec = state.g2m['g-task'];
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' };
+  rec.fp = { v: 1, due: c.ordinaryFieldFp_(c.ordinaryProjectGoogle_({ ...gTask, due: '2026-10-02T00:00:00.000Z' }, rec, ON), 'due') }; // FIXED-DATE-OK
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2026-10-02T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: true, reminderDateTime: { dateTime: '2026-10-02T15:30:00', timeZone: 'Asia/Taipei' }, status: 'notStarted' }; // FIXED-DATE-OK
+  const msWrites = [];
+  c.updateMsTask_ = (listId, id, payload) => { msWrites.push(payload); return msTask; };
+  c.updateGTask_ = (listId, id, payload) => gTask;
+  c.putMapping_ = () => {};
+
+  c.ordinaryReconcileMappedPair_(state, rec, gTask, msTask, 'g-list', ON);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(msWrites)), [{ dueDateTime: null }],
+    'the cleared date travels to Microsoft in this payload');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-02', time: null, v: 1, clear: true }, // FIXED-DATE-OK
+    'the record parks as a pending clear so the renderer wipes the engine-authored reminder');
+});

@@ -94,3 +94,35 @@ test('Setup.html renders all three health states from the persisted record', () 
   assert.match(SETUP_HTML, /state === 'pass'/);
   assert.match(SETUP_HTML, /state === 'fail'/);
 });
+
+test('a null dry-run report (lock held) creates no schedule (0.9.9 review P1)', () => {
+  const store = {};
+  const context = vm.createContext({
+    PropertiesService: {
+      getScriptProperties: () => ({
+        getProperty: (key) => Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null,
+        setProperty: (key, value) => { store[key] = String(value); }
+      })
+    },
+    console: { log() {}, warn() {}, error() {} }
+  });
+  vm.runInContext(extractFunction_(CODE_GS, 'setupWizardFinalize'), context);
+  let triggerCalls = 0;
+  context.initializeExecutionBudget_ = () => {};
+  context.setupWizardPersonalAuthorizationStatus = () => ({ status: 'authorized', verified: true });
+  context.initializeSafeDefaults = () => {};
+  context.setupStatus = () => ({ allSafetySettingsValid: true });
+  // dryRunReport() returns null when another round holds the script lock: the
+  // preview never ran, so nothing may be scheduled on top of it.
+  context.dryRunReport = () => null;
+  context.createTrigger = () => { triggerCalls += 1; };
+  context.setupTriggerCount_ = () => ({ count: 0, available: true });
+  context.boundedWizardHealth_ = () => ({ ok: true, issueCount: 0, issues: [] });
+  context.healthCheck = () => ({ ok: true, issues: [] });
+  context.writeLastWizardHealth_ = () => {};
+  const result = vm.runInContext('setupWizardFinalize()', context);
+  assert.equal(triggerCalls, 0, 'a preview that never ran must not schedule anything');
+  const triggerCheck = result.checks.find((check) => check.key === 'trigger');
+  assert.equal(triggerCheck.ok, false);
+  assert.match(triggerCheck.detail, /read-only preview failed/);
+});
