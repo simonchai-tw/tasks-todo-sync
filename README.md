@@ -144,4 +144,4 @@ Questions, ideas, or something not working? [Open an issue](https://github.com/s
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
