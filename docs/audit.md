@@ -2,7 +2,7 @@
 
 Audit scope: 0.8.1 — 2026-09-27
 
-> **Point-in-time snapshot.** This audit records the **v0.8.4** release and is kept for its reasoning, not its numbers. Current figures differ: the runtime is 19 canonical `.gs` files and the test suite is 530 tests. See the [CHANGELOG](../CHANGELOG.md) for what has shipped since.
+> **Point-in-time snapshot.** This audit records the **v0.8.4** release and is kept for its reasoning, not its numbers. Current figures differ: the runtime is 19 canonical `.gs` files and the test suite is 549 tests. See the [CHANGELOG](../CHANGELOG.md) for what has shipped since.
 
 The canonical 18-file Apps Script runtime, Time Bridge v3.0 (canonical time record with idempotent renderers and optional dedicated Google Calendar projection), modernized 3-step setup wizard, subtask and checklist synchronization engine, clean managed resource projection protocol, and formal scheduler invariants described below are included in this release. Since v0.8.2, the R-1 reminder guard fires once at time-record creation instead of every sync round (the recurring +20-minute reminder drift on Microsoft recurring tasks is fixed); since v0.8.1, fresh wizard installs enable subtask and checklist synchronization by default (`SYNC_ENABLE_SUBTASKS=true`); the runtime fallback when the property is absent remains off, and existing explicit Script Properties are preserved. Their automated and real-account evidence is recorded here.
 

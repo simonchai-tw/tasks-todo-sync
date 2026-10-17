@@ -44,14 +44,14 @@ Before submitting any code changes, ensure all static validations and automated 
 # Run static architecture and package dry-run checks
 npm run check
 
-# Run full hermetic unit test suite (530 tests)
+# Run full hermetic unit test suite (549 tests)
 npm test
 
 # (Optional) Run 600-pair deterministic stress simulation
 npm run stress:600
 ```
 
-All 530 automated tests and package checks must pass with exit code `0`.
+All 549 automated tests and package checks must pass with exit code `0`.
 
 ## Submitting Pull Requests
 
