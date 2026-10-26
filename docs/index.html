@@ -2841,11 +2841,12 @@ footer { border-top: 1px solid var(--line); padding: 48px 0 60px; font-size: 13.
   const videoPoster = document.getElementById('videoPoster');
   const videoPlayerBox = document.getElementById('videoPlayerBox');
   const ytIframe = document.getElementById('ytIframe');
+  const YT_EMBED_URL = 'https://www.youtube-nocookie.com/embed/PhvH8RdwKG4?autoplay=1&rel=0&modestbranding=1&playsinline=1';
 
   function startVideo() {
     if (!videoPlayerBox || !ytIframe) return;
     if (!ytIframe.src) {
-      ytIframe.src = ytIframe.getAttribute('data-src');
+      ytIframe.src = YT_EMBED_URL;
     }
     videoPlayerBox.classList.add('playing');
   }
