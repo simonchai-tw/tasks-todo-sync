@@ -24,8 +24,8 @@ function blob(data) {
 }
 
 function load() {
-  const script = { values: {}, getProperty(k) { return Object.hasOwn(this.values, k) ? this.values[k] : null; }, setProperty(k, v) { this.values[k] = String(v); }, deleteProperty(k) { delete this.values[k]; } };
-  const user = { values: {}, getProperty(k) { return Object.hasOwn(this.values, k) ? this.values[k] : null; }, setProperty(k, v) { this.values[k] = String(v); }, deleteProperty(k) { delete this.values[k]; } };
+  const script = { values: {}, getProperty(k) { return Object.hasOwn(this.values, k) ? this.values[k] : null; }, setProperty(k, v) { this.values[k] = String(v); }, deleteProperty(k) { delete this.values[k]; }, getKeys() { return Object.keys(this.values); }, getProperties() { return { ...this.values }; }, setProperties(entries) { for (const [k, v] of Object.entries(entries)) this.values[k] = String(v); }, deleteAllProperties() { for (const k of Object.keys(this.values)) delete this.values[k]; } };
+  const user = { values: {}, getProperty(k) { return Object.hasOwn(this.values, k) ? this.values[k] : null; }, setProperty(k, v) { this.values[k] = String(v); }, deleteProperty(k) { delete this.values[k]; }, getKeys() { return Object.keys(this.values); }, getProperties() { return { ...this.values }; }, setProperties(entries) { for (const [k, v] of Object.entries(entries)) this.values[k] = String(v); }, deleteAllProperties() { for (const k of Object.keys(this.values)) delete this.values[k]; } };
   const c = vm.createContext({
     console: { log() {}, warn() {}, error() {} },
     PropertiesService: { getScriptProperties: () => script, getUserProperties: () => user },
@@ -170,12 +170,11 @@ test('resource journal is bounded to RESOURCE_JOURNAL_MAX_ entries', () => {
   assert.equal(j[j.length - 1].at, 59, 'the newest entry is retained');
 });
 
-test('resource journal records WRITTEN then CONFIRMED and survives a round-trip restart', () => {
+test('resource journal records WRITTEN then CONFIRMED and survives three persisted state rounds', () => {
   const c = load();
   const state = mkState(c);
   const rec = state.g2m['g-task'];
   let writtenBody = null;
-  c.persistSyncState_ = () => {};
   c.rereadProviderNotes_ = () => ({ ok: true, notes: 'user notes' });
   c.updateMsTask_ = (listId, taskId, payload) => {
     writtenBody = payload.body.content;
@@ -195,10 +194,31 @@ test('resource journal records WRITTEN then CONFIRMED and survives a round-trip 
   const written = rec.res.journal.find((e) => e.result === 'WRITTEN');
   assert.equal(written.side, 'microsoft');
   assert.match(written.blockFp, /^[0-9a-f]{32}$/, 'the intended block fingerprint is logged');
-  // Restart-identifiable: the journal survives serialization like a persisted state.
-  const reloaded = JSON.parse(JSON.stringify(rec.res));
-  assert.ok(Array.isArray(reloaded.journal), 'journal survives serialization');
-  assert.equal(reloaded.journal.length, rec.res.journal.length);
+  // Exercise the real validation and storage chain, not just JSON serialization.
+  let restored = state;
+  for (let round = 0; round < 3; round++) {
+    c.normalizeState_(restored);
+    c.saveState_(restored);
+    restored = c.loadStateForSync_();
+    const persisted = restored.g2m['g-task'].res.journal;
+    assert.ok(Array.isArray(persisted), `journal survives load round ${round + 1}`);
+    assert.deepEqual(persisted, rec.res.journal, `journal is unchanged after round ${round + 1}`);
+  }
+});
+
+test('resource journal validator rejects malformed persisted entries', () => {
+  const c = load();
+  const state = mkState(c);
+  state.g2m['g-task'].res = {
+    journal: [{ side: 'microsoft', blockFp: '0123456789abcdef0123456789abcdef', at: 1, result: 'WRITTEN' }]
+  };
+  assert.doesNotThrow(() => c.normalizeState_(state));
+
+  const malformed = mkState(c);
+  malformed.g2m['g-task'].res = {
+    journal: [{ side: 'ms', blockFp: 'not-a-fingerprint', at: -1, result: 'UNKNOWN' }]
+  };
+  assert.throws(() => c.normalizeState_(malformed), /STATE_MALFORMED: g2m\[g-task\]\.res\.journal\[0\]/);
 });
 
 test('Case C — a successful PATCH whose round commit is lost converges with zero writes', () => {

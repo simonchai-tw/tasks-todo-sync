@@ -190,6 +190,225 @@ test('timeBridgeSpliceNotesMarker_ removes marker and optional trailing blank li
   assert.equal(splicedOnly, '');
 });
 
+test('A3: REC and TIME headers coexist in the first two lines in either order', () => {
+  const { c } = loadContext();
+  const recFirst = '[TTS-REC:AB12CD]\n[TTS-TIME:09:00]\nuser body';
+  const timeFirst = '[TTS-TIME:09:00]\n[TTS-REC:AB12CD]\nuser body';
+
+  // The recurrence header must never poison the time ticket.
+  const pRec = c.timeBridgeParseNotesMarker_(recFirst);
+  assert.equal(pRec.markerValid, true);
+  assert.equal(pRec.wholeNotesRejected, undefined);
+  assert.equal(pRec.hh, '09');
+  assert.equal(pRec.mm, '00');
+  assert.equal(pRec.exactMarkerLine, '[TTS-TIME:09:00]');
+  const pTime = c.timeBridgeParseNotesMarker_(timeFirst);
+  assert.equal(pTime.markerValid, true);
+  assert.equal(pTime.hh, '09');
+
+  // Splicing the ticket out always leaves the permanent marker on line 1, so
+  // the both-recurrence guard can still recognise the pair.
+  const expected = '[TTS-REC:AB12CD]\nuser body';
+  assert.equal(c.timeBridgeSpliceNotesMarker_(recFirst, pRec.exactMarkerLine), expected);
+  assert.equal(c.timeBridgeSpliceNotesMarker_(timeFirst, pTime.exactMarkerLine), expected);
+  assert.equal(c.splitTtsRecMarkerLine_(expected).markerLine, '[TTS-REC:AB12CD]');
+
+  // A ticket below the two-line header is still rejected fail-closed.
+  const pLate = c.timeBridgeParseNotesMarker_('[TTS-REC:AB12CD]\nuser body\n[TTS-TIME:09:00]');
+  assert.equal(pLate.markerValid, false);
+  assert.equal(pLate.wholeNotesRejected, true);
+  assert.equal(pLate.line, 3);
+
+  // The existing permissive grammar (fullwidth brackets/colon, NONE, 00:00)
+  // must not regress just because the header is now shared.
+  const fullwidth = '［tts-time：19:40］\n[TTS-REC:AB12CD]\nuser body';
+  const pFull = c.timeBridgeParseNotesMarker_(fullwidth);
+  assert.equal(pFull.markerValid, true);
+  assert.equal(pFull.hh, '19');
+  assert.equal(pFull.mm, '40');
+  assert.equal(c.timeBridgeSpliceNotesMarker_(fullwidth, pFull.exactMarkerLine), expected);
+  const pNone = c.timeBridgeParseNotesMarker_('[TTS-REC:AB12CD]\n[TTS-TIME:NONE]\nuser body');
+  assert.equal(pNone.isNone, true);
+  assert.equal(c.timeBridgeParseNotesMarker_('[TTS-REC:AB12CD]\n[TTS-TIME:00:00]').midnightRejected, true);
+});
+
+test('A3: a recurring Google task accepts a time ticket and keeps its marker', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  const notes = '[TTS-REC:AB12CD]\n[TTS-TIME:09:00]\nuser body'; // FIXED-DATE-OK
+  const state = tbState('g-task');
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes, status: 'needsAction', due: '2027-01-15T00:00:00.000Z' }, // FIXED-DATE-OK
+    { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' }
+  );
+  const writes = [];
+  c.getGTask_ = () => ({ id: 'g-task', notes });
+  c.updateGTask_ = (listId, id, payload) => { writes.push(payload); return { id, notes: payload.notes }; };
+
+  assert.equal(c.timeBridgeIntake_(state, snap, 'Asia/Taipei', nowMs, 'Asia/Taipei'), 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2027-01-15', time: '09:00', v: 1 }); // FIXED-DATE-OK
+  assert.equal(c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs), 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ notes: '[TTS-REC:AB12CD]\nuser body' }]);
+  // A4: the [TTS-REC] header is engine metadata, so the baseline is the
+  // normalized user notes projection, not the raw Google string.
+  assert.equal(state.g2m['g-task'].fp.notes, c.ordinaryFingerprintHex_('user body'));
+});
+
+test('A3b: a splice refreshes the same-round snapshot so the merge keeps [TTS-REC] on line 1', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  const recMarker = '[TTS-REC:AB12CD]';
+  const stale = '[TTS-TIME:09:00]\n' + recMarker + '\nuser body';
+  const spliced = recMarker + '\nuser body';
+
+  // Code.gs:1069-1071 hands ONE snap to both timeBridgeRun_ and
+  // reconcileMapped_.  Model that round exactly: the splice writes Google first.
+  const state = c.newState_();
+  state.listMap = { 'g-list': 'ms-list' };
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
+  state.g2m['g-task'] = rec;
+  state.m2g['ms-task'] = 'g-task';
+  const gTask = {
+    id: 'g-task', title: 'T', notes: stale, status: 'needsAction',
+    updated: '2026-12-31T00:00:00Z'
+  };
+  const msTask = {
+    id: 'ms-task', title: 'T', status: 'notStarted',
+    body: { contentType: 'text', content: 'user body' },
+    lastModifiedDateTime: '2026-12-31T00:00:00Z'
+  };
+  const snap = tbSnap(gTask, msTask);
+
+  const spliceWrites = [];
+  c.getGTask_ = () => ({ id: 'g-task', notes: stale });
+  c.updateGTask_ = (listId, id, payload) => {
+    spliceWrites.push(payload);
+    return { id, notes: payload.notes };
+  };
+  assert.equal(c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs), 1);
+  assert.equal(spliceWrites[0].notes, spliced, 'Google now holds the recurrence header on line 1');
+
+  // field-merge.gs:391 re-attaches the marker from gProj.gMarkerLine, and
+  // splitTtsRecMarkerLine_ only recognises it on line 1.  A stale snapshot
+  // makes that line the consumed TIME ticket instead.
+  const gProj = c.ordinaryProjectGoogle_(gTask, rec, {});
+  assert.deepEqual(
+    { snapshotNotes: gTask.notes, markerLine: gProj.gMarkerLine },
+    { snapshotNotes: spliced, markerLine: recMarker },
+    'the snapshot and the merge projection must both match what Google now holds'
+  );
+  assert.ok(!String(gProj.notes).includes('TTS-TIME'), 'a consumed ticket must not be projected back');
+
+  // End-to-end: a round that writes Google notes (for example a managed
+  // resource block refresh) must not drop the recurrence marker or resurrect
+  // the ticket.  The W4 reread is pinned to the round's own observation, so
+  // the outcome depends only on the snapshot, not on provider timing.
+  c.rereadProviderNotes_ = () => ({ ok: true, notes: gTask.notes });
+  c.persistSyncState_ = () => {};
+  c.planResourceProjection_ = () => ({
+    writeGoogle: true, writeMicrosoft: false, nativeCreate: false,
+    googleBlock: null, microsoftBlock: null, microsoftBody: null,
+    blockIntent: { google: null, microsoft: null },
+    gParseStatus: c.RESOURCE_BLOCK_STATUS_.ABSENT,
+    msParseStatus: c.RESOURCE_BLOCK_STATUS_.ABSENT,
+    diagnostic: []
+  });
+  const mergeWrites = [];
+  c.updateGTask_ = (listId, id, payload) => { mergeWrites.push(payload); return { id, notes: payload.notes }; };
+  c.updateMsTask_ = (listId, id, payload) => ({ id, body: payload.body });
+
+  c.ordinaryReconcileMappedPair_(state, rec, gTask, msTask, 'g-list', {});
+  assert.equal(mergeWrites.length, 1, 'the managed-block refresh writes Google notes this round');
+  assert.equal(mergeWrites[0].notes, spliced,
+    'the recurrence marker stays on line 1 and the consumed ticket never comes back');
+});
+
+test('A4: splice fingerprints the normalized user notes, not the raw provider string', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  const stale = '[TTS-REC:AB12CD]\n[TTS-TIME:09:00]\nuser body';
+  const finalNotes = '[TTS-REC:AB12CD]\nuser body';
+  const state = tbState('g-task');
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: stale, status: 'needsAction' },
+    { id: 'ms-task', title: 'T', status: 'notStarted', body: { contentType: 'text', content: 'user body' } }
+  );
+  c.getGTask_ = () => ({ id: 'g-task', notes: stale });
+  c.updateGTask_ = (listId, id, payload) => ({ id, notes: payload.notes });
+
+  assert.equal(c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs), 1);
+  const rec = state.g2m['g-task'];
+  const gProj = c.ordinaryProjectGoogle_(
+    { id: 'g-task', title: 'T', notes: finalNotes, status: 'needsAction' }, rec, {});
+  assert.equal(gProj.notes, 'user body');
+  assert.equal(rec.fp.notes, c.ordinaryFieldFp_(gProj, 'notes'),
+    'the splice baseline must match ordinaryMergeMappedFields_ exactly');
+
+  // A one-sided Microsoft edit on the next round must be routed to Google.
+  // With a raw-string baseline both sides look changed and it becomes a
+  // TRUE_FIELD_CONFLICT instead (field-merge.gs:238-253).
+  const mProj = c.ordinaryProjectMicrosoft_(
+    { id: 'ms-task', title: 'T', status: 'notStarted', body: { contentType: 'text', content: 'edited in Microsoft' } },
+    rec, {});
+  const plan = c.ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec);
+  assert.equal(plan.toGoogle.notes, 'edited in Microsoft');
+  assert.equal(plan.conflicts.some((x) => x.field === 'notes'), false);
+});
+
+test('A4: a managed resource block is stripped before the splice fingerprint', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  const links = [{ type: 'email', description: 'Doc', link: 'https://example.invalid/doc' }];
+  const block = c.renderManagedResourceBlock_(
+    c.projectGoogleResources_({ id: 'g-task', title: 'T', notes: 'user body', status: 'needsAction', links }),
+    'g2m', 'user body', c.RESOURCE_NOTES_MAX_).block;
+  const blockFp = c.managedBlockFingerprint_(block);
+  const withBlock = c.composeManagedNotes_('user body', block);
+  const stale = '[TTS-TIME:09:00]\n' + withBlock;
+  const state = tbState('g-task', { res: { gBlockFp: blockFp } });
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: stale, status: 'needsAction' },
+    { id: 'ms-task', title: 'T', status: 'notStarted', body: { contentType: 'text', content: 'user body' } }
+  );
+  c.getGTask_ = () => ({ id: 'g-task', notes: stale });
+  c.updateGTask_ = (listId, id, payload) => ({ id, notes: payload.notes });
+
+  assert.equal(c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs), 1);
+  const rec = state.g2m['g-task'];
+  const gProj = c.ordinaryProjectGoogle_(
+    { id: 'g-task', title: 'T', notes: withBlock, status: 'needsAction' }, rec, {});
+  assert.equal(gProj.notes, 'user body', 'the managed block is not user content');
+  assert.equal(rec.fp.notes, c.ordinaryFieldFp_(gProj, 'notes'),
+    'the fingerprint must not include the managed block (BUG-V1-02)');
+});
+
+test('A4: an unmergeable notes projection keeps the previous baseline (fail-closed)', () => {
+  const { c } = loadContext();
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  // A BEGIN marker with no END is RESOURCE_BLOCK_MALFORMED, so the merge skips
+  // notes entirely this round.  The splice must not fabricate a baseline.
+  const stale = '[TTS-TIME:09:00]\nuser body\n\n--- tasks-todo-sync ---\nbroken';
+  const finalNotes = 'user body\n\n--- tasks-todo-sync ---\nbroken';
+  const priorFp = c.ordinaryFingerprintHex_('previous baseline');
+  const state = tbState('g-task', { fp: { notes: priorFp } });
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: stale, status: 'needsAction' },
+    { id: 'ms-task', title: 'T', status: 'notStarted', body: { contentType: 'text', content: 'user body' } }
+  );
+  c.getGTask_ = () => ({ id: 'g-task', notes: stale });
+  c.updateGTask_ = (listId, id, payload) => ({ id, notes: payload.notes });
+
+  const gProj = c.ordinaryProjectGoogle_(
+    { id: 'g-task', title: 'T', notes: finalNotes, status: 'needsAction' },
+    state.g2m['g-task'], {});
+  assert.equal(gProj.notesOk, false);
+  assert.equal(c.ordinaryFieldFp_(gProj, 'notes'), null);
+
+  assert.equal(c.timeBridgeSpliceRenderer_(state, snap, 'Asia/Taipei', nowMs), 1);
+  assert.equal(state.g2m['g-task'].fp.notes, priorFp,
+    'an unmergeable projection must leave the last known baseline untouched');
+});
+
 test('timeBridgeDueHasTime_ correctly distinguishes date-only UTC midnight from wall-clock time', () => {
   const { c } = loadContext();
   const tz = 'Asia/Taipei';
@@ -272,7 +491,7 @@ test('timeBridgeIntake_ writes rec.td from the marker and never calls a provider
   assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-05', time: null, v: 1, clear: true }); // FIXED-DATE-OK
 });
 
-test('timeBridgeSpliceRenderer_ is idempotent and recomputes fp.notes from the final string (§3.3)', () => {
+test('timeBridgeSpliceRenderer_ is idempotent and recomputes fp.notes from the normalized projection (§3.3)', () => {
   const { c } = loadContext();
   const nowMs = Date.parse('2026-09-30T04:00:00Z');
   const state = tbState('g-task');
@@ -433,6 +652,155 @@ test('v0.8.2: a future alarm is still owned and written by the renderer (R-1 liv
   assert.equal(patches[1].dueDateTime.dateTime, '2026-10-02T00:00:00');
 });
 
+test('TZ1: a new ticket uses the current sync time zone and records its rendered echo', () => {
+  const { c } = loadContext();
+  const tz = 'Asia/Tokyo';
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  const state = tbState('g-task');
+  const msTask = {
+    id: 'ms-task', title: 'T',
+    dueDateTime: { dateTime: '2027-01-15T00:00:00', timeZone: tz }, // FIXED-DATE-OK
+    isReminderOn: false, status: 'notStarted'
+  };
+  const snap = tbSnap(
+    { id: 'g-task', title: 'T', notes: '[TTS-TIME:09:00]\nbody', status: 'needsAction', due: '2027-01-15T00:00:00.000Z' }, // FIXED-DATE-OK
+    msTask
+  );
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => {
+    patches.push(payload);
+    Object.assign(msTask, payload);
+    return msTask;
+  };
+
+  assert.equal(c.timeBridgeIntake_(state, snap, tz, nowMs, tz), 1);
+  const first = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(first.patched, 1);
+  assert.equal(patches.length, 1, 'the due already matches; only the reminder is written');
+  assert.equal(patches[0].reminderDateTime.dateTime, '2027-01-15T00:00:00', '09:00 Tokyo = 00:00Z'); // FIXED-DATE-OK
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2027-01-15', time: '09:00', v: 1 }); // FIXED-DATE-OK
+  assert.equal(state.g2m['g-task'].rem.msAt, '2027-01-15T00:00:00.000Z', 'the successful render persists its echo'); // FIXED-DATE-OK
+
+  const second = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(second.patched, 0);
+  assert.equal(patches.length, 1, 'the recorded echo converges without another write');
+});
+
+test('TZ2: a time-zone switch preserves an existing wall clock, repaints once, and still adopts a real edit', () => {
+  const { c } = loadContext();
+  const tz = 'Asia/Tokyo';
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  const state = tbState('g-task', {
+    td: { date: '2027-01-15', time: '09:00', v: 1 }, // FIXED-DATE-OK
+    rem: { msAt: '2027-01-15T01:00:00.000Z' } // Taipei render: 09:00 = 01:00Z; FIXED-DATE-OK
+  });
+  const msTask = {
+    id: 'ms-task', title: 'T',
+    dueDateTime: { dateTime: '2027-01-15T00:00:00', timeZone: 'Asia/Taipei' }, // FIXED-DATE-OK
+    isReminderOn: true,
+    reminderDateTime: { dateTime: '2027-01-15T01:00:00', timeZone: 'UTC' }, // FIXED-DATE-OK
+    status: 'notStarted'
+  };
+  const snap = tbSnap({ id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' }, msTask);
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => {
+    patches.push(payload);
+    Object.assign(msTask, payload);
+    return msTask;
+  };
+
+  // The production orchestrator migrates before rendering; msAt must survive it.
+  c.timeBridgeMigrateLegacyRem_(state, snap, tz, tz);
+  const first = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(first.patched, 1, 'the unchanged remote echo is repainted under Tokyo');
+  assert.equal(patches.length, 1);
+  assert.equal(patches[0].reminderDateTime.dateTime, '2027-01-15T00:00:00'); // FIXED-DATE-OK
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2027-01-15', time: '09:00', v: 1 }, 'the echo is not relabelled as 10:00'); // FIXED-DATE-OK
+  assert.equal(state.g2m['g-task'].rem.msAt, '2027-01-15T00:00:00.000Z'); // FIXED-DATE-OK
+
+  c.timeBridgeMigrateLegacyRem_(state, snap, tz, tz);
+  const second = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(second.patched, 0);
+  assert.equal(patches.length, 1, 'the next round is a no-op');
+
+  msTask.reminderDateTime = { dateTime: '2027-01-15T02:00:00', timeZone: 'UTC' }; // FIXED-DATE-OK
+  const adopted = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(adopted.patched, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2027-01-15', time: '11:00', v: 1 }, 'a different instant is still a genuine Microsoft edit'); // FIXED-DATE-OK
+  assert.equal(state.g2m['g-task'].rem.msAt, '2027-01-15T02:00:00.000Z', 'the accepted edit becomes the new echo'); // FIXED-DATE-OK
+  assert.equal(patches.length, 1, 'adoption itself writes nothing');
+});
+
+test('TZ3: a native recurring task never splits Microsoft and Calendar across a time-zone switch', () => {
+  const { c, calendarEvents } = loadContext();
+  const nowMs = Date.parse('2027-01-01T00:00:00Z'); // FIXED-DATE-OK
+  const startIso = '2027-01-15T01:00:00.000Z'; // FIXED-DATE-OK
+  const endIso = '2027-01-15T01:30:00.000Z'; // FIXED-DATE-OK
+  const eventId = c.timeBridgeDeterministicEventId_('g-task');
+  const state = tbState('g-task', {
+    td: { date: '2027-01-15', time: '09:00', v: 1 }, // FIXED-DATE-OK
+    rem: {
+      msAt: startIso,
+      e: eventId,
+      eFp: c.timeBridgeEventFingerprint_('T', startIso, endIso, 'silent')
+    }
+  });
+  const msTask = {
+    id: 'ms-task', title: 'T',
+    dueDateTime: { dateTime: '2027-01-15T00:00:00', timeZone: 'Asia/Taipei' }, // FIXED-DATE-OK
+    isReminderOn: true,
+    reminderDateTime: { dateTime: '2027-01-15T01:00:00', timeZone: 'UTC' }, // FIXED-DATE-OK
+    status: 'notStarted', recurrence: { pattern: { type: 'daily' } }
+  };
+  const snap = tbSnap({ id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' }, msTask);
+  calendarEvents[eventId] = {
+    id: eventId, summary: 'T', status: 'confirmed',
+    start: { dateTime: startIso, timeZone: 'Asia/Taipei' },
+    end: { dateTime: endIso, timeZone: 'Asia/Taipei' }
+  };
+  const msPatches = [];
+  c.updateMsTask_ = (listId, id, payload) => { msPatches.push(payload); return msTask; };
+
+  const msResult = c.timeBridgeMsRenderer_(state, snap, 'Asia/Tokyo', nowMs, 'Asia/Tokyo');
+  const calResult = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Tokyo', nowMs,
+    { enableCalendarProjection: true, enableCalendarProjectionReminder: false }, nowMs);
+  assert.equal(msResult.patched, 0, 'native recurrence remains immutable on Microsoft');
+  assert.equal(msPatches.length, 0);
+  assert.equal(calResult.projected, 0, 'Calendar must not move the instant that Microsoft cannot move');
+  assert.equal(calendarEvents[eventId].start.dateTime, startIso, 'the two remote surfaces keep the same instant');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2027-01-15', time: '09:00', v: 1 }); // FIXED-DATE-OK
+});
+
+test('TZ4: a same-zone DST offset echo does not steal a wall-clock hour', () => {
+  const { c } = loadContext();
+  const tz = 'America/New_York';
+  const nowMs = Date.parse('2026-03-08T15:00:00Z'); // after the spring-forward gap; FIXED-DATE-OK
+  const state = tbState('g-task', {
+    td: { date: '2026-03-08', time: '12:00', v: 1 }, // FIXED-DATE-OK
+    rem: { msAt: '2026-03-08T17:00:00.000Z' } // old -05:00 echo; FIXED-DATE-OK
+  });
+  const msTask = {
+    id: 'ms-task', title: 'T',
+    dueDateTime: { dateTime: '2026-03-08T00:00:00', timeZone: tz }, // FIXED-DATE-OK
+    isReminderOn: true,
+    reminderDateTime: { dateTime: '2026-03-08T17:00:00', timeZone: 'UTC' }, // FIXED-DATE-OK
+    status: 'notStarted'
+  };
+  const snap = tbSnap({ id: 'g-task', title: 'T', notes: 'body', status: 'needsAction' }, msTask);
+  const patches = [];
+  c.updateMsTask_ = (listId, id, payload) => {
+    patches.push(payload);
+    Object.assign(msTask, payload);
+    return msTask;
+  };
+
+  const result = c.timeBridgeMsRenderer_(state, snap, tz, nowMs, tz);
+  assert.equal(result.patched, 1);
+  assert.equal(patches[0].reminderDateTime.dateTime, '2026-03-08T16:00:00', '12:00 EDT = 16:00Z'); // FIXED-DATE-OK
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-03-08', time: '12:00', v: 1 }, 'the old offset echo is not adopted as 13:00'); // FIXED-DATE-OK
+  assert.equal(state.g2m['g-task'].rem.msAt, '2026-03-08T16:00:00.000Z'); // FIXED-DATE-OK
+});
+
 test('timeBridgeCalendarRenderer_ projects, cleans up, and respects the projection knobs (§3.7)', () => {
   const { c, calendarEvents } = loadContext();
   const nowMs = Date.parse('2026-10-01T12:00:00Z');
@@ -464,6 +832,113 @@ test('timeBridgeCalendarRenderer_ projects, cleans up, and respects the projecti
   const off = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, { enableTimeBridge: true, enableCalendarProjection: false }, nowMs);
   assert.deepEqual(JSON.parse(JSON.stringify(off)), { projected: 0, deleted: 0, quarantined: [] });
   assert.equal(calendarEvents[eventId], undefined);
+});
+
+// A5 / BUG-V1-04 fixtures.  A fingerprint hit is a pure in-memory comparison:
+// it must not consume the per-round Calendar ops budget.  The charge belongs
+// inside timeBridgeProjectCalendarEvent_, after the fingerprint miss and before
+// the first Calendar.Events call, so a *failed* attempt is still bounded too.
+function a5WallClock(nowMs) {
+  // Derived from the real clock (+25h, rendered through the +8h Taipei trick)
+  // so the future-dated start never goes stale (WO-2 class).
+  const tpe = new Date(nowMs + 25 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000).toISOString();
+  return { date: tpe.slice(0, 10), time: tpe.slice(11, 16) };
+}
+
+function a5Fixture(c, nowMs, projectedCount, pendingCount) {
+  const wall = a5WallClock(nowMs);
+  const duration = vm.runInContext('TIME_BRIDGE_EVENT_DURATION_MINUTES', c);
+  const startMs = c.timeBridgeWallClockToUtcMs_(wall.date + 'T' + wall.time + ':00', 'Asia/Taipei');
+  const startIso = new Date(startMs).toISOString();
+  const endIso = new Date(startMs + duration * 60 * 1000).toISOString();
+  const fp = c.timeBridgeEventFingerprint_('T', startIso, endIso, 'default');
+  const state = { schema: 4, listMap: { 'g-list': 'ms-list' }, g2m: {}, m2g: {}, health: {} };
+  const snap = { gTasksById: {}, msTasksById: {}, gListByTask: {}, msListByTask: {} };
+  const total = projectedCount + pendingCount;
+  for (let i = 0; i < total; i += 1) {
+    const gId = 'g-' + String(i).padStart(2, '0');
+    const msId = 'ms-' + gId;
+    const rec = {
+      msId, gListId: 'g-list', msListId: 'ms-list', fp: {},
+      td: { date: wall.date, time: wall.time, v: 1 }
+    };
+    if (i < projectedCount) rec.rem = { e: c.timeBridgeDeterministicEventId_(gId), eFp: fp };
+    state.g2m[gId] = rec;
+    state.m2g[msId] = gId;
+    snap.gTasksById[gId] = { id: gId, title: 'T', notes: 'body', status: 'needsAction' };
+    snap.msTasksById[msId] = { id: msId, title: 'T', status: 'notStarted' };
+  }
+  return { state, snap, startIso, endIso, fp };
+}
+
+const A5_SAFETY = { enableCalendarProjection: true, enableCalendarProjectionReminder: true };
+
+test('A5: fingerprint hits consume no Calendar ops budget and never starve a pending pair (BUG-V1-04)', () => {
+  const { c, calendarEvents } = loadContext();
+  const nowMs = Date.now();
+  const max = vm.runInContext('TIME_BRIDGE_OPS_MAX_PER_ROUND', c);
+  const { state, snap } = a5Fixture(c, nowMs, max, 1);
+  let gets = 0;
+  const originalGet = c.Calendar.Events.get;
+  c.Calendar.Events.get = (...args) => { gets += 1; return originalGet(...args); };
+
+  const result = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, A5_SAFETY, nowMs);
+  assert.equal(gets, 1, 'only the one unprojected pair may touch Calendar.Events');
+  assert.equal(result.projected, 1, 'already-projected pairs must not starve the pending one');
+  const pendingId = c.timeBridgeDeterministicEventId_('g-' + String(max).padStart(2, '0'));
+  assert.ok(calendarEvents[pendingId], 'the pending pair is actually projected');
+});
+
+test('A5: a failed Calendar.Events attempt still consumes the ops budget', () => {
+  const { c } = loadContext();
+  const nowMs = Date.now();
+  const max = vm.runInContext('TIME_BRIDGE_OPS_MAX_PER_ROUND', c);
+  const { state, snap } = a5Fixture(c, nowMs, 0, max + 3);
+  let gets = 0;
+  c.Calendar.Events.get = () => {
+    gets += 1;
+    const err = new Error('HTTP 500: boom');
+    err.statusCode = 500;
+    throw err;
+  };
+
+  const result = c.timeBridgeCalendarRenderer_(state, snap, 'Asia/Taipei', nowMs, A5_SAFETY, nowMs);
+  assert.equal(gets, max, 'a thrown provider error must not buy an unbounded number of retries in one round');
+  assert.equal(result.projected, 0);
+});
+
+test('A5: timeBridgeProjectCalendarEvent_ charges once, only after a fingerprint miss', () => {
+  const { c } = loadContext();
+  const nowMs = Date.now();
+  const { startIso, endIso, fp } = a5Fixture(c, nowMs, 0, 1);
+  const gId = 'g-00';
+  let charged = 0;
+  let gets = 0;
+  const charge = () => { charged += 1; };
+  const originalGet = c.Calendar.Events.get;
+  c.Calendar.Events.get = (...args) => { gets += 1; return originalGet(...args); };
+
+  const hit = { rem: { e: c.timeBridgeDeterministicEventId_(gId), eFp: fp } };
+  assert.equal(c.timeBridgeProjectCalendarEvent_('cal', gId, 'T', startIso, endIso, 'Asia/Taipei', hit, 'default', charge), false);
+  assert.equal(charged, 0, 'a fingerprint hit issues zero API calls and zero charges');
+  assert.equal(gets, 0);
+
+  const miss = { rem: {} };
+  assert.equal(c.timeBridgeProjectCalendarEvent_('cal', gId, 'T', startIso, endIso, 'Asia/Taipei', miss, 'default', charge), true);
+  assert.equal(charged, 1, 'exactly one charge for one projection attempt');
+  assert.equal(gets, 1);
+
+  const failingGet = () => {
+    gets += 1;
+    const err = new Error('HTTP 500: boom');
+    err.statusCode = 500;
+    throw err;
+  };
+  c.Calendar.Events.get = failingGet;
+  assert.throws(() => c.timeBridgeProjectCalendarEvent_(
+    'cal', gId, 'CHANGED', startIso, endIso, 'Asia/Taipei', { rem: {} }, 'default', charge
+  ), /HTTP 500/);
+  assert.equal(charged, 2, 'the charge happens before the network call, so a failure is still counted');
 });
 
 test('knob OFF ignores the time component while the merge keeps owning the date (replaces WO-7)', () => {
@@ -554,6 +1029,13 @@ test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and
   c.updateGTask_ = (listId, id, payload) => { writes.g += 1; return { id, notes: payload.notes }; };
   c.updateMsTask_ = (listId, id, payload) => { writes.ms += 1; return Object.assign({ id }, payload); };
 
+  // timeBridgeRun_ reads Date.now() internally for nowMs / remainingTimeOk_,
+  // while the fixture is built from a second Date.now().  Pin the engine clock
+  // to that same instant: separating the two by an hour makes
+  // remainingTimeOk_ skip splice + MS and fails this test for reasons that
+  // have nothing to do with the orchestrator (WO-2 class, verified by probe).
+  vm.runInContext('Date.now = () => ' + nowMs + ';', c);
+
   const summary = c.timeBridgeRun_(state, snap, nowMs, 'round-1');
   assert.equal(summary.intaken, 1);
   assert.equal(summary.spliced, 1);
@@ -566,7 +1048,7 @@ test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and
   c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'false');
   const offState = tbState('g-task');
   const offSnap = tbSnap({ id: 'g-task', title: 'T', notes: marked, status: 'needsAction' }, { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' });
-  const offSummary = c.timeBridgeRun_(offState, offSnap, Date.now(), 'round-2');
+  const offSummary = c.timeBridgeRun_(offState, offSnap, nowMs, 'round-2');
   assert.equal(offSummary.intaken, 0);
   assert.equal(offSummary.spliced, 0);
   assert.equal(offSummary.msPatched, 0);

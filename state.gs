@@ -1826,10 +1826,11 @@ function assertTimeBridgeMappingRem_(rem, label) {
   if (rem === undefined || rem === null) return;
   label = label || 'rem';
   if (!isStateObject_(rem)) throw new Error('STATE_MALFORMED: ' + label + ' must be an object; overwrite refused.');
-  // v0.8.0: the runtime writes only ['e','eFp'].  The legacy Time Bridge keys
-  // (ms / msAt / hasTime / markerOrphaned) stay accepted on the load path so an
-  // upgrading installation can rebuild rec.td from them and then drop them;
-  // nothing in the v0.8.0 runtime ever writes them again.
+  // The runtime writes ['e','eFp'] (Calendar projection) and ['msAt'] (the UTC
+  // echo of the reminder instant last rendered on Microsoft, which tells a
+  // project time-zone / DST offset shift apart from a genuine user edit).
+  // The v0.7.5 ownership keys (ms / hasTime / markerOrphaned) stay accepted on
+  // the load path so an upgrading installation can rebuild rec.td and drop them.
   assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned'], label, 'STATE_MALFORMED');
   if (rem.e !== undefined && rem.e !== null && (typeof rem.e !== 'string' || !/^[0-9a-f]{32}$/.test(rem.e))) {
     throw new Error('STATE_MALFORMED: ' + label + '.e is invalid; overwrite refused.');
@@ -1852,6 +1853,10 @@ function assertTimeBridgeMappingRem_(rem, label) {
 }
 
 // v0.8.0 canonical time record: wall-clock only (no instant, no time zone).
+// The contract: {date, time} is the HH:mm wall clock of the CURRENTLY effective
+// sync time zone on that date.  When the project zone or its DST offset changes,
+// rec.td is authoritative and unchanged; the renderer repaints the remote UTC
+// instant from it, guarded by rem.msAt (see timeBridgeMsReminderEchoMatches_).
 // `retry` carries the per-renderer R-4 ladder state (ms / splice / cal).
 function assertTimeBridgeTd_(td, label) {
   if (td === undefined || td === null) return;
@@ -1986,6 +1991,33 @@ function assertDeadLetterEventDeletionsTable_(list) {
   });
 }
 
+function assertResourceJournalEntries_(journal, pathLabel) {
+  if (journal === undefined) return;
+  const label = pathLabel + '.journal';
+  if (!Array.isArray(journal) || journal.length > RESOURCE_JOURNAL_MAX_) {
+    throw new Error('STATE_MALFORMED: ' + label + ' must be an array no longer than RESOURCE_JOURNAL_MAX_; overwrite refused.');
+  }
+  journal.forEach(function(entry, index) {
+    const entryLabel = label + '[' + index + ']';
+    if (!isStateObject_(entry)) {
+      throw new Error('STATE_MALFORMED: ' + entryLabel + ' must be an object; overwrite refused.');
+    }
+    assertKnownObjectKeys_(entry, ['side', 'blockFp', 'at', 'result'], entryLabel, 'STATE_MALFORMED');
+    if (['google', 'microsoft'].indexOf(entry.side) < 0) {
+      throw new Error('STATE_MALFORMED: ' + entryLabel + '.side is invalid; overwrite refused.');
+    }
+    if (typeof entry.blockFp !== 'string' || !/^[0-9a-f]{32}$/.test(entry.blockFp)) {
+      throw new Error('STATE_MALFORMED: ' + entryLabel + '.blockFp is invalid; overwrite refused.');
+    }
+    if (!Number.isInteger(entry.at) || entry.at < 0) {
+      throw new Error('STATE_MALFORMED: ' + entryLabel + '.at is invalid; overwrite refused.');
+    }
+    if (['WRITTEN', 'CONFIRMED', 'ABANDONED'].indexOf(entry.result) < 0) {
+      throw new Error('STATE_MALFORMED: ' + entryLabel + '.result is invalid; overwrite refused.');
+    }
+  });
+}
+
 function assertOrdinaryMappingExtras_(state) {
   Object.keys((state && state.g2m) || {}).forEach(function(gId) {
     const rec = state.g2m[gId];
@@ -1995,8 +2027,9 @@ function assertOrdinaryMappingExtras_(state) {
     assertOrdinaryFingerprint_(rec.fp, 'g2m[' + gId + ']');
     if (rec.res !== undefined) {
       if (!isStateObject_(rec.res)) throw new Error('STATE_MALFORMED: g2m[' + gId + '].res must be an object; overwrite refused.');
-      assertKnownObjectKeys_(rec.res, ['gBlockFp', 'msBlockFp', 'gBlockIntentFp', 'msBlockIntentFp'],
+      assertKnownObjectKeys_(rec.res, ['gBlockFp', 'msBlockFp', 'gBlockIntentFp', 'msBlockIntentFp', 'journal'],
         'g2m[' + gId + '].res', 'STATE_MALFORMED');
+      assertResourceJournalEntries_(rec.res.journal, 'g2m[' + gId + '].res');
       ['gBlockFp', 'msBlockFp', 'gBlockIntentFp', 'msBlockIntentFp'].forEach(function(field) {
         if (rec.res[field] === undefined || rec.res[field] === null) return;
         if (typeof rec.res[field] !== 'string' || !/^[0-9a-f]{32}$/.test(rec.res[field])) {
