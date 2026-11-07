@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 1.0.2 — 2026-11-07
+
+A desktop repack release. The engine code is unchanged from 1.0.1; no new features, no default changes, and no C# changes. This version exists so the corrected engine actually reaches installed Windows companions.
+
+### The installer is shipped again
+
+1.0.1 was published as the latest GitHub Release without any Windows installer assets. Because `/releases/latest/download/` resolves only against the newest release, both `RELEASES-win-x64` and `Tasks-ToDo-Sync-Setup.exe` returned 404: the website download button was broken and installed clients could not discover an update. The installer build order from `desktop/TasksToDoSync.Companion/installer/README.md` is `build.ps1` → `pack-velopack.ps1` → `build-installer.ps1`, and every new `Setup.exe` needs a new version — repacking 1.0.1 would make Velopack offer repair or uninstall instead of an upgrade. Hence 1.0.2.
+
+- The bundled engine tarball is now `tasks-todo-sync-1.0.2.tgz`, produced by `npm pack` from this release tree; `build.ps1` fails closed unless the tarball version matches the companion `<Version>`.
+- `Version`, `FileVersion` and `AssemblyVersion` in the companion project are aligned to 1.0.2.
+- The release carries `RELEASES-win-x64`, the full and delta nupkg files, and the wizard `Tasks-ToDo-Sync-Setup.exe`, restoring both the download button and the automatic update feed.
+
+### Existing installations keep their settings
+
+Configuration, engine files, runtime, backups and the Apps Script binding live under `%LOCALAPPDATA%\TasksToDoSyncData`, deliberately outside the Velopack install root that an update replaces. Updating from 1.0.0 in place does not clear settings, does not require re-authorization, and does not replay the setup wizard.
+
+### Verification
+
+- `npm test`: 563/563 passing.
+- `npm run check` (static validation + package dry-run), `npm run docs:check` and `git diff --check`: clean.
+- Version 1.0.2 consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge and the companion project.
+
 ## 1.0.1 — 2026-11-07
 
 A patch release that repairs five regressions found in 1.0.0 during the v2 consolidated verification review. No new features, no default changes, and no setup or deployment flow changes. The full suite now stands at 563 tests.
