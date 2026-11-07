@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 1.0.1 — 2026-11-07
+
+A patch release that repairs five regressions found in 1.0.0 during the v2 consolidated verification review. No new features, no default changes, and no setup or deployment flow changes. The full suite now stands at 563 tests.
+
+### The state validator no longer rejects its own resource journal
+
+`rec.res.journal` is written by the managed-resource block merge path, but the strict state validator did not list it as an allowed key. Any round that recorded a projection intent therefore failed the next `normalizeState_ → saveState_ → loadStateForSync_` cycle with `STATE_MALFORMED`. The journal stays where the writer puts it, gains an allowlist entry and `assertResourceJournalEntries_`, which validates sides (`google` / `microsoft`), 32-hex block fingerprints, timestamps, results and a bounded length. Malformed entries still fail closed. Relocating the journal to a top-level table was rejected: it also changes mapping deletion and deletion-rollback snapshot/restore semantics, which is outside a patch release.
+
+### A Microsoft reminder echo is no longer adopted as a user edit
+
+Time Bridge previously compared the remote reminder against `rec.rem.ms`, a legacy boolean ownership flag that migration removes. Across a time-zone or DST change the wall-clock contract could look like a user edit and be adopted. The guard now uses the existing `rec.rem.msAt` UTC instant echo, migration preserves `msAt`, the Microsoft renderer refreshes or clears the echo, and Calendar projection freezes for recurrence-guarded tasks so the two surfaces cannot diverge. `rec.td` is documented as invariant wall-clock time under the current effective sync time zone.
+
+### Two leading Google notes headers are now parsed together
+
+A `[TTS-TIME]` ticket could push the `[TTS-REC]` marker off the first line, where the single-header parser no longer recognised it. `parseLeadingTtsHeadersUnified_` now parses the first two lines in either order, keeps the existing lenient formats (fullwidth brackets and colons, surrounding whitespace, `NONE`), and still fails closed when a TIME ticket appears below line two. After the splice consumes a ticket, the same-round snapshot is refreshed (`gTask.notes = finalNotes`) so the merge does not write the consumed ticket back.
+
+### The post-splice fingerprint uses the merge baseline
+
+After splice, `rec.fp.notes` was computed from a raw projection while merge compares `ordinaryFieldFp_`. The asymmetry could make a consumed TIME ticket look like a fresh user edit on the next round. Both now use `ordinaryProjectGoogle_` + `ordinaryFieldFp_`, and an unmergeable projection (for example a malformed managed block) keeps the old baseline rather than writing a false one.
+
+### Calendar quota is charged only for real API attempts
+
+`opsCount` was incremented on every renderer pass, including fingerprint hits that issued no network call, starving later tasks in the same round. Counting now happens after a fingerprint miss and immediately before the first real `Calendar.Events` call, via an optional `consumeOp` callback. Failed API attempts are charged too, so a failing endpoint cannot be retried without bound inside one round.
+
+### Evidence and dependency maintenance
+
+- Adds `docs/live-probes-v2.md`, recording the measured A-group and B-group baseline, the BENCH-01 three-scenario byte table, the seven `Calendar.*` call sites, and the TEST-account live probes. It marks the Microsoft Graph C-group probes as `NOT RUN` and keeps `INSUFFICIENT_EVIDENCE` for the live capacity claim.
+- Applies `fast-uri` 3.1.9, `body-parser` 2.4.0 and the transitive `qs` 6.17.1 lockfile bumps manually (no squash-merge of bot PRs).
+- Live-verified on a dedicated TEST Apps Script project: real `Utilities.formatDate` across Taipei / Tokyo / New York winter and summer, Google Tasks notes round-trip with newlines and fullwidth characters plus fresh-read after PATCH, and three real state persistence rounds carrying a journal entry.
+
 ## 1.0.0 — 2026-10-14
 
 First stable release. The engine fixes below came out of a five-axis adversarial review of 0.9.9 (state machines, fuzzing, concurrency, mutation testing, static consistency); each one ships with a regression test, and the full suite stands at 549 tests.
