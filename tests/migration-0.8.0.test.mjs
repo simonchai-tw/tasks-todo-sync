@@ -70,7 +70,7 @@ test('a v0.7.5 record rebuilds rec.td from the Microsoft side and drops the lega
   assert.equal(result.cleared, 1);
   assert.equal(result.deadLetterCleared, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-01', time: '15:30', v: 1 }); // FIXED-DATE-OK
-  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].rem)), { e: HEX32, eFp: HEX32B }, 'projection fingerprints survive');
+  assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].rem)), { msAt: '2026-09-22T07:30:00.000Z', e: HEX32, eFp: HEX32B }, 'projection fingerprints and the reminder echo survive'); // FIXED-DATE-OK
   assert.equal(state.timeBridgeJournal, null, 'the journal table is gone');
   assert.equal(state.deadLetterJournal.length, 0, 'the old drawer is emptied (§4.4)');
 });

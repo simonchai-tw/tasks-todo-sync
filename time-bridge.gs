@@ -43,21 +43,71 @@ function timeBridgeEventFingerprint_(title, startIso, endIso, reminderMode) {
   return ordinaryFingerprintHex_(raw);
 }
 
+/* The first two lines of a Google note are an engine header block: [TTS-REC]
+ * (permanent identity for a Microsoft-native recurring task) and [TTS-TIME]
+ * (a one-shot intake ticket).  A recurring task already owns line 1, so a user
+ * adding a time naturally puts the ticket on line 2 — both orders must work.
+ * Both header recognisers are the SAME ones the rest of the engine already
+ * uses (TIME_BRIDGE_MARKER_REGEX_ accepts fullwidth brackets/colons, NONE and
+ * padding; isTtsRecHeaderLine_ is shared with providers.gs).  No new grammar. */
+function parseLeadingTtsHeadersUnified_(rawNotes) {
+  var lines = String(rawNotes == null ? '' : rawNotes).split(/\r?\n/);
+  var recHeader = null;
+  var timeTicket = null;
+  var consumedIndices = {};
+
+  for (var i = 0; i < Math.min(lines.length, 2); i += 1) {
+    var line = lines[i];
+    if (!recHeader && isTtsRecHeaderLine_(line)) {
+      recHeader = line.trim();
+      consumedIndices[i] = true;
+    } else if (!timeTicket && TIME_BRIDGE_MARKER_REGEX_.test(line)) {
+      timeTicket = line;
+      consumedIndices[i] = true;
+    } else {
+      break;
+    }
+  }
+
+  var remainingLines = [];
+  for (var j = 0; j < lines.length; j += 1) {
+    if (!consumedIndices[j]) remainingLines.push(lines[j]);
+  }
+  // A blank separator line right after the header belongs to the header, as it
+  // did when the ticket was the only first line (§3.3).
+  if (timeTicket && remainingLines.length && remainingLines[0] === '') remainingLines.shift();
+  var remainingBody = remainingLines.join('\n');
+  var splicedNotes = recHeader
+    ? (remainingBody ? recHeader + '\n' + remainingBody : recHeader)
+    : remainingBody;
+
+  return {
+    recHeader: recHeader,
+    timeTicket: timeTicket,
+    consumedIndices: consumedIndices,
+    remainingBody: remainingBody,
+    splicedNotes: splicedNotes
+  };
+}
+
 function timeBridgeParseNotesMarker_(notes) {
   if (notes == null || notes === '') return { markerValid: false };
   var text = String(notes);
   var lines = text.split(/\r?\n/);
   if (!lines.length) return { markerValid: false };
+  var headers = parseLeadingTtsHeadersUnified_(text);
 
-  // Fail-closed whole-notes check: scan lines 2+. If any matches, reject the whole note.
+  // Fail-closed whole-notes check: a ticket outside the two-line engine header
+  // is user content (or a malformed note), never an instruction to the engine.
   for (var i = 1; i < lines.length; i += 1) {
+    if (headers.consumedIndices[i]) continue;
     if (TIME_BRIDGE_WHOLE_NOTES_CHECK_REGEX_.test(lines[i])) {
       console.warn('[TimeBridge] Marker found on line ' + (i + 1) + '; rejecting whole note fail-closed.');
       return { markerValid: false, wholeNotesRejected: true, line: i + 1 };
     }
   }
 
-  var line1 = lines[0];
+  var line1 = headers.timeTicket || lines[0];
   var match = line1.match(TIME_BRIDGE_MARKER_REGEX_);
   if (!match) return { markerValid: false };
 
@@ -180,12 +230,13 @@ function timeBridgeWallClockToUtcMs_(localIso, timeZone) {
 function timeBridgeSpliceNotesMarker_(notes, exactMarkerLine) {
   if (notes == null) return '';
   var text = String(notes);
-  var lines = text.split(/\r?\n/);
-  if (!lines.length) return '';
-  if (lines[0] !== exactMarkerLine) return text;
-  lines.shift();
-  if (lines.length > 0 && lines[0] === '') lines.shift();
-  return lines.join('\n');
+  var headers = parseLeadingTtsHeadersUnified_(text);
+  // The fresh read must still carry exactly the ticket this round parsed;
+  // otherwise the note changed underneath us and nothing may be spliced.
+  if (!headers.timeTicket || headers.timeTicket !== exactMarkerLine) return text;
+  // Removing the ticket always leaves a [TTS-REC] header on line 1, so the
+  // both-recurrence guard still finds its permanent marker.
+  return headers.splicedNotes;
 }
 
 function timeBridgeCalendarHttpStatus_(e) {
@@ -387,10 +438,25 @@ function timeBridgeSpliceRenderer_(state, snap, syncTimeZone, nowMs) {
       if (notes.indexOf(parsed.exactMarkerLine) >= 0) {
         var finalNotes = timeBridgeSpliceNotesMarker_(notes, parsed.exactMarkerLine);
         updateGTask_(rec.gListId, gId, { notes: finalNotes });
+        // Code.gs:1069-1071 reuses this snapshot for reconcileMapped_ in the
+        // same round.  Mirror the provider write here: otherwise the merge
+        // projects the ticket we just consumed, its [TTS-REC] header is no
+        // longer on line 1 for field-merge.gs:391 to re-attach, and the W4
+        // reread reports a phantom user edit against the stale string.
+        gTask.notes = finalNotes;
         if (rec.fp && typeof rec.fp === 'object') {
-          // Recompute from the final string — a single source of truth instead
-          // of patching the old fingerprint (§3.3).
-          rec.fp.notes = ordinaryFingerprintHex_(finalNotes);
+          // A4 / BUG-V1-02: the merge baseline is ordinaryFieldFp_(gProj,'notes')
+          // — the user notes AFTER the managed resource block and the [TTS-REC]
+          // header have been stripped (field-merge.gs:126-144, :188-200).
+          // Hashing the raw finalNotes made the next one-sided notes edit look
+          // like a two-sided change, i.e. a phantom TRUE_FIELD_CONFLICT.
+          // Only the notes projection is used here, so safety is deliberately
+          // omitted; ordinaryProjectGoogle_ treats that as "bridge on".
+          var gProj = ordinaryProjectGoogle_(gTask, rec, null);
+          var notesFp = ordinaryFieldFp_(gProj, 'notes');
+          // An unmergeable projection yields null; the merge skips notes this
+          // round, so keep the last known baseline instead of poisoning it.
+          if (notesFp !== null) rec.fp.notes = notesFp;
         }
         spliced += 1;
       }
@@ -451,6 +517,33 @@ function timeBridgeMsMatchesTarget_(msTask, target, authoredTimeZone) {
   return !isNaN(msReminderMs) && Math.abs(msReminderMs - target.reminderInstantMs) <= 60000;
 }
 
+/* UTC echo of the reminder instant this engine last wrote (or confirmed) on
+ * Microsoft.  rec.td is a wall clock with no zone, so a project time-zone or
+ * DST offset change re-interprets the SAME remote instant as a different HH:mm.
+ * The echo is what separates those two cases: an unchanged remote instant means
+ * nobody edited the reminder.  `msAt` is the v0.7.5 field name and is already
+ * accepted by the state validator, so this guard needs no schema change. */
+function timeBridgeMsReminderEchoMatches_(rec, msTask) {
+  var echoMs = rec && rec.rem && rec.rem.msAt ? Date.parse(rec.rem.msAt) : NaN;
+  if (isNaN(echoMs) || !msTask || !msTask.isReminderOn || !msTask.reminderDateTime) return false;
+  var remoteMs = timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime);
+  // Graph may truncate seconds; the renderer already uses the same tolerance.
+  return isFinite(remoteMs) && Math.abs(remoteMs - echoMs) <= 60000;
+}
+
+function timeBridgeSetMsReminderEcho_(rec, instantMs) {
+  if (!rec) return;
+  if (instantMs === null || instantMs === undefined || !isFinite(instantMs)) {
+    if (rec.rem) {
+      delete rec.rem.msAt;
+      if (!Object.keys(rec.rem).length) delete rec.rem;
+    }
+    return;
+  }
+  rec.rem = rec.rem || {};
+  rec.rem.msAt = new Date(instantMs).toISOString();
+}
+
 /* Adopt a Microsoft-side time the user set by hand (the only other authoring
  * surface for a time on a task).  The reminder is the primary signal — the due
  * payload never carries a time (the API drops it).  Our own writes converge to
@@ -460,10 +553,15 @@ function timeBridgeMsAdoptObservation_(rec, msTask, syncTimeZone, authoredTimeZo
   // A pending NONE clear means the leftover reminder is ours to wipe, never a
   // user edit to adopt.
   if (rec.td.clear === true) return false;
+  // An unchanged remote instant is a zone/DST shift, not a user edit.  Leave
+  // rec.td alone and let the renderer repaint the wall clock under the new zone.
+  if (timeBridgeMsReminderEchoMatches_(rec, msTask)) return false;
   var adopted = null;
+  var observedReminderMs = null;
   if (msTask && msTask.isReminderOn && msTask.reminderDateTime) {
     var reminderMs = timeBridgeParseDateTimeZoneMs_(msTask.reminderDateTime);
     if (!isNaN(reminderMs)) {
+      observedReminderMs = reminderMs;
       adopted = {
         date: timeBridgeFormatYmdInTimeZone_(reminderMs, syncTimeZone),
         time: timeBridgeFormatHhMmInTimeZone_(reminderMs, syncTimeZone)
@@ -476,6 +574,9 @@ function timeBridgeMsAdoptObservation_(rec, msTask, syncTimeZone, authoredTimeZo
   if (!adopted) return false;
   if (timeBridgeTdKey_(rec.td) === timeBridgeTdKey_(adopted)) return false;
   rec.td = { date: adopted.date, time: adopted.time, v: 1 };
+  // The genuinely edited instant becomes the new echo, so a later zone change
+  // does not adopt it a second time.
+  timeBridgeSetMsReminderEcho_(rec, observedReminderMs);
   timeBridgeRetryRevive_(rec);
   return true;
 }
@@ -523,6 +624,9 @@ function timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZon
       reminderOk = !msTask.isReminderOn;
     }
     if (dueOk && reminderOk) {
+      // A convergent round is also a confirmed echo — an upgrading deployment
+      // with no msAt yet gets its guard armed here without any remote write.
+      timeBridgeSetMsReminderEcho_(rec, target.isReminderOn ? target.reminderInstantMs : null);
       timeBridgeRetryRecordSuccess_(rec, 'ms');
       return;
     }
@@ -540,6 +644,9 @@ function timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZon
         updateMsTask_(rec.msListId, rec.msId, { dueDateTime: { dateTime: rec.td.date + 'T00:00:00', timeZone: target.timeZone } });
       }
       timeBridgeRetryRecordSuccess_(rec, 'ms');
+      // Every successful render re-arms the echo at the instant we just wrote
+      // (or wipes it when the reminder was cleared).
+      timeBridgeSetMsReminderEcho_(rec, target.isReminderOn ? target.reminderInstantMs : null);
       if (pendingClear) delete rec.td.clear;
     } catch (e) {
       var code = timeBridgeBoundedErrorCode_(e);
@@ -585,12 +692,19 @@ function timeBridgeGetOrCreateCalendar_(state, syncTimeZone) {
   }
 }
 
-function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, endIso, syncTimeZone, rec, reminderMode) {
+function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, endIso, syncTimeZone, rec, reminderMode, consumeOp) {
   var deterministicId = timeBridgeDeterministicEventId_(pairId);
   var targetFp = timeBridgeEventFingerprint_(title, startIso, endIso, reminderMode);
   var fingerprintSlot = rec.rem && rec.rem.eFp;
 
+  // A fingerprint hit is a pure in-memory comparison: zero Calendar.Events
+  // calls, so it must not consume the per-round ops budget (BUG-V1-04).
   if (rec.rem && rec.rem.e === deterministicId && fingerprintSlot === targetFp) return false;
+
+  // Charge exactly once here — after the miss and BEFORE the first network
+  // call — so a provider error still counts.  Counting only successful writes
+  // would let a round issue an unbounded number of failing API calls.
+  if (typeof consumeOp === 'function') consumeOp();
 
   var eventResource = {
     id: deterministicId,
@@ -683,6 +797,11 @@ function timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, s
     var completed = gTask.status === 'completed' ||
       (snap.msTasksById[rec.msId] && snap.msTasksById[rec.msId].status === 'completed');
     var hasTime = !!(rec.td && rec.td.time) && !completed;
+    // A Microsoft-native recurring task is immutable to the MS renderer (§3.4).
+    // Re-projecting its Calendar instant under a changed zone would leave the
+    // Calendar and the Microsoft reminder at two different instants, so the
+    // projection is frozen with them.  Cleanup of a removed time still runs.
+    if (hasTime && msTaskHasRecurrence_(snap.msTasksById[rec.msId])) return;
     if (!timeBridgeRetryDue_(rec, 'cal', nowMs)) return;
     try {
       if (!hasTime) {
@@ -701,10 +820,12 @@ function timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, s
       }
       var startIso = new Date(startMs).toISOString();
       var endIso = new Date(startMs + TIME_BRIDGE_EVENT_DURATION_MINUTES * 60 * 1000).toISOString();
-      // The ops budget counts performed API writes only, never examinations —
-      // otherwise pairs late in the key order would starve forever.
-      opsCount += 1;
-      if (timeBridgeProjectCalendarEvent_(calendarId, gId, gTask.title, startIso, endIso, syncTimeZone, rec, reminderMode)) {
+      // The ops budget counts attempted Calendar.Events work only, never
+      // in-memory fingerprint examinations — otherwise already-projected
+      // pairs would starve the pairs late in the key order (BUG-V1-04).
+      // The projection function charges once itself, right after a miss.
+      if (timeBridgeProjectCalendarEvent_(calendarId, gId, gTask.title, startIso, endIso,
+        syncTimeZone, rec, reminderMode, function() { opsCount += 1; })) {
         result.projected += 1;
       }
       timeBridgeRetryRecordSuccess_(rec, 'cal');
@@ -730,7 +851,9 @@ function timeBridgeMigrateLegacyRem_(state, snap, syncTimeZone, authoredTimeZone
     var rec = state.g2m[gId];
     if (!rec) return;
     var rem = rec.rem;
-    var hasLegacy = !!(rem && (rem.ms !== undefined || rem.msAt !== undefined ||
+    // `msAt` is live again: it is the UTC echo of the reminder we last rendered.
+    // Dropping it here would disarm the zone/DST adopt guard on every round.
+    var hasLegacy = !!(rem && (rem.ms !== undefined ||
       rem.hasTime !== undefined || rem.markerOrphaned !== undefined));
     if (!rec.td && rec.msId) {
       var msTask = snap.msTasksById[rec.msId];
@@ -754,10 +877,9 @@ function timeBridgeMigrateLegacyRem_(state, snap, syncTimeZone, authoredTimeZone
       }
     }
     if (hasLegacy) {
-      // The legacy ownership keys are dropped as soon as the record has been
-      // rebuilt; e / eFp survive so projected events are not recreated.
+      // The v0.7.5 ownership tri-state is dropped once rec.td has been rebuilt;
+      // e / eFp (Calendar projection) and msAt (reminder echo) both survive.
       delete rec.rem.ms;
-      delete rec.rem.msAt;
       delete rec.rem.hasTime;
       delete rec.rem.markerOrphaned;
       if (!Object.keys(rec.rem).length) delete rec.rem;

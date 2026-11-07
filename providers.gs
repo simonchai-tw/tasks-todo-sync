@@ -863,12 +863,16 @@ function googleNotesHaveTtsRecMarker_(notes) {
  * disarmed the both-recurrence guard and let the 2026-10-11 recurrence storm
  * happen. The marker is engine metadata: callers strip it before merging and
  * re-attach it when composing the Google payload. */
+function isTtsRecHeaderLine_(line) {
+  return /^\s*\[TTS-REC:[0-9A-Fa-f]{6}\]\s*$/.test(String(line == null ? '' : line));
+}
+
 function splitTtsRecMarkerLine_(notes) {
   var s = String(notes == null ? '' : notes);
   var nl = s.indexOf('\n');
   var first = nl >= 0 ? s.slice(0, nl) : s;
   var rest = nl >= 0 ? s.slice(nl + 1) : '';
-  if (/^\s*\[TTS-REC:[0-9A-Fa-f]{6}\]\s*$/.test(first)) {
+  if (isTtsRecHeaderLine_(first)) {
     return { notes: rest, markerLine: first.trim() };
   }
   return { notes: s, markerLine: null };
