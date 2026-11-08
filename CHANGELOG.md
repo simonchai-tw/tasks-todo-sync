@@ -30,8 +30,8 @@ Subtask discovery reads checklist items through a dedicated `$expand=checklistIt
 
 ### Release scope and known limitations
 
-- This is an **engine release**. The Windows desktop companion and its installer assets remain at 1.0.2 until the companion repack; the GitHub Latest Release is deliberately left pointing at 1.0.2 so `/releases/latest/download/` keeps serving a complete asset set. Creating a new Latest Release without installer assets is what broke 1.0.1 and forced 1.0.2.
-- npm publish, GitHub Release assets and the private Apps Script deployment are separate release steps and are not part of this tag.
+- This is an **engine release shipped together with a rebuilt Windows installer**. The desktop companion and the complete Velopack installer asset set are rebuilt at 1.2.0 and attached to the `v1.2.0` GitHub Release, which is the Latest Release; `/releases/latest/download/` therefore keeps serving a complete asset set. Creating a new Latest Release without installer assets is what broke 1.0.1 and forced 1.0.2.
+- The private Apps Script deployment is a separate release step and is not part of this tag.
 - The micro-badge has no atomic compensation if one side's write succeeds and the other fails; a one-off stale badge is possible, but no data is deleted.
 - Category names are persisted as a fingerprint rather than plaintext; a category renamed in Microsoft cannot be detected through the Tasks API.
 
@@ -39,8 +39,9 @@ Subtask discovery reads checklist items through a dedicated `$expand=checklistIt
 
 - `npm test`: 604/604 passing.
 - `npm run check` (static validation + package dry-run), `npm run docs:check` (604/604, v1.2.0) and `git diff --check`: clean.
-- Version 1.2.0 consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge and this CHANGELOG.
-- TEST live probes: D0 smoke `SMOKE_OK`; D1-D4 `PASS`; full `syncAll()` round `SYNCALL_PASS`. Personal credentials, production Apps Script and the published desktop companion were not touched.
+- Version 1.2.0 consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge, this CHANGELOG and the companion project (`Version`, `FileVersion`, `AssemblyVersion`).
+- TEST live probes: D0 smoke `SMOKE_OK`; D1-D4 `PASS`; full `syncAll()` round `SYNCALL_PASS`. Personal credentials, production Apps Script and live task data were not touched.
+- Windows installer: `Tasks-ToDo-Sync-Setup.exe` (58.3 MB, `ProductVersion 1.2.0`, SHA-256 `024b75db6be167c805561e0298580ddc3d54f18cbfa527e803022c47d7724de9`) rebuilt from the 1.2.0 publish output; `RELEASES-win-x64`, `releases.win-x64.json` and all five referenced nupkgs are attached to the `v1.2.0` release, including the 1.0.2 -> 1.2.0 delta (6 patched, 1 added, 1 removed out of 218 files).
 
 ## 1.0.2 — 2026-11-07
 
