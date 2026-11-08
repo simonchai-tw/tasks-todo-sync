@@ -42,6 +42,7 @@ Subtask discovery reads checklist items through a dedicated `$expand=checklistIt
 - Version 1.2.0 consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge, this CHANGELOG and the companion project (`Version`, `FileVersion`, `AssemblyVersion`).
 - TEST live probes: D0 smoke `SMOKE_OK`; D1-D4 `PASS`; full `syncAll()` round `SYNCALL_PASS`. Personal credentials, production Apps Script and live task data were not touched.
 - Windows installer: `Tasks-ToDo-Sync-Setup.exe` (58.3 MB, `ProductVersion 1.2.0`, SHA-256 `024b75db6be167c805561e0298580ddc3d54f18cbfa527e803022c47d7724de9`) rebuilt from the 1.2.0 publish output; `RELEASES-win-x64`, `releases.win-x64.json` and all five referenced nupkgs are attached to the `v1.2.0` release, including the 1.0.2 -> 1.2.0 delta (6 patched, 1 added, 1 removed out of 218 files).
+- Dependency security: `npm audit` reports 0 vulnerabilities after root `overrides` pin `zod 4.6.7`, `gaxios 8.3.2`, `googleapis-common 9.3.1` and `gcp-metadata 9.2.3`. The vulnerable `rimraf` / `glob` / `minimatch` chain is removed from the tree entirely; the clasp CLI smoke check still reports 3.4.0 and all 604 tests pass.
 
 ## 1.0.2 — 2026-11-07
 

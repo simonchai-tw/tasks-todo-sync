@@ -74,6 +74,15 @@
   "dependencies": {
     "@google/clasp": "3.4.0"
   },
+  "overrides": {
+    "zod": "4.6.7",
+    "minimatch": "11.0.5",
+    "glob": "14.0.4",
+    "rimraf": "6.1.4",
+    "gaxios": "8.3.2",
+    "googleapis-common": "9.3.1",
+    "gcp-metadata": "9.2.3"
+  },
   "engines": {
     "node": ">=22"
   }
