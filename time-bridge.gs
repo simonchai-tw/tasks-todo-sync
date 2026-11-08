@@ -924,6 +924,98 @@ function timeBridgeNotifyQuarantine_(entries) {
 
 /* §3.8 Orchestrator. */
 
+/* v1.2.0 P1-3: notes-tail time micro-badge renderer.  Invoked from
+ * timeBridgeRun_ ONLY when the SYNC_TIME_BADGE knob is on (and the bridge is
+ * on), for pairs carrying rec.td.time.  It rewrites BOTH provider sides so the
+ * exact badge "🕒 HH:mm" sits at the END of the user notes and BEFORE the
+ * managed resource block, then records that exact string in
+ * rec.rem.lastRenderedBadge.
+ *
+ * Idempotence: the previous badge (lastRenderedBadge) is stripped with a strict
+ * === comparison before composing again.  A repeated round with an unchanged
+ * time produces the identical string and performs NO provider write; a changed
+ * time strips the OLD badge first, so badges never stack.  The snapshot is
+ * updated in place so the same-round reconcileMapped_ sees the new notes and
+ * the merge baseline (which strips the badge in its projection) stays stable.
+ *
+ * Spec §伍: an unmergeable status (MALFORMED / AMBIGUOUS / UNOWNED) or a null
+ * canonicalUserNotes on EITHER side skips the whole notes column
+ * (NOTES_UNMERGEABLE); userNotes is never used as a fallback. */
+function timeBridgeRenderNotesBadge_(state, snap, safety) {
+  var result = { rendered: 0, rewritten: 0, skipped: 0 };
+  // Defense in depth: even a stray caller must not rewrite user notes unless
+  // the opt-in knob is explicitly on.
+  if (!safety || !safety.enableTimeBadge) return result;
+  Object.keys((state && state.g2m) || {}).forEach(function(gId) {
+    var rec = state.g2m[gId];
+    if (!rec || !rec.msId) return;
+    if (!rec.td || !rec.td.time) return;
+    var gTask = snap.gTasksById[gId];
+    var msTask = snap.msTasksById[rec.msId];
+    if (!gTask || !msTask) return;
+
+    var newBadge = '🕒 ' + rec.td.time;
+    var oldBadge = (rec.rem && typeof rec.rem.lastRenderedBadge === 'string')
+      ? rec.rem.lastRenderedBadge : '';
+    var res = rec.res || {};
+
+    var gParsed = parseManagedResourceBlock_(gTask.notes, res.gBlockFp, res.gBlockIntentFp);
+    var msParsed = parseManagedResourceBlock_(microsoftNotesPlainTextProjection_(msTask),
+      res.msBlockFp, res.msBlockIntentFp);
+    if (!notesWriteAllowed_(gParsed.status) || gParsed.canonicalUserNotes === null ||
+        !notesWriteAllowed_(msParsed.status) || msParsed.canonicalUserNotes === null) {
+      result.skipped += 1;
+      return;
+    }
+
+    var gStripped = splitTtsRecMarkerLine_(googleNotesPlainTextProjection_(gParsed.canonicalUserNotes));
+    var gClean = stripRenderedTimeBadge_(gStripped.notes, oldBadge);
+    var msClean = stripRenderedTimeBadge_(
+      googleNotesPlainTextProjection_(msParsed.canonicalUserNotes), oldBadge);
+
+    var gComposed = composeManagedNotes_(gClean, gParsed.block, newBadge);
+    if (gStripped.markerLine) {
+      gComposed = gStripped.markerLine + (gComposed ? '\n' + gComposed : '');
+    }
+    var msComposed = composeManagedNotes_(msClean, msParsed.block, newBadge);
+    var msIsHtml = !!(msTask.body && String(msTask.body.contentType || '').toLowerCase() === 'html');
+    var msContent = msIsHtml ? textToHtml_(msComposed) : msComposed;
+
+    var gBefore = gTask.notes == null ? '' : String(gTask.notes);
+    var msBefore = msTask.body && msTask.body.content != null ? String(msTask.body.content) : '';
+    var gChanged = gComposed !== gBefore;
+    var msChanged = msContent !== msBefore;
+    // Isolate one pair's provider failure exactly like the other Time Bridge
+    // renderers: a single bad pair must not abort the whole round.  On failure
+    // the snapshot and state stay untouched, so the pair is retried next round
+    // against the previous badge value.
+    try {
+      if (gChanged) updateGTask_(rec.gListId, gId, { notes: gComposed });
+      if (msChanged) {
+        updateMsTask_(rec.msListId, rec.msId, {
+          body: { contentType: msIsHtml ? 'html' : 'text', content: msContent }
+        });
+      }
+    } catch (e) {
+      console.warn('[TimeBridge] Badge render failed for a pair: ' + timeBridgeBoundedErrorCode_(e));
+      result.skipped += 1;
+      return;
+    }
+    if (gChanged) {
+      gTask.notes = gComposed;
+      result.rewritten += 1;
+    }
+    if (msChanged) {
+      msTask.body = { contentType: msIsHtml ? 'html' : 'text', content: msContent };
+      result.rewritten += 1;
+    }
+    if (!rec.rem || typeof rec.rem !== 'object') rec.rem = {};
+    rec.rem.lastRenderedBadge = newBadge;
+    result.rendered += 1;
+  });
+  return result;
+}
+
 function timeBridgeRun_(state, snap, startedAt, roundId) {
   var safety = getSafetyConfig_();
   var syncTimeZone = syncTimeZone_();
@@ -948,6 +1040,12 @@ function timeBridgeRun_(state, snap, startedAt, roundId) {
   if (!remainingTimeOk_(startedAt, 30000)) return summary;
   summary.spliced = timeBridgeSpliceRenderer_(state, snap, syncTimeZone, nowMs);
   if (!remainingTimeOk_(startedAt, 30000)) return summary;
+  // v1.2.0 P1-3: opt-in, OFF by default.  Stripping in the fingerprint
+  // projection is knob-independent, but rendering/rewriting notes and storing
+  // lastRenderedBadge only happen here, when the knob is explicitly on.
+  if (safety.enableTimeBadge) {
+    summary.badge = timeBridgeRenderNotesBadge_(state, snap, safety);
+  }
   var msResult = timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZone);
   summary.msPatched = msResult.patched;
   summary.quarantined = summary.quarantined.concat(msResult.quarantined);

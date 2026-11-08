@@ -43,6 +43,11 @@ function newState_() {
     // budget (see sync.gs).  Additive and optional for migrated generations
     // (defaulted in normalizeState_); old schema<=3 fixtures read back fine.
     resourceObservationCursor: 0,
+    // v1.2.0 — persistent convergence counter guarding rec.res.journal compaction.
+    // A top-level scalar (not rec.res): field-merge.gs rebuilds rec.res mid-round,
+    // which would silently drop a marker stored there.  Additive and optional for
+    // migrated generations (defaulted in normalizeState_).
+    resourceJournalConvergedRounds: 0,
     timeBridgeJournal: null,
     deadLetterJournal: [],
     pendingEventDeletions: [],
@@ -116,7 +121,7 @@ function assertStrictSchema3StateShape_(state, errorCode) {
     'pendingListDeletions', 'listDeletionJournal', 'listDeletionConflicts',
     'listTombstones', 'listTombstoneNames', 'listFaults', 'health', 'updatedAt',
     'retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal',
-    'resourceObservationCursor',
+    'resourceObservationCursor', 'resourceJournalConvergedRounds',
     'timeBridgeJournal', 'deadLetterJournal', 'pendingEventDeletions', 'deadLetterEventDeletions'
   ];
   assertKnownObjectKeys_(state, allowedTopLevel, 'state', errorCode);
@@ -1808,9 +1813,13 @@ function assertSubtaskOwnershipRecordShapes_(subtasks) {
 function assertOrdinaryFingerprint_(fp, label) {
   if (fp === undefined) return;
   if (!isStateObject_(fp)) throw new Error('STATE_MALFORMED: ' + label + '.fp must be an object; overwrite refused.');
-  assertKnownObjectKeys_(fp, ['v', 'title', 'notes', 'completed', 'due'], label + '.fp', 'STATE_MALFORMED');
+  // v1.2.0 P1-4: importanceFp / categoriesFp are independent three-way
+  // fingerprints (null = unknown baseline, never "normal"/[]).  They are
+  // bookkept in the same rec.fp object but NEVER enter ORDINARY_SHARED_FIELDS_,
+  // so they cannot produce field conflicts or change the legacy merge chain.
+  assertKnownObjectKeys_(fp, ['v', 'title', 'notes', 'completed', 'due', 'importanceFp', 'categoriesFp'], label + '.fp', 'STATE_MALFORMED');
   if (fp.v !== 1) throw new Error('STATE_MALFORMED: ' + label + '.fp.v is invalid; overwrite refused.');
-  ['title', 'notes', 'completed', 'due'].forEach(function(field) {
+  ['title', 'notes', 'completed', 'due', 'importanceFp', 'categoriesFp'].forEach(function(field) {
     if (fp[field] === undefined) return;
     if (fp[field] !== null && (typeof fp[field] !== 'string' || !/^[0-9a-f]{32}$/.test(fp[field]))) {
       throw new Error('STATE_MALFORMED: ' + label + '.fp.' + field + ' is invalid; overwrite refused.');
@@ -1831,7 +1840,10 @@ function assertTimeBridgeMappingRem_(rem, label) {
   // project time-zone / DST offset shift apart from a genuine user edit).
   // The v0.7.5 ownership keys (ms / hasTime / markerOrphaned) stay accepted on
   // the load path so an upgrading installation can rebuild rec.td and drop them.
-  assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned'], label, 'STATE_MALFORMED');
+  // v1.2.0 P1-3: lastRenderedBadge is the exact string this engine last rendered
+  // at the tail of the user notes; it is compared with === before stripping, so
+  // it must round-trip byte-for-byte (VS16 and surrogate pairs included).
+  assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned', 'lastRenderedBadge'], label, 'STATE_MALFORMED');
   if (rem.e !== undefined && rem.e !== null && (typeof rem.e !== 'string' || !/^[0-9a-f]{32}$/.test(rem.e))) {
     throw new Error('STATE_MALFORMED: ' + label + '.e is invalid; overwrite refused.');
   }
@@ -1849,6 +1861,13 @@ function assertTimeBridgeMappingRem_(rem, label) {
   }
   if (rem.markerOrphaned !== undefined && rem.markerOrphaned !== null && typeof rem.markerOrphaned !== 'boolean') {
     throw new Error('STATE_MALFORMED: ' + label + '.markerOrphaned must be boolean or null/undefined; overwrite refused.');
+  }
+  // v1.2.0 P1-3: the badge is an opaque exact-match string.  No shape or
+  // character restriction is applied: it must be able to carry a VS16 selector
+  // (\uFE0F) and astral/surrogate-pair clock glyphs without being rejected.
+  if (rem.lastRenderedBadge !== undefined && rem.lastRenderedBadge !== null &&
+      typeof rem.lastRenderedBadge !== 'string') {
+    throw new Error('STATE_MALFORMED: ' + label + '.lastRenderedBadge must be a string or null/undefined; overwrite refused.');
   }
 }
 
@@ -2091,6 +2110,7 @@ function assertStrictSchema4StateShape_(state) {
   // Absence terminal-state tables (W2/W3) and Time Bridge state tables (Spec v2.4) are optional.
   const schema4OptionalTopLevel = [
     'retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal', 'resourceObservationCursor',
+    'resourceJournalConvergedRounds',
     'timeBridgeJournal', 'deadLetterJournal', 'pendingEventDeletions', 'deadLetterEventDeletions',
     'calendarProjection', 'bootstrap'
   ];
@@ -2103,6 +2123,10 @@ function assertStrictSchema4StateShape_(state) {
   if (state.resourceObservationCursor !== undefined &&
       (!Number.isInteger(state.resourceObservationCursor) || state.resourceObservationCursor < 0)) {
     throw new Error('STATE_MALFORMED: resourceObservationCursor must be a non-negative integer; overwrite refused.');
+  }
+  if (state.resourceJournalConvergedRounds !== undefined &&
+      (!Number.isInteger(state.resourceJournalConvergedRounds) || state.resourceJournalConvergedRounds < 0)) {
+    throw new Error('STATE_MALFORMED: resourceJournalConvergedRounds must be a non-negative integer; overwrite refused.');
   }
   if (state.retiredPairs) assertRetiredPairsTable_(state.retiredPairs);
   if (state.absenceHolds) assertAbsenceHoldsTable_(state.absenceHolds);
@@ -2287,6 +2311,7 @@ function normalizeState_(state) {
     const legacy = cloneStateForValidation_(source);
     delete legacy.subtasks;
     delete legacy.resourceObservationCursor;
+    delete legacy.resourceJournalConvergedRounds;
     delete legacy.timeBridgeJournal;
     delete legacy.deadLetterJournal;
     delete legacy.pendingEventDeletions;
@@ -2332,6 +2357,7 @@ function normalizeState_(state) {
   }
   if (canonical.updatedAt === undefined) canonical.updatedAt = null;
   if (canonical.resourceObservationCursor === undefined) canonical.resourceObservationCursor = 0;
+  if (canonical.resourceJournalConvergedRounds === undefined) canonical.resourceJournalConvergedRounds = 0;
   if (canonical.timeBridgeJournal === undefined) canonical.timeBridgeJournal = null;
   if (canonical.deadLetterJournal === undefined) canonical.deadLetterJournal = [];
   if (canonical.pendingEventDeletions === undefined) canonical.pendingEventDeletions = [];
@@ -2436,6 +2462,7 @@ function validateImportedState_(state) {
     const legacy = cloneStateForValidation_(state);
     delete legacy.subtasks;
     delete legacy.resourceObservationCursor;
+    delete legacy.resourceJournalConvergedRounds;
     delete legacy.timeBridgeJournal;
     delete legacy.deadLetterJournal;
     delete legacy.pendingEventDeletions;

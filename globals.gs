@@ -171,4 +171,21 @@ const DEFAULT_SYNC_TIME_BRIDGE = true;
 // the reminder duplication knob is what stays OFF by default.
 const DEFAULT_SYNC_CALENDAR_PROJECTION = true;
 const DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER = false;
+// v1.2.0 P1-3: the notes-tail time micro-badge rewrites user notes, so it is
+// opt-in and OFF by default.  Turning it on renders/updates 🕒 HH:mm at the end
+// of the user notes (before the managed resource block) for Time Bridge pairs.
+const DEFAULT_SYNC_TIME_BADGE = false;
+// v1.2.0 P1-4: category / importance mapping is opt-in and OFF by default.
+// The confirmation record lives in a Script Property so it survives rounds and
+// can be reset; the round context below is execution-local only.  opt-in is
+// deliberately off until previewCategoryImportance() +
+// applyCategoryImportanceConfirmation() have been run, so an upgrade can never
+// clear a user's existing Microsoft importance/categories on the first round.
+const DEFAULT_SYNC_ENABLE_CATEGORY_IMPORTANCE = false;
+const CATEGORY_IMPORTANCE_CONFIRMATION = 'I_CONFIRM_CATEGORY_IMPORTANCE_MS_WRITES';
+const CATEGORY_IMPORTANCE_CONFIRMED_PROPERTY = 'SYNC_CATEGORY_IMPORTANCE_CONFIRMED_JSON';
+// Execution-local. syncAll() sets it after state + safety are loaded and clears
+// it in a finally block.  Every MS payload builder reads this gate; when it is
+// null (or enabled/confirmed false) they emit byte-for-byte legacy payloads.
+var CATEGORY_IMPORTANCE_ROUND_ = null;
 

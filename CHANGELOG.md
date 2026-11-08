@@ -4,6 +4,44 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 1.2.0 — 2026-11-08
+
+A feature release landing the four P1 items unlocked by the v2 live-probe programme. The two capabilities that rewrite existing user data — the notes-tail time badge and category/importance mapping — ship **opt-in and OFF by default**; upgrading changes no existing notes, importance or categories. No new OAuth scope and no re-authorization are required.
+
+### Resource journal convergence pruning
+
+`rec.res.journal` is compacted to its last entry after two consecutive converged rounds. A persisted top-level counter (`resourceJournalConvergedRounds`) survives restarts, and the guard refuses to prune while any of six pending tables (`pendingTaskDeletions`, `deletionJournal`, `taskMoveJournal`, `absenceHolds`, `mutationJournal`, `subtasks.conflicts`) is non-empty. A journal whose last entry is still `WRITTEN` keeps its full history so crash-adoption evidence is never lost. Only the `journal` key changes; all four fingerprint fields are untouched.
+
+### Expanded checklist-item reads with a bounded fallback
+
+Subtask discovery reads checklist items through a dedicated `$expand=checklistItems` task GET. PROBE-02 measured identical ID sets against the per-parent GET at 0/10/35/60 items, with no nav-property `nextLink`. Parents covered by the expanded read skip the per-parent GET; a missing task, a non-array payload, a `checklistItems@odata.nextLink`, or any expanded-read failure falls back to the original bounded per-parent path. `SUBTASK_DISCOVERY_MAX_PARENTS_` stays at 10, `budgetStatus` stays `STATIC_CONSERVATIVE`, and the existing inventory URL is unchanged.
+
+### Notes-tail time micro-badge (opt-in)
+
+`SYNC_TIME_BADGE` (default `false`) renders an exact clock badge at the end of the user's notes, before the `--- tasks-todo-sync ---` managed block. Stripping runs inside the fingerprint projection chain and removes **only** a string byte-identical to `rec.rem.lastRenderedBadge`, so the badge cannot drift `rec.fp.notes` into a phantom field conflict. User-written clock text, VS16 variants and the full clock-symbol range are preserved; MALFORMED/AMBIGUOUS managed blocks skip the field entirely instead of falling back to raw notes. Turning the knob off freezes existing badges rather than batch-deleting them.
+
+### Category and importance mapping (opt-in)
+
+`SYNC_ENABLE_CATEGORY_IMPORTANCE` (default `false`) maps a leading `[!] ` or a star-then-space prefix in a Google title to Microsoft `importance: high`, and a `#tag` line placed last, before the managed block, to Microsoft `categories`. Two independent fingerprints (`importanceFp`, `categoriesFp`) run separate three-way comparisons. **"No marker" means Leave Alone, never `normal` or `[]`**, so existing Microsoft importance and categories survive the first enabled round; Microsoft `low` is never mapped or overwritten. Enabling requires a two-stage, read-only dry-run preview plus explicit confirmation before any Microsoft write. Categories use the account's built-in `masterCategories` display names — no `MailboxSettings.ReadWrite`, no re-authorization and no lookup table (C7 live probe).
+
+### Live-probe evidence and a repeatable integration channel
+
+`docs/live-probes-v2.md` now carries the C-group measurements (C1-C7) and their derived decisions, including the corrected `linkedResources` read-path comment in `providers.gs`. A reusable TEST-project integration channel sets the list allowlist safely — pinning a disposable Google/Microsoft pair so the engine cannot auto-create a list — runs one full `syncAll()` round, then restores Script Properties, User Properties state and both cloud inventories. The measured round returned `completed: true` in 4.5 s, advanced the journal convergence gate from 0 to 1, cleared `consecutiveFailures` from 1 to 0, left both inventory ID-set hashes unchanged, and left zero probe residue.
+
+### Release scope and known limitations
+
+- This is an **engine release**. The Windows desktop companion and its installer assets remain at 1.0.2 until the companion repack; the GitHub Latest Release is deliberately left pointing at 1.0.2 so `/releases/latest/download/` keeps serving a complete asset set. Creating a new Latest Release without installer assets is what broke 1.0.1 and forced 1.0.2.
+- npm publish, GitHub Release assets and the private Apps Script deployment are separate release steps and are not part of this tag.
+- The micro-badge has no atomic compensation if one side's write succeeds and the other fails; a one-off stale badge is possible, but no data is deleted.
+- Category names are persisted as a fingerprint rather than plaintext; a category renamed in Microsoft cannot be detected through the Tasks API.
+
+### Verification
+
+- `npm test`: 604/604 passing.
+- `npm run check` (static validation + package dry-run), `npm run docs:check` (604/604, v1.2.0) and `git diff --check`: clean.
+- Version 1.2.0 consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge and this CHANGELOG.
+- TEST live probes: D0 smoke `SMOKE_OK`; D1-D4 `PASS`; full `syncAll()` round `SYNCALL_PASS`. Personal credentials, production Apps Script and the published desktop companion were not touched.
+
 ## 1.0.2 — 2026-11-07
 
 A desktop repack release. The engine code is unchanged from 1.0.1; no new features, no default changes, and no C# changes. This version exists so the corrected engine actually reaches installed Windows companions.

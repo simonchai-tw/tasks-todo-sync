@@ -984,6 +984,13 @@ function checkpointTaskCreateBatch_(state) {
 function syncAll() {
   const entryStartedAt = initializeExecutionBudget_();
   beginSyncObservability_(entryStartedAt);
+  // v1.2.0 P1-4: arm an execution-local gate object for the whole round.  It
+  // stays inert until state + safety are both available inside the lock (see
+  // below); the finally at the end of this function ALWAYS clears it, so a
+  // later non-sync call in the same process can never inherit a confirmed gate.
+  const ciRound = { enabled: false, confirmed: false, state: null, safety: null };
+  setCategoryImportanceRound_(ciRound);
+  try {
   const round = withGlobalLock_(function() {
     const startedAt = entryStartedAt;
     const roundId = deletionRoundId_(startedAt);
@@ -1024,6 +1031,13 @@ function syncAll() {
       beginSyncRoundProofProjection_(state, roundId,
         pendingTaskDeletionsBeforeRound, pendingListDeletionsBeforeRound);
       safetyAtStart = getSafetyConfig_();
+      // v1.2.0 P1-4: only now are state + safety both proven available.  A
+      // missing/invalid confirmation, or opt-in OFF, leaves the gate inert, so
+      // the first round after enabling can never write importance/categories.
+      ciRound.enabled = safetyAtStart.enableCategoryImportance;
+      ciRound.confirmed = categoryImportanceWritesConfirmed_();
+      ciRound.state = state;
+      ciRound.safety = safetyAtStart;
       if (!safetyAtStart.allowDeletions) {
         // Pause durable delete intent before any inventory/API work.  If the
         // snapshot subsequently fails, catch-save still preserves this pause.
@@ -1083,6 +1097,13 @@ function syncAll() {
       state.health.consecutiveFailures = 0;
       state.health.lastSuccessfulRoundId = roundId;
       state.health.roundFenceProjectionId = null;
+      // v1.2.0 — prune converged rec.res.journals before the final commit, but
+      // only after the persistent convergence counter (top-level state) has
+      // observed enough consecutive converged rounds.  Defended with a typeof
+      // guard like the other optional sync hooks in this file.
+      if (typeof compactResourceJournals_ === 'function') {
+        compactResourceJournals_(state);
+      }
       normalizeState_(state);
       const finalGeneration = persistSyncState_(state, { finalCommit: true });
       if (SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) {
@@ -1197,6 +1218,10 @@ function syncAll() {
     };
   }
   return round;
+  } finally {
+    // v1.2.0 P1-4: never leak the confirmed round gate past this sync call.
+    setCategoryImportanceRound_(null);
+  }
 }
 
 // Only structured pendingMoves use stable opaque labels rather than provider
@@ -1892,6 +1917,144 @@ function applyTaskCreateBatchRelease(params) {
       'and will be reposted with fresh dedup machinery on the next syncAll.';
     console.log('TASK_CREATE_RELEASE_APPLIED ' + JSON.stringify({ batchId: report.batchId,
       released: report.released }));
+    return report;
+  });
+}
+
+/* -------------------------------------------------------------------------
+ * v1.2.0 P1-4 — two-stage dry-run for category / importance opt-in.
+ *
+ * Kept SEPARATE from dryRunReport(): that function is a read-only inventory
+ * report that explicitly "does not preview task-level updates" (its own
+ * warning), and operations.gs detectionScope.valuesIncludedInReport:false is
+ * an existing privacy contract we must not widen.  These mirror
+ * previewSubtaskOperation/applySubtaskOperation and
+ * previewTaskCreateBatchRelease/applyTaskCreateBatchRelease: previewToken +
+ * explicit confirmation constant + stale-preview rejection.
+ *
+ * The report is bounded and privacy-preserving: opaque task ids, marker kinds,
+ * and the target importance/categories VALUES only.  No user title text, no
+ * notes text, no raw provider IDs (construction brief §3 / §6).
+ * ---------------------------------------------------------------------- */
+
+function categoryImportanceInventory_(safety, state) {
+  const gLists = allowedGoogleLists_(getGLists_(), safety);
+  const items = [];
+  gLists.forEach(function(list) {
+    let tasks;
+    try {
+      tasks = getGTasks_(list.id);
+    } catch (e) {
+      if (isNotFoundError_(e)) return;  // bounded: an unreadable list is skipped
+      throw e;
+    }
+    (tasks || []).forEach(function(task) {
+      const rec = (state && state.g2m) ? state.g2m[task.id] : null;
+      const high = categoryImportanceTitleHigh_(task && task.title);
+      const tags = categoryImportanceTagsFromGoogle_(task, rec);
+      const markers = [];
+      if (high) markers.push('IMPORTANCE_HIGH');
+      if (tags.ok && tags.categories && tags.categories.length) markers.push('CATEGORY_TAGS');
+      if (!markers.length) return;  // no marker = Leave Alone, nothing to convert
+      items.push({
+        opaqueId: previewOpaqueId_('gTask', task.id),
+        markers: markers,
+        importance: high ? 'high' : null,
+        // C7: the masterCategories displayName is the tag string itself.  No
+        // lookup table, no MailboxSettings.ReadWrite, no re-consent.
+        categories: (tags.ok && tags.categories) ? tags.categories : null
+      });
+    });
+  });
+  items.sort(function(a, b) {
+    if (a.opaqueId !== b.opaqueId) return a.opaqueId < b.opaqueId ? -1 : 1;
+    return 0;
+  });
+  return items;
+}
+
+function categoryImportancePreviewToken_(items) {
+  return previewOpaqueId_('categoryImportancePreview', JSON.stringify(items));
+}
+
+function previewCategoryImportance() {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('CATEGORY_IMPORTANCE');
+    let safety;
+    try {
+      safety = getSafetyConfig_();
+    } catch (e) {
+      const report = {
+        enabled: false, taskCount: 0, items: [], previewToken: null,
+        warnings: [boundedSafetyConfigIssue_(e)],
+        note: 'Configuration validation stopped this read-only preview before provider inventory.'
+      };
+      console.log(JSON.stringify(report, null, 2));
+      return report;
+    }
+    const state = loadStateForSync_();
+    const items = categoryImportanceInventory_(safety, state);
+    const report = {
+      enabled: safety.enableCategoryImportance,
+      taskCount: items.length,
+      items: items,
+      previewToken: categoryImportancePreviewToken_(items),
+      confirmation: CATEGORY_IMPORTANCE_CONFIRMATION,
+      note: 'Read-only bounded preview. No titles, notes, or raw provider IDs. ' +
+        'Call applyCategoryImportanceConfirmation with confirmation="' +
+        CATEGORY_IMPORTANCE_CONFIRMATION + '" and this previewToken to enable MS writes.'
+    };
+    console.log(JSON.stringify(report, null, 2));
+    return report;
+  });
+}
+
+function applyCategoryImportanceConfirmation(params) {
+  initializeExecutionBudget_();
+  return withGlobalLock_(function() {
+    assertNoActiveSyncRoundFence_('CATEGORY_IMPORTANCE');
+    const confirmation = params && params.confirmation;
+    if (confirmation !== CATEGORY_IMPORTANCE_CONFIRMATION) {
+      throw new Error('CATEGORY_IMPORTANCE_CONFIRMATION_REQUIRED: pass confirmation="' +
+        CATEGORY_IMPORTANCE_CONFIRMATION + '" (explicit acknowledgement of MS metadata writes).');
+    }
+    // Reset is an intentional operator action: it only clears the durable
+    // confirmation so every later syncAll reverts to zero MS writes.
+    if (params && params.reset === true) {
+      PropertiesService.getScriptProperties().deleteProperty(CATEGORY_IMPORTANCE_CONFIRMED_PROPERTY);
+      const resetReport = {
+        applied: false, reset: true,
+        note: 'Confirmation cleared; MS importance/categories writes are disabled again. Re-run the preview to re-enable.'
+      };
+      console.log(JSON.stringify(resetReport, null, 2));
+      return resetReport;
+    }
+    const safety = getSafetyConfig_();
+    const state = loadStateForSync_();
+    const items = categoryImportanceInventory_(safety, state);
+    const liveToken = categoryImportancePreviewToken_(items);
+    if (!params || params.previewToken !== liveToken) {
+      throw new Error('CATEGORY_IMPORTANCE_STALE_PREVIEW: Inventory or markers changed; preview again.');
+    }
+    if (!safety.enableCategoryImportance) {
+      throw new Error('CATEGORY_IMPORTANCE_NOT_ENABLED: Set SYNC_ENABLE_CATEGORY_IMPORTANCE=true first.');
+    }
+    // Persist the acknowledgement in a Script Property: it survives rounds and
+    // is reversible.  The sync gate re-reads it every round.
+    PropertiesService.getScriptProperties().setProperty(
+      CATEGORY_IMPORTANCE_CONFIRMED_PROPERTY,
+      JSON.stringify({
+        confirmed: true,
+        confirmation: CATEGORY_IMPORTANCE_CONFIRMATION,
+        previewToken: liveToken,
+        confirmedAt: new Date().toISOString()
+      }));
+    const report = {
+      applied: true, taskCount: items.length, previewToken: liveToken,
+      note: 'Confirmed. The next syncAll may write importance/categories ONLY for marked Google tasks, and never clears an unmarked one.'
+    };
+    console.log(JSON.stringify(report, null, 2));
     return report;
   });
 }

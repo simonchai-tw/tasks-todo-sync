@@ -325,6 +325,19 @@ function getMsTasks_(listId, options) {
   }, 'value', 'graph');
 }
 
+/* Read a list's task inventory with checklistItems expanded inline.  Kept as a
+ * separate request from getMsTasks_: combining two $expand clauses was not
+ * covered by the C2 live measurement, so the ordinary inventory URL shape is
+ * left untouched.  $select is intentionally omitted because this endpoint
+ * rejects it with HTTP 400. (C2, live 2026-11-07) */
+function getMsTasksWithChecklistItems_(listId) {
+  const first = MS_TODO_BASE + '/' + encodeURIComponent(listId) +
+    '/tasks?$top=100&$expand=checklistItems';
+  return getAllPages_(first, function(url) {
+    return graphFetch_(url, microsoftTaskRequestOptions_());
+  }, 'value', 'graph');
+}
+
 /* Read checklist items with a bounded, direct Graph collection GET. */
 function getMsChecklistItemsDirect_(listId, parentTaskId) {
   if (typeof listId !== 'string' || !listId ||
@@ -390,10 +403,14 @@ function getMsChecklistItemsDirect_(listId, parentTaskId) {
 }
 
 /* Read a Microsoft task's linkedResources through the navigation endpoint.
- * Graph silently ignores $expand=linkedResources on both the collection and the
- * single-task endpoint, and rejects $select on it with HTTP 400, so this
- * dedicated collection GET is the only reliable read path (verified live
- * 2026-09-11). Returns OBSERVED_COMPLETE with the exact items, or throws. */
+ * A plain task GET already carries the collection without $expand, and adding
+ * $expand=linkedResources changes nothing (C5, live 2026-11-07): the parameter
+ * is redundant, not silently ignored. $select remains rejected with HTTP 400
+ * on this endpoint (C2, live 2026-11-07), so this dedicated collection GET
+ * with $top=100 stays the reference read path, separate from the
+ * POST /linkedResources write path, because it returns the exact items with a
+ * complete-inventory guarantee.
+ * Returns OBSERVED_COMPLETE with the exact items, or throws. */
 function getMsTaskLinkedResources_(listId, taskId) {
   if (typeof listId !== 'string' || !listId || typeof taskId !== 'string' || !taskId) {
     throw new Error('RELATIONSHIP_MALFORMED_ID');
@@ -943,6 +960,17 @@ function msPayloadFromGoogle_(task, mode) {
   }
   payload.dueDateTime = msDue_(task.due);
   payload.status = task.status === 'completed' ? 'completed' : 'notStarted';
+  // v1.2.0 P1-4: a CREATE payload may carry a POSITIVE Google marker (there is
+  // no Microsoft current value to diff).  The gate is the execution-local round
+  // context; with no context (every legacy caller and existing unit test) this
+  // adds NOTHING, so the exact JSON.stringify payload assertions still hold.
+  // UPDATE payloads are handled by msUpdatePayloadFromGoogle_, which has the
+  // real Microsoft task and performs the identical-field diff-prune.
+  if (mode === 'create') {
+    var ci = categoryImportanceFieldsForPayload_(task, null, categoryImportanceRecForTask_(task));
+    if (Object.prototype.hasOwnProperty.call(ci, 'importance')) payload.importance = ci.importance;
+    if (Object.prototype.hasOwnProperty.call(ci, 'categories')) payload.categories = ci.categories;
+  }
   return payload;
 }
 
@@ -979,6 +1007,28 @@ function msUpdatePayloadFromGoogle_(googleTask, microsoftTask) {
   if (googleNotesPlainTextProjection_(googleTask && googleTask.notes) ===
       microsoftNotesPlainTextProjection_(microsoftTask)) {
     delete payload.body;
+  }
+  // v1.2.0 P1-4: compute the independent chain with the REAL Microsoft current
+  // value (the create builder has none), then diff-prune fields that already
+  // equal it so a converged round never emits a redundant PATCH.  Gate closed
+  // -> ci is {} -> not a single key is added or removed (legacy byte-for-byte).
+  var ci = categoryImportanceFieldsForPayload_(googleTask, microsoftTask,
+    categoryImportanceRecForTask_(googleTask));
+  if (Object.prototype.hasOwnProperty.call(ci, 'importance')) {
+    if (String((microsoftTask && microsoftTask.importance) || 'normal') === String(ci.importance)) {
+      delete payload.importance;
+    } else {
+      payload.importance = ci.importance;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(ci, 'categories')) {
+    var currentCats = (microsoftTask && Array.isArray(microsoftTask.categories))
+      ? microsoftTask.categories : [];
+    if (JSON.stringify(currentCats) === JSON.stringify(ci.categories)) {
+      delete payload.categories;
+    } else {
+      payload.categories = ci.categories;
+    }
   }
   return payload;
 }

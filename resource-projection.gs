@@ -152,6 +152,28 @@ function notesWriteAllowed_(parseStatus) {
     parseStatus === RESOURCE_BLOCK_STATUS_.REMOVED;
 }
 
+/* v1.2.0 P1-3: read the exact badge string this engine last rendered for a
+ * pair.  Returning '' (rather than undefined/null/unknown) keeps every caller
+ * on one comparison path and guarantees byte-for-byte round-tripping of VS16
+ * and surrogate-pair glyphs. */
+function timeBadgeForRec_(rec) {
+  var badge = rec && rec.rem && rec.rem.lastRenderedBadge;
+  return typeof badge === 'string' ? badge : '';
+}
+
+/* v1.2.0 P1-3: strip ONLY the value we rendered ourselves, and ONLY when the
+ * projected user-notes tail is byte-for-byte (===) equal to that value.  Never
+ * a bare clock regex: a user-written "記得 🕒 15:30 開會", any 🕐–🕛 glyph,
+ * or a VS16 variant (🕒️) must survive untouched.  The one separator newline
+ * that composeManagedNotes_ inserts before the badge is removed with it.
+ * When no badge was ever rendered the notes are returned unchanged. */
+function stripRenderedTimeBadge_(notes, badge) {
+  var s = String(notes == null ? '' : notes);
+  if (typeof badge !== 'string' || !badge) return s;
+  if (s.length < badge.length || s.slice(s.length - badge.length) !== badge) return s;
+  return s.slice(0, s.length - badge.length).replace(/\n$/, '');
+}
+
 /* Fingerprint of the managed block actually present in the given notes, taken
  * from the provider's own readback after a write.  Null when no block is there.
  * Used to decide whether a persisted write intent can be confirmed. */
@@ -160,12 +182,26 @@ function observedManagedBlockFingerprint_(rawNotes) {
   return parsed && parsed.block ? parsed.blockFp : null;
 }
 
-function composeManagedNotes_(canonicalUserNotes, managedBlock) {
+/* v1.2.0 P1-3: an optional third argument carries the exact time badge.  With
+ * no badge (the default, and every legacy caller) the output is byte-for-byte
+ * what it has always been.  With a badge it is appended to the END of the user
+ * notes and BEFORE the managed block:
+ *   userNotes + '\n🕒 HH:mm\n\n' + managedBlock
+ * and the badge is still written on the "no managed block" branch.  The badge
+ * is kept as a separate value (never baked into userNotes) so the fingerprint
+ * projection can strip it again with a strict === comparison. */
+function composeManagedNotes_(canonicalUserNotes, managedBlock, badge) {
   var user = canonicalUserNotes == null ? '' : String(canonicalUserNotes);
   var block = managedBlock == null ? '' : String(managedBlock);
-  if (!block) return user;
-  if (!user) return block;
-  return user.replace(/\n+$/, '') + '\n\n' + block;
+  if (typeof badge !== 'string' || !badge) {
+    if (!block) return user;
+    if (!user) return block;
+    return user.replace(/\n+$/, '') + '\n\n' + block;
+  }
+  var headed = user.replace(/\n+$/, '');
+  headed = headed ? headed + '\n' + badge : badge;
+  if (!block) return headed;
+  return headed + '\n\n' + block;
 }
 
 function resourceNormalizeUrl_(url) {
@@ -437,6 +473,9 @@ function msLinkedObservationForPair_(rec, msTask) {
 
 function planResourceProjection_(googleTask, msTask, rec, safety, userNotesGoogle, userNotesMicrosoft, msObservation) {
   var res = (rec && rec.res) || {};
+  // v1.2.0 P1-3: both sides must compose the SAME badge, otherwise a Google
+  // notes write and a Microsoft body write diverge in the same round.
+  var badge = timeBadgeForRec_(rec);
   var diagnostic = [];
   var gParsed = parseManagedResourceBlock_(googleTask && googleTask.notes, res.gBlockFp, res.gBlockIntentFp);
   var msText = microsoftNotesPlainTextProjection_(msTask);
@@ -485,7 +524,7 @@ function planResourceProjection_(googleTask, msTask, rec, safety, userNotesGoogl
       writeMicrosoft = true;
       nextRes.msBlockFp = null;
     }
-    var composedMs = composeManagedNotes_(msUser, microsoftBlock);
+    var composedMs = composeManagedNotes_(msUser, microsoftBlock, badge);
     microsoftBody = {
       contentType: (msTask && msTask.body && String(msTask.body.contentType || '').toLowerCase() === 'html')
         ? 'html' : 'text',
@@ -507,7 +546,7 @@ function planResourceProjection_(googleTask, msTask, rec, safety, userNotesGoogl
     var nextGFp = managedBlockFingerprint_(googleBlock);
     if ((googleBlock || '') !== (gParsed.block || '')) writeGoogle = true;
     nextRes.gBlockFp = nextGFp;
-    googleNotes = composeManagedNotes_(gUser, googleBlock);
+    googleNotes = composeManagedNotes_(gUser, googleBlock, badge);
   } else {
     diagnostic.push(gParsed.status);
   }
@@ -538,4 +577,48 @@ function planResourceProjection_(googleTask, msTask, rec, safety, userNotesGoogl
     gParseStatus: gParsed.status,
     msParseStatus: msParsed.status
   };
+}
+
+/* -------------------------------------------------------------------------
+ * v1.2.0 P1-4 — category / importance syntax readers (pure, unit-testable).
+ *
+ * Syntax is deliberately narrow, per report §肆 D6 (line 191):
+ *   - title: ONLY /^(\[!\]|★)\s/  (leading marker + whitespace).  This avoids
+ *     Markdown `[!NOTE]` / `[!IMPORTANT]` callouts, `★★★★★` ratings, and a
+ *     `[!]` appearing mid-title.  The title TEXT is never stripped (decision 2
+ *     in the construction brief): the marker only drives MS importance.
+ *   - notes: ONLY the LAST non-blank line of canonicalUserNotes (the line just
+ *     before the managed resource block), and the WHOLE line must be #tag
+ *     tokens.  No fallback to the raw `userNotes` full text.
+ *
+ * "No marker" is NOT importance='normal' and NOT categories=[]: it is Leave
+ * Alone.  These readers return null for the absent case and the independent
+ * three-way chain in field-merge.gs decides whether anything may be written.
+ * ---------------------------------------------------------------------- */
+var CI_TITLE_MARKER_REGEX_ = /^(\[!\]|★)\s/;
+var CI_TAG_LINE_REGEX_ = /^#[^\s#]+(?:\s+#[^\s#]+)*$/;
+
+function categoryImportanceTitleHigh_(title) {
+  var text = String(title == null ? '' : title);
+  return CI_TITLE_MARKER_REGEX_.test(text) ? 'high' : null;
+}
+
+function categoryImportanceTagsFromGoogle_(gTask, rec) {
+  var res = rec && rec.res;
+  var parsed = parseManagedResourceBlock_(
+    gTask && gTask.notes, res && res.gBlockFp, res && res.gBlockIntentFp);
+  // MALFORMED / AMBIGUOUS / UNOWNED: canonicalUserNotes is null, or notes
+  // writes are not allowed.  Skip the WHOLE column (NOTES_UNMERGEABLE) and
+  // NEVER fall back to parsed.userNotes (the raw, untrusted full text).
+  if (!notesWriteAllowed_(parsed.status) || parsed.canonicalUserNotes === null) {
+    return { ok: false, status: parsed.status, categories: null };
+  }
+  var lines = String(parsed.canonicalUserNotes).split('\n');
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  var last = (lines.length ? lines[lines.length - 1] : '').trim();
+  if (!CI_TAG_LINE_REGEX_.test(last)) {
+    return { ok: true, status: parsed.status, categories: null };
+  }
+  var tags = last.split(/\s+/).map(function(token) { return token.slice(1); });
+  return { ok: true, status: parsed.status, categories: tags };
 }

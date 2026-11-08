@@ -928,7 +928,84 @@ function discoverSubtaskRelationships_(state, snap, startedAt, roundId, nowMs) {
     candidates.push({ gParentId: gParentId, msParentId: rec.msId,
       msListId: rec.msListId || (snap.msListByTask && snap.msListByTask[rec.msId]) });
   });
-  var result = discoverRelationshipsReadOnly_(state, candidates, subtaskDiscoveryPolicy_(), startedAt, roundId, nowMs || Date.now());
+
+  // v1.2.0 P1-2: prefer a single $expand=checklistItems inventory read per
+  // distinct list.  A parent the expansion cannot cover falls back to the
+  // original bounded per-parent direct GET; a failed expansion read discards
+  // ALL expanded data and falls back wholesale (fail-soft, never surfaced).
+  var expandedByMsId = null;
+  try {
+    var listIds = [];
+    var seenListIds = {};
+    candidates.forEach(function(c) {
+      var id = c.msListId;
+      if (typeof id === 'string' && id && !seenListIds[id]) {
+        seenListIds[id] = true;
+        listIds.push(id);
+      }
+    });
+    var expanded = {};
+    listIds.forEach(function(listId) {
+      var tasks = getMsTasksWithChecklistItems_(listId) || [];
+      tasks.forEach(function(task) {
+        if (task && typeof task === 'object' && !Array.isArray(task) && task.id) {
+          expanded[task.id] = task;
+        }
+      });
+    });
+    expandedByMsId = expanded;
+  } catch (error) {
+    expandedByMsId = null;
+  }
+
+  var effectiveNow = nowMs || Date.now();
+  var expandedItems = {};
+  var fallbackCandidates = [];
+  var expandedParentCount = 0;
+  candidates.forEach(function(c) {
+    var task = expandedByMsId ? expandedByMsId[c.msParentId] : null;
+    var hasChecklistProp = !!task && Object.prototype.hasOwnProperty.call(task, 'checklistItems');
+    // A missing checklistItems property is a normal empty collection (C2).
+    // A present-but-non-array value is malformed provider data: never treat it
+    // as "no children" (that would look like a user deletion).  Fall back to
+    // the authoritative per-parent read instead.
+    if (!task || task['checklistItems@odata.nextLink'] ||
+        (hasChecklistProp && !Array.isArray(task.checklistItems))) {
+      fallbackCandidates.push(c);
+      return;
+    }
+    var raw = hasChecklistProp ? task.checklistItems : [];
+    var items = raw.map(function(item) {
+      return { id: item.id, displayName: item.displayName, isChecked: item.isChecked };
+    });
+    expandedItems[c.msParentId] = items;
+    // Mirror the direct path's completeness record so the expanded data is
+    // not skipped by subtaskObservationComplete_ during reconciliation.
+    applyRelationshipObservation_(state, c, { kind: 'OBSERVED_COMPLETE', items: items }, roundId, effectiveNow);
+    expandedParentCount += 1;
+  });
+
+  var result = discoverRelationshipsReadOnly_(state, fallbackCandidates, subtaskDiscoveryPolicy_(), startedAt, roundId, effectiveNow);
+
+  // Expansion first, fallback second; a fallback result never overwrites an
+  // already-expanded parent.
+  var merged = {};
+  Object.keys(expandedItems).forEach(function(id) { merged[id] = expandedItems[id]; });
+  Object.keys(result.itemsByMsParentId || {}).forEach(function(id) {
+    if (!Object.prototype.hasOwnProperty.call(merged, id)) {
+      merged[id] = result.itemsByMsParentId[id];
+    }
+  });
+  result.itemsByMsParentId = merged;
+  // eligible describes every candidate considered this round, not just the
+  // subset handed to the per-parent fallback path.
+  result.eligible = candidates.length;
+  // Count expanded parents in the report without inflating the true per-parent
+  // direct GET counter.
+  result.scheduled += expandedParentCount;
+  result.attempted += expandedParentCount;
+  result.observed += expandedParentCount;
+
   snap.msChecklistItemsByParentId = result.itemsByMsParentId || {};
   snap.msParentNotFound = snap.msParentNotFound || {};
   (result.notFoundParentIds || []).forEach(function(id) { snap.msParentNotFound[id] = true; });

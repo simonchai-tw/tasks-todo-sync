@@ -13,6 +13,13 @@ var ORDINARY_FP_VERSION_ = 1;
 // can see what was last attempted/confirmed.  Bounded — oldest entries are
 // evicted once it reaches RESOURCE_JOURNAL_MAX_.
 var RESOURCE_JOURNAL_MAX_ = 50;
+// v1.2.0 — rec.res.journal convergence pruning (report §貳 B2, lines 120-122).
+// Pruning is only safe after a persistent, top-level convergence marker has
+// counted this many consecutive converged rounds.  BENCH-01 defines a compacted
+// journal as "one journal entry per mapping", so a pruned journal keeps exactly
+// its last entry.  The counter lives at top-level state (see state.gs), not in
+// rec.res, because field-merge.gs rebuilds rec.res mid-round.
+var RESOURCE_JOURNAL_COMPACTION_MIN_ROUNDS_ = 2;
 
 function resourceJournalNow_() {
   return Date.now();
@@ -25,6 +32,77 @@ function resourceJournalPush_(journal, entry) {
     journal.splice(0, journal.length - RESOURCE_JOURNAL_MAX_);
   }
   return journal;
+}
+
+/* Guard: convergence pruning may only run when ALL durable pending-state
+ * tables named by the spec are empty.  Exactly these six — no extras added:
+ *   pendingTaskDeletions, deletionJournal, taskMoveJournal,
+ *   absenceHolds, mutationJournal, subtasks.conflicts
+ * A non-object state cannot be inspected; treat it as non-blocking here (the
+ * caller rejects unavailable state before reaching this guard). */
+function resourceJournalCompactionGuard_(state) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return true;
+  var tableNames = [
+    'pendingTaskDeletions', 'deletionJournal', 'taskMoveJournal',
+    'absenceHolds', 'mutationJournal'
+  ];
+  var i;
+  for (i = 0; i < tableNames.length; i += 1) {
+    var table = state[tableNames[i]];
+    if (table && typeof table === 'object' && !Array.isArray(table) && Object.keys(table).length) return false;
+  }
+  var conflicts = state.subtasks && state.subtasks.conflicts;
+  if (conflicts && typeof conflicts === 'object' && !Array.isArray(conflicts) && Object.keys(conflicts).length) {
+    return false;
+  }
+  return true;
+}
+
+/* Bounded convergence pruning of rec.res.journal, driven by the persistent
+ * top-level counter resourceJournalConvergedRounds.  Returns a bounded summary
+ * { guard, streak, compacted, skipped, reason } and never throws.  Only the
+ * `journal` key of each rec.res is touched; the four block/intent fingerprints
+ * are deliberately left untouched. */
+function compactResourceJournals_(state) {
+  var summary = { guard: 'SKIPPED', streak: 0, compacted: 0, skipped: 0, reason: 'STATE_UNAVAILABLE' };
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return summary;
+
+  if (!resourceJournalCompactionGuard_(state)) {
+    state.resourceJournalConvergedRounds = 0;
+    return { guard: 'BLOCKED', streak: 0, compacted: 0, skipped: 0, reason: 'PENDING_STATE_TABLES' };
+  }
+  summary.guard = 'PASSED';
+
+  var current = state.resourceJournalConvergedRounds;
+  var streak = (Number.isInteger(current) && current >= 0) ? current + 1 : 1;
+  state.resourceJournalConvergedRounds = streak;
+  summary.streak = streak;
+
+  if (streak < RESOURCE_JOURNAL_COMPACTION_MIN_ROUNDS_) {
+    summary.reason = 'STREAK_BELOW_THRESHOLD';
+    return summary;
+  }
+
+  var g2m = (state.g2m && typeof state.g2m === 'object' && !Array.isArray(state.g2m)) ? state.g2m : {};
+  Object.keys(g2m).forEach(function(gId) {
+    var rec = g2m[gId];
+    var res = rec && rec.res;
+    var journal = res && res.journal;
+    if (!Array.isArray(journal) || journal.length <= 1) return;
+    var last = journal[journal.length - 1];
+    // A trailing WRITTEN (not yet CONFIRMED) entry is crash evidence: keep the
+    // full history so a lost final commit can still be reconciled next round.
+    if (last && last.result === 'WRITTEN') {
+      summary.skipped += 1;
+      return;
+    }
+    res.journal = [last];
+    summary.compacted += 1;
+  });
+
+  state.resourceJournalConvergedRounds = 0;
+  summary.reason = 'COMPACTED';
+  return summary;
 }
 
 function resourceNotesChanged_(current, baseline) {
@@ -69,7 +147,10 @@ function ordinaryFingerprintHex_(canonical) {
 }
 
 function ordinaryEmptyFp_() {
-  return { v: ORDINARY_FP_VERSION_, title: null, notes: null, completed: null, due: null };
+  // v1.2.0 P1-4: two independent fingerprints. null = unknown baseline
+  // (Leave Alone), NEVER a claim that Google said "normal" / "[]".
+  return { v: ORDINARY_FP_VERSION_, title: null, notes: null, completed: null, due: null,
+    importanceFp: null, categoriesFp: null };
 }
 
 function ordinaryCanonicalTitle_(task) {
@@ -137,7 +218,10 @@ function ordinaryUserNotesFromGoogle_(gTask, rec) {
   var stripped = splitTtsRecMarkerLine_(googleNotesPlainTextProjection_(parsed.canonicalUserNotes));
   return {
     ok: true,
-    notes: stripped.notes,
+    // v1.2.0 P1-3: strip the badge we rendered ourselves BEFORE it reaches
+    // ordinaryFieldFp_, so rec.fp.notes never drifts and the A4 splice baseline
+    // (ordinaryProjectGoogle_ -> ordinaryFieldFp_) picks this up for free.
+    notes: stripRenderedTimeBadge_(stripped.notes, timeBadgeForRec_(rec)),
     markerLine: stripped.markerLine,
     status: parsed.status
   };
@@ -152,7 +236,9 @@ function ordinaryUserNotesFromMicrosoft_(msTask, rec) {
   }
   return {
     ok: true,
-    notes: googleNotesPlainTextProjection_(parsed.canonicalUserNotes),
+    // v1.2.0 P1-3: same strict strip as the Google side, before the fingerprint
+    // projection sees the notes.
+    notes: stripRenderedTimeBadge_(googleNotesPlainTextProjection_(parsed.canonicalUserNotes), timeBadgeForRec_(rec)),
     status: parsed.status
   };
 }
@@ -276,7 +362,7 @@ function ordinaryGooglePatchFromPlan_(plan) {
   return payload;
 }
 
-function ordinaryMicrosoftPatchFromPlan_(plan) {
+function ordinaryMicrosoftPatchFromPlan_(plan, ciFields) {
   var payload = {};
   if (Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'title')) payload.title = plan.toMicrosoft.title;
   if (Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'notes')) {
@@ -300,6 +386,14 @@ function ordinaryMicrosoftPatchFromPlan_(plan) {
     } else if (!plan.toMicrosoft.due.time) {
       payload.dueDateTime = msDue_(plan.toMicrosoft.due.date + 'T00:00:00.000Z');
     }
+  }
+  // v1.2.0 P1-4: the independent importance/categories chain contributes ONLY
+  // these two keys.  With no ciFields (every legacy caller and existing test)
+  // the payload is byte-for-byte unchanged.  These keys never enter the four
+  // ORDINARY_SHARED_FIELDS_ and never produce a field conflict.
+  if (ciFields) {
+    if (Object.prototype.hasOwnProperty.call(ciFields, 'importance')) payload.importance = ciFields.importance;
+    if (Object.prototype.hasOwnProperty.call(ciFields, 'categories')) payload.categories = ciFields.categories;
   }
   return payload;
 }
@@ -371,7 +465,16 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   var gId = gTask && gTask.id;
   ordinaryStoreFieldConflicts_(rec, plan, gId);
   var gPayload = ordinaryGooglePatchFromPlan_(plan);
-  var msPayload = ordinaryMicrosoftPatchFromPlan_(plan);
+  // v1.2.0 P1-4: independent importance/categories three-way chain (decision
+  // 1).  It only decides whether two extra keys reach the MS PATCH payload; it
+  // is deliberately NOT part of ORDINARY_SHARED_FIELDS_ and produces no field
+  // conflicts.  With the round gate closed ciOutcome.fields is {} and the
+  // payload stays byte-for-byte legacy.
+  var ciOutcome = categoryImportanceMsDelta_(gTask, msTask, rec, CATEGORY_IMPORTANCE_ROUND_);
+  var msPayload = ordinaryMicrosoftPatchFromPlan_(plan, ciOutcome.fields);
+  // v1.2.0 P1-3: the badge is composed into BOTH payloads from the same exact
+  // string, and it survives the "no managed block" branch via composeManagedNotes_.
+  var badge = timeBadgeForRec_(rec);
 
   var userNotesG = Object.prototype.hasOwnProperty.call(plan.toGoogle, 'notes') ? plan.toGoogle.notes : gProj.notes;
   var userNotesM = Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'notes')
@@ -384,7 +487,7 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   var resJournal = (rec.res && Array.isArray(rec.res.journal)) ? rec.res.journal.slice() : [];
   if ((Object.prototype.hasOwnProperty.call(gPayload, 'notes') || resources.writeGoogle) &&
       notesWriteAllowed_(resources.gParseStatus) && !googleNotesWriteBlocked_(gTask)) {
-    gPayload.notes = composeManagedNotes_(userNotesG, resources.googleBlock);
+    gPayload.notes = composeManagedNotes_(userNotesG, resources.googleBlock, badge);
     // Re-attach the [TTS-REC] marker line on top: the merge projection carries
     // user content only, so a Microsoft body edit (even an empty one) must
     // never erase the engine's marker (2026-10-11 recurrence storm).
@@ -397,8 +500,8 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
     msPayload.body = {
       contentType: resources.microsoftBody.contentType,
       content: resources.microsoftBody.contentType === 'html'
-        ? textToHtml_(composeManagedNotes_(userNotesM, resources.microsoftBlock))
-        : composeManagedNotes_(userNotesM, resources.microsoftBlock)
+        ? textToHtml_(composeManagedNotes_(userNotesM, resources.microsoftBlock, badge))
+        : composeManagedNotes_(userNotesM, resources.microsoftBlock, badge)
     };
   }
   if (resources.nativeCreate) {
@@ -570,6 +673,12 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   var gNow = ordinaryProjectGoogle_(gAfter, rec, safety);
   var mNow = ordinaryProjectMicrosoft_(msAfter, rec, safety);
   ordinaryAdvanceFingerprints_(rec, gNow, mNow, plan);
+  // v1.2.0 P1-4: advance the two independent fingerprints only when the
+  // Microsoft side truly reached the planned value: either no write was needed
+  // (already converged) or a write succeeded.  A skipped/failed MS patch keeps
+  // the unknown baseline so no later round can mistake a stale value for proof.
+  var ciHadFields = Object.keys(ciOutcome.fields).length > 0;
+  if (!ciHadFields || msWrites) applyCategoryImportanceNextFp_(rec, ciOutcome.nextFp);
 
   // v0.8.0 §3.6: the merge owns the DATE while the Microsoft renderer owns the
   // TIME.  Whatever date the merge converged on becomes rec.td.date, so the next
@@ -624,4 +733,153 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
     microsoftWrites: msWrites,
     resourceDiagnostic: resources.diagnostic
   };
+}
+
+/* -------------------------------------------------------------------------
+ * v1.2.0 P1-4 — independent importance / categories three-way chain.
+ *
+ * Deliberately NOT part of ORDINARY_SHARED_FIELDS_ (construction decision 1).
+ * This chain only decides whether an `importance` / `categories` key may be
+ * added to the Microsoft PATCH payload.  It never writes to Google, never
+ * produces field conflicts, never touches rec.fc, and never strips the title
+ * marker from the user's title text (decision 2).
+ *
+ * Per field, three fingerprints are compared:
+ *   base = rec.fp.importanceFp / categoriesFp  (null = unknown baseline)
+ *   g    = this round's Google marker canonical fp
+ *   m    = this round's Microsoft current-value canonical fp
+ * Every fp is a 32-hex digest of a canonical meaning string.  Because the
+ * canonical of a Microsoft value equals the canonical of the Google marker we
+ * wrote for it, `base` also IS the fingerprint of the last-written category
+ * name / importance.  Comparing g and m against base therefore remembers the
+ * last-written value without persisting any plaintext name (C7): a Google tag
+ * that did not change can never resurrect a category the user renamed.
+ *
+ *   - base === null: never derive normal/[]; only a POSITIVE marker may set.
+ *   - g unchanged, m unchanged: converged, no write (no round-to-round jitter).
+ *   - g changed, m unchanged: Google explicitly added/removed the marker and
+ *     MS still equals what we last wrote -> set or clear.
+ *   - g unchanged, m changed: the user edited MS (e.g. renamed a category) ->
+ *     Leave Alone, never resurrect the old #tag, never overwrite their edit.
+ *   - both changed and disagree: conflict -> Leave Alone (no field conflict).
+ * ---------------------------------------------------------------------- */
+var CI_FP_PREFIX_ = 'tts-ci-v1:';
+
+function categoryImportanceFp_(kind, canonical) {
+  return ordinaryFingerprintHex_(CI_FP_PREFIX_ + kind + ':' + canonical);
+}
+
+function categoryImportanceCanonicalImportance_(high) {
+  return high ? 'high' : 'none';
+}
+
+function categoryImportanceMsImportanceCanonical_(msTask) {
+  // 'low' is handled by the skip guard, never mapped or overwritten.
+  return (msTask && msTask.importance === 'high') ? 'high' : 'none';
+}
+
+function categoryImportanceCanonicalCategories_(tags) {
+  if (!tags || !tags.length) return 'none';
+  return tags.slice().sort().join('\u0000');
+}
+
+function categoryImportanceMsCategoriesCanonical_(msTask) {
+  var cats = (msTask && Array.isArray(msTask.categories)) ? msTask.categories : [];
+  return cats.length ? cats.slice().sort().join('\u0000') : 'none';
+}
+
+function categoryImportanceFieldDelta_(kind, base, gCanonical, mCanonical, setValue, clearValue, skip) {
+  var result = { field: undefined, nextFp: undefined };
+  if (skip) return result;  // MS 'low' or NOTES_UNMERGEABLE: whole column left alone
+  var gFp = categoryImportanceFp_(kind, gCanonical);
+  var mFp = categoryImportanceFp_(kind, mCanonical);
+  if (base === null || base === undefined) {
+    // Unknown baseline: "no marker" is Leave Alone, NOT normal/[].
+    if (gCanonical === 'none') return result;
+    if (mFp === gFp) { result.nextFp = gFp; return result; }  // MS already converged
+    result.field = setValue;                                   // positive set only
+    result.nextFp = gFp;
+    return result;
+  }
+  var gChanged = gFp !== base;
+  var mChanged = mFp !== base;
+  if (!gChanged && !mChanged) { result.nextFp = base; return result; }  // converged, no jitter
+  if (gChanged && !mChanged) {
+    // MS still equals the value we last wrote: a removed marker may be cleared
+    // (back to normal / []), a new marker may be set.
+    result.field = (gCanonical === 'none') ? clearValue : setValue;
+    result.nextFp = gFp;
+    return result;
+  }
+  if (!gChanged && mChanged) return result;  // user edited MS -> Leave Alone
+  if (gFp === mFp) { result.nextFp = gFp; return result; }  // both reached the same value
+  return result;  // genuine conflict -> Leave Alone, no field conflict recorded
+}
+
+function categoryImportanceMsDelta_(gTask, msTask, rec, ctx) {
+  var out = { fields: {}, nextFp: {} };
+  // Gate: opt-in OFF, or preview/apply not confirmed -> ZERO MS writes.
+  if (!ctx || ctx.enabled !== true || ctx.confirmed !== true) return out;
+  var fp = (rec && rec.fp) || ordinaryEmptyFp_();
+
+  var high = categoryImportanceTitleHigh_(gTask && gTask.title);
+  var gImp = categoryImportanceCanonicalImportance_(high);
+  var lowSkip = !!(msTask && msTask.importance === 'low');  // low: never map/overwrite
+  var mImp = categoryImportanceMsImportanceCanonical_(msTask);
+  var imp = categoryImportanceFieldDelta_('importance', fp.importanceFp, gImp, mImp,
+    'high', 'normal', lowSkip);
+  if (imp.field !== undefined) out.fields.importance = imp.field;
+  if (imp.nextFp !== undefined) out.nextFp.importanceFp = imp.nextFp;
+
+  var tags = categoryImportanceTagsFromGoogle_(gTask, rec);
+  if (tags.ok) {
+    var gCat = categoryImportanceCanonicalCategories_(tags.categories);
+    var mCat = categoryImportanceMsCategoriesCanonical_(msTask);
+    var cat = categoryImportanceFieldDelta_('categories', fp.categoriesFp, gCat, mCat,
+      tags.categories || [], [], false);
+    if (cat.field !== undefined) out.fields.categories = cat.field;
+    if (cat.nextFp !== undefined) out.nextFp.categoriesFp = cat.nextFp;
+  }
+  // tags.ok === false -> MALFORMED/AMBIGUOUS/UNOWNED: whole column skipped,
+  // never falls back to the raw userNotes full text.
+  return out;
+}
+
+function categoryImportanceRecForTask_(gTask) {
+  var ctx = CATEGORY_IMPORTANCE_ROUND_;
+  if (!ctx || !ctx.state || !ctx.state.g2m) return null;
+  return (gTask && gTask.id && ctx.state.g2m[gTask.id]) || null;
+}
+
+function categoryImportanceFieldsForPayload_(gTask, msTask, rec) {
+  return categoryImportanceMsDelta_(gTask, msTask, rec, CATEGORY_IMPORTANCE_ROUND_).fields;
+}
+
+function applyCategoryImportanceNextFp_(rec, nextFp) {
+  if (!rec || !nextFp || !Object.keys(nextFp).length) return;
+  if (!rec.fp || rec.fp.v !== ORDINARY_FP_VERSION_) rec.fp = ordinaryEmptyFp_();
+  if (Object.prototype.hasOwnProperty.call(nextFp, 'importanceFp')) rec.fp.importanceFp = nextFp.importanceFp;
+  if (Object.prototype.hasOwnProperty.call(nextFp, 'categoriesFp')) rec.fp.categoriesFp = nextFp.categoriesFp;
+}
+
+function setCategoryImportanceRound_(ctx) {
+  CATEGORY_IMPORTANCE_ROUND_ = ctx || null;
+}
+
+function categoryImportanceWritesConfirmed_() {
+  var raw;
+  try {
+    raw = String(PropertiesService.getScriptProperties()
+      .getProperty(CATEGORY_IMPORTANCE_CONFIRMED_PROPERTY) || '').trim();
+  } catch (e) {
+    return false;
+  }
+  if (!raw) return false;
+  try {
+    var record = JSON.parse(raw);
+    return !!(record && record.confirmed === true &&
+      record.confirmation === CATEGORY_IMPORTANCE_CONFIRMATION);
+  } catch (e) {
+    return false;
+  }
 }

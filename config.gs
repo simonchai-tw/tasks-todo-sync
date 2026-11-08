@@ -65,6 +65,29 @@ function getSafetyConfig_() {
     ? DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER
     : calendarProjectionReminderRaw === 'true';
 
+  // v1.2.0 P1-3: the notes-tail time micro-badge is opt-in.  Parsing is kept
+  // identical to SYNC_CALENDAR_PROJECTION_REMINDER so an invalid value fails
+  // closed with a bounded error code instead of silently enabling a rewrite of
+  // user notes.
+  const timeBadgeRaw = String(p.getProperty('SYNC_TIME_BADGE') || '').trim().toLowerCase();
+  if (timeBadgeRaw && timeBadgeRaw !== 'true' && timeBadgeRaw !== 'false') {
+    throw new Error('SYNC_TIME_BADGE_FLAG_INVALID: SYNC_TIME_BADGE must be true or false.');
+  }
+  const enableTimeBadge = timeBadgeRaw === '' ? DEFAULT_SYNC_TIME_BADGE : timeBadgeRaw === 'true';
+
+  // v1.2.0 P1-4: category/importance mapping is opt-in.  Parsing is identical
+  // to the reminder/time-badge knobs so an invalid value fails closed with a
+  // bounded error code instead of silently enabling Microsoft field rewrites.
+  const enableCategoryImportanceRaw = String(
+    p.getProperty('SYNC_ENABLE_CATEGORY_IMPORTANCE') || ''
+  ).trim().toLowerCase();
+  if (enableCategoryImportanceRaw && enableCategoryImportanceRaw !== 'true' &&
+      enableCategoryImportanceRaw !== 'false') {
+    throw new Error('SYNC_CATEGORY_IMPORTANCE_FLAG_INVALID: SYNC_ENABLE_CATEGORY_IMPORTANCE must be true or false.');
+  }
+  const enableCategoryImportance = enableCategoryImportanceRaw === ''
+    ? DEFAULT_SYNC_ENABLE_CATEGORY_IMPORTANCE : enableCategoryImportanceRaw === 'true';
+
   const discoveryMode = String(
     p.getProperty('SYNC_LIST_DISCOVERY_MODE') || DEFAULT_LIST_DISCOVERY_MODE
   ).trim().toLowerCase();
@@ -107,6 +130,8 @@ function getSafetyConfig_() {
     enableTimeBridge: enableTimeBridge,
     enableCalendarProjection: enableCalendarProjection,
     enableCalendarProjectionReminder: enableCalendarProjectionReminder,
+    enableTimeBadge: enableTimeBadge,
+    enableCategoryImportance: enableCategoryImportance,
     listDiscoveryMode: discoveryMode,
     excludedListNames: Array.from(new Set(excludedNames))
   };
@@ -114,7 +139,7 @@ function getSafetyConfig_() {
 
 function boundedSafetyConfigIssue_(error) {
   const code = String(error && error.message || error || '').match(
-    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID|SYNC_TIME_BRIDGE_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID)\b/
+    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID|SYNC_TIME_BRIDGE_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID|SYNC_TIME_BADGE_FLAG_INVALID|SYNC_CATEGORY_IMPORTANCE_FLAG_INVALID)\b/
   );
   return 'SAFETY_CONFIGURATION_INVALID:' + (code ? code[1] : 'UNCLASSIFIED');
 }
