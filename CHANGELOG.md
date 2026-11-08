@@ -6,7 +6,7 @@ Historical entries below describe each release at the time it shipped, including
 
 ## 1.2.0 — 2026-11-08
 
-A feature release landing the four P1 items unlocked by the v2 live-probe programme. The two capabilities that rewrite existing user data — the notes-tail time badge and category/importance mapping — ship **opt-in and OFF by default**; upgrading changes no existing notes, importance or categories. No new OAuth scope and no re-authorization are required.
+A feature release landing four sync-engine improvements. The two capabilities that rewrite existing user data — the notes-tail time badge and category/importance mapping — ship **opt-in and OFF by default**; upgrading changes no existing notes, importance or categories. No new OAuth scope and no re-authorization are required.
 
 ### Resource journal convergence pruning
 
@@ -14,7 +14,7 @@ A feature release landing the four P1 items unlocked by the v2 live-probe progra
 
 ### Expanded checklist-item reads with a bounded fallback
 
-Subtask discovery reads checklist items through a dedicated `$expand=checklistItems` task GET. PROBE-02 measured identical ID sets against the per-parent GET at 0/10/35/60 items, with no nav-property `nextLink`. Parents covered by the expanded read skip the per-parent GET; a missing task, a non-array payload, a `checklistItems@odata.nextLink`, or any expanded-read failure falls back to the original bounded per-parent path. `SUBTASK_DISCOVERY_MAX_PARENTS_` stays at 10, `budgetStatus` stays `STATIC_CONSERVATIVE`, and the existing inventory URL is unchanged.
+Subtask discovery reads checklist items through a dedicated `$expand=checklistItems` task GET. Measured against the per-task read at 0, 10, 35 and 60 items, both paths returned identical item sets with no follow-up page. Parents covered by the expanded read skip the per-parent GET; a missing task, a non-array payload, a `checklistItems@odata.nextLink`, or any expanded-read failure falls back to the original bounded per-parent path. `SUBTASK_DISCOVERY_MAX_PARENTS_` stays at 10, `budgetStatus` stays `STATIC_CONSERVATIVE`, and the existing inventory URL is unchanged.
 
 ### Notes-tail time micro-badge (opt-in)
 
@@ -22,16 +22,16 @@ Subtask discovery reads checklist items through a dedicated `$expand=checklistIt
 
 ### Category and importance mapping (opt-in)
 
-`SYNC_ENABLE_CATEGORY_IMPORTANCE` (default `false`) maps a leading `[!] ` or a star-then-space prefix in a Google title to Microsoft `importance: high`, and a `#tag` line placed last, before the managed block, to Microsoft `categories`. Two independent fingerprints (`importanceFp`, `categoriesFp`) run separate three-way comparisons. **"No marker" means Leave Alone, never `normal` or `[]`**, so existing Microsoft importance and categories survive the first enabled round; Microsoft `low` is never mapped or overwritten. Enabling requires a two-stage, read-only dry-run preview plus explicit confirmation before any Microsoft write. Categories use the account's built-in `masterCategories` display names — no `MailboxSettings.ReadWrite`, no re-authorization and no lookup table (C7 live probe).
+`SYNC_ENABLE_CATEGORY_IMPORTANCE` (default `false`) maps a leading `[!] ` or a star-then-space prefix in a Google title to Microsoft `importance: high`, and a `#tag` line placed last, before the managed block, to Microsoft `categories`. Two independent fingerprints (`importanceFp`, `categoriesFp`) run separate three-way comparisons. **"No marker" means Leave Alone, never `normal` or `[]`**, so existing Microsoft importance and categories survive the first enabled round; Microsoft `low` is never mapped or overwritten. Enabling requires a two-stage, read-only preview plus explicit confirmation before any Microsoft write. Categories use the account's built-in `masterCategories` display names — no `MailboxSettings.ReadWrite`, no re-authorization and no lookup table.
 
-### Live-probe evidence and a repeatable integration channel
+### Validation and a repeatable integration check
 
-`docs/live-probes-v2.md` now carries the C-group measurements (C1-C7) and their derived decisions, including the corrected `linkedResources` read-path comment in `providers.gs`. A reusable TEST-project integration channel sets the list allowlist safely — pinning a disposable Google/Microsoft pair so the engine cannot auto-create a list — runs one full `syncAll()` round, then restores Script Properties, User Properties state and both cloud inventories. The measured round returned `completed: true` in 4.5 s, advanced the journal convergence gate from 0 to 1, cleared `consecutiveFailures` from 1 to 0, left both inventory ID-set hashes unchanged, and left zero probe residue.
+A repeatable integration check pins a disposable Google/Microsoft list pair so the engine cannot auto-create a list, runs one complete `syncAll()` round, then restores all stored settings and both cloud inventories. The measured round completed in 4.5 s, advanced the convergence gate from 0 to 1, cleared the consecutive-failure counter from 1 to 0, left both inventory ID sets unchanged and left no test residue. A corrected comment in `providers.gs` reflects the measured read path.
 
 ### Release scope and known limitations
 
-- This is an **engine release shipped together with a rebuilt Windows installer**. The desktop companion and the complete Velopack installer asset set are rebuilt at 1.2.0 and attached to the `v1.2.0` GitHub Release, which is the Latest Release; `/releases/latest/download/` therefore keeps serving a complete asset set. Creating a new Latest Release without installer assets is what broke 1.0.1 and forced 1.0.2.
-- The private Apps Script deployment is a separate release step and is not part of this tag.
+- This is an **engine release shipped together with a rebuilt Windows installer**. The desktop companion and the installer assets are rebuilt at 1.2.0 and attached to the `v1.2.0` GitHub Release, which is the Latest Release; `/releases/latest/download/` therefore keeps serving a complete asset set. Creating a new Latest Release without installer assets is what broke 1.0.1 and forced 1.0.2.
+- Deploying the engine to a personal Apps Script project is a separate step and does not change this tag.
 - The micro-badge has no atomic compensation if one side's write succeeds and the other fails; a one-off stale badge is possible, but no data is deleted.
 - Category names are persisted as a fingerprint rather than plaintext; a category renamed in Microsoft cannot be detected through the Tasks API.
 
@@ -40,25 +40,25 @@ Subtask discovery reads checklist items through a dedicated `$expand=checklistIt
 - `npm test`: 604/604 passing.
 - `npm run check` (static validation + package dry-run), `npm run docs:check` (604/604, v1.2.0) and `git diff --check`: clean.
 - Version 1.2.0 consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge, this CHANGELOG and the companion project (`Version`, `FileVersion`, `AssemblyVersion`).
-- TEST live probes: D0 smoke `SMOKE_OK`; D1-D4 `PASS`; full `syncAll()` round `SYNCALL_PASS`. Personal credentials, production Apps Script and live task data were not touched.
+- Live verification was performed in a dedicated test environment, including one complete sync round; personal credentials, production Apps Script and live task data were not touched.
 - Windows installer: `Tasks-ToDo-Sync-Setup.exe` (58.3 MB, `ProductVersion 1.2.0`, SHA-256 `024b75db6be167c805561e0298580ddc3d54f18cbfa527e803022c47d7724de9`) rebuilt from the 1.2.0 publish output. The `v1.2.0` release carries exactly four assets — the installer, `RELEASES-win-x64`, `releases.win-x64.json` and `TasksToDoSync-1.2.0-win-x64-full.nupkg` — and both indexes reference only that full package, so older installations upgrade through the full package without a missing delta baseline.
 - Dependency security: `npm audit` reports 0 vulnerabilities after root `overrides` pin `zod 4.6.7`, `gaxios 8.3.2`, `googleapis-common 9.3.1` and `gcp-metadata 9.2.3`. The vulnerable `rimraf` / `glob` / `minimatch` chain is removed from the tree entirely; the clasp CLI smoke check still reports 3.4.0 and all 604 tests pass.
 
 ## 1.0.2 — 2026-11-07
 
-A desktop repack release. The engine code is unchanged from 1.0.1; no new features, no default changes, and no C# changes. This version exists so the corrected engine actually reaches installed Windows companions.
+A desktop repack release. The engine code is unchanged from 1.0.1; no new features, no default changes, and no application source changes. This version exists so the corrected engine actually reaches installed Windows companions.
 
 ### The installer is shipped again
 
-1.0.1 was published as the latest GitHub Release without any Windows installer assets. Because `/releases/latest/download/` resolves only against the newest release, both `RELEASES-win-x64` and `Tasks-ToDo-Sync-Setup.exe` returned 404: the website download button was broken and installed clients could not discover an update. The installer build order from `desktop/TasksToDoSync.Companion/installer/README.md` is `build.ps1` → `pack-velopack.ps1` → `build-installer.ps1`, and every new `Setup.exe` needs a new version — repacking 1.0.1 would make Velopack offer repair or uninstall instead of an upgrade. Hence 1.0.2.
+1.0.1 was published as the latest GitHub Release without any Windows installer assets. Because `/releases/latest/download/` resolves only against the newest release, both update indexes and the setup file returned 404: the website download button was broken and installed clients could not discover an update. A new version is required for every new setup file, otherwise the updater offers repair or uninstall instead of an upgrade. Hence 1.0.2.
 
-- The bundled engine tarball is now `tasks-todo-sync-1.0.2.tgz`, produced by `npm pack` from this release tree; `build.ps1` fails closed unless the tarball version matches the companion `<Version>`.
-- `Version`, `FileVersion` and `AssemblyVersion` in the companion project are aligned to 1.0.2.
-- The release carries `RELEASES-win-x64`, the full and delta nupkg files, and the wizard `Tasks-ToDo-Sync-Setup.exe`, restoring both the download button and the automatic update feed.
+- The bundled engine is now the 1.0.2 package produced from this release tree, and the build fails closed unless the bundled engine version matches the companion version.
+- Product, file and assembly versions in the companion project are aligned to 1.0.2.
+- The release carries both update indexes, the full and delta packages, and the wizard `Tasks-ToDo-Sync-Setup.exe`, restoring the download button and the automatic update feed.
 
 ### Existing installations keep their settings
 
-Configuration, engine files, runtime, backups and the Apps Script binding live under `%LOCALAPPDATA%\TasksToDoSyncData`, deliberately outside the Velopack install root that an update replaces. Updating from 1.0.0 in place does not clear settings, does not require re-authorization, and does not replay the setup wizard.
+Configuration, engine files, runtime, backups and the Apps Script binding live outside the folder an update replaces. Updating from 1.0.0 in place does not clear settings, does not require re-authorization, and does not replay the setup wizard.
 
 ### Verification
 
@@ -68,11 +68,11 @@ Configuration, engine files, runtime, backups and the Apps Script binding live u
 
 ## 1.0.1 — 2026-11-07
 
-A patch release that repairs five regressions found in 1.0.0 during the v2 consolidated verification review. No new features, no default changes, and no setup or deployment flow changes. The full suite now stands at 563 tests.
+A patch release that repairs five regressions found in 1.0.0 during a verification review. No new features, no default changes, and no setup or deployment flow changes. The full suite now stands at 563 tests.
 
 ### The state validator no longer rejects its own resource journal
 
-`rec.res.journal` is written by the managed-resource block merge path, but the strict state validator did not list it as an allowed key. Any round that recorded a projection intent therefore failed the next `normalizeState_ → saveState_ → loadStateForSync_` cycle with `STATE_MALFORMED`. The journal stays where the writer puts it, gains an allowlist entry and `assertResourceJournalEntries_`, which validates sides (`google` / `microsoft`), 32-hex block fingerprints, timestamps, results and a bounded length. Malformed entries still fail closed. Relocating the journal to a top-level table was rejected: it also changes mapping deletion and deletion-rollback snapshot/restore semantics, which is outside a patch release.
+`rec.res.journal` is written by the managed-resource block merge path, but the strict state validator did not list it as an allowed key. Any round that recorded a projection intent therefore failed the next save/load cycle with `STATE_MALFORMED`. The journal stays where the writer puts it, gains an allowlist entry and `assertResourceJournalEntries_`, which validates sides (`google` / `microsoft`), 32-hex block fingerprints, timestamps, results and a bounded length. Malformed entries still fail closed. Relocating the journal to a top-level table was rejected: it also changes mapping deletion and deletion-rollback snapshot/restore semantics, which is outside a patch release.
 
 ### A Microsoft reminder echo is no longer adopted as a user edit
 
@@ -90,11 +90,10 @@ After splice, `rec.fp.notes` was computed from a raw projection while merge comp
 
 `opsCount` was incremented on every renderer pass, including fingerprint hits that issued no network call, starving later tasks in the same round. Counting now happens after a fingerprint miss and immediately before the first real `Calendar.Events` call, via an optional `consumeOp` callback. Failed API attempts are charged too, so a failing endpoint cannot be retried without bound inside one round.
 
-### Evidence and dependency maintenance
+### Verification and dependency maintenance
 
-- Adds `docs/live-probes-v2.md`, recording the measured A-group and B-group baseline, the BENCH-01 three-scenario byte table, the seven `Calendar.*` call sites, and the TEST-account live probes. It marks the Microsoft Graph C-group probes as `NOT RUN` and keeps `INSUFFICIENT_EVIDENCE` for the live capacity claim.
-- Applies `fast-uri` 3.1.9, `body-parser` 2.4.0 and the transitive `qs` 6.17.1 lockfile bumps manually (no squash-merge of bot PRs).
-- Live-verified on a dedicated TEST Apps Script project: real `Utilities.formatDate` across Taipei / Tokyo / New York winter and summer, Google Tasks notes round-trip with newlines and fullwidth characters plus fresh-read after PATCH, and three real state persistence rounds carrying a journal entry.
+- Time-zone behaviour, notes round-trips and state persistence were verified in a dedicated test environment, including real `Utilities.formatDate` across Taipei / Tokyo / New York in winter and summer, Google Tasks notes with newlines and fullwidth characters re-read after an update, and three real state persistence rounds carrying a journal entry.
+- Applies `fast-uri` 3.1.9, `body-parser` 2.4.0 and the transitive `qs` 6.17.1 lockfile bumps manually, without squashing bot-generated changes.
 
 ## 1.0.0 — 2026-10-14
 
