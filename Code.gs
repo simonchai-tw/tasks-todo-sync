@@ -4,8 +4,7 @@ function initializeSafeDefaults() {
     SYNC_LIST_DISCOVERY_MODE: PUBLIC_SETUP_DEFAULTS.SYNC_LIST_DISCOVERY_MODE,
     SYNC_ALLOW_DELETIONS: PUBLIC_SETUP_DEFAULTS.SYNC_ALLOW_DELETIONS,
     SYNC_ALLOW_LIST_DELETIONS: PUBLIC_SETUP_DEFAULTS.SYNC_ALLOW_LIST_DELETIONS,
-    SYNC_ALLOW_TASK_MOVES: PUBLIC_SETUP_DEFAULTS.SYNC_ALLOW_TASK_MOVES,
-    SYNC_ENABLE_SUBTASKS: PUBLIC_SETUP_DEFAULTS.SYNC_ENABLE_SUBTASKS
+    SYNC_ALLOW_TASK_MOVES: PUBLIC_SETUP_DEFAULTS.SYNC_ALLOW_TASK_MOVES
   };
   const missingDefaults = {};
   Object.keys(defaults).forEach(function(key) {
@@ -783,9 +782,8 @@ function setupWizardFinalize() {
     // Read every field the check below depends on BEFORE declaring the preview
     // a success: dryRunReport() returns null when the script lock is held by
     // another round (Code.gs LOCK_HELD path), and dereferencing that null used
-    // to throw into the catch with dryRunOk already true — the wizard then
-    // created a trigger on top of a preview it never actually saw (0.9.9
-    // review P1).
+    // to throw into the catch with dryRunOk already true — otherwise the wizard
+    // could create a trigger on top of a preview it never actually saw.
     const warningCount = Array.isArray(report.warnings) ? report.warnings.length : 0;
     const pendingMoveCount = Array.isArray(report.pendingMoves) ? report.pendingMoves.length : 0;
     dryRunOk = true;
@@ -984,7 +982,7 @@ function checkpointTaskCreateBatch_(state) {
 function syncAll() {
   const entryStartedAt = initializeExecutionBudget_();
   beginSyncObservability_(entryStartedAt);
-  // v1.2.0 P1-4: arm an execution-local gate object for the whole round.  It
+  // arm an execution-local gate object for the whole round.  It
   // stays inert until state + safety are both available inside the lock (see
   // below); the finally at the end of this function ALWAYS clears it, so a
   // later non-sync call in the same process can never inherit a confirmed gate.
@@ -1031,7 +1029,7 @@ function syncAll() {
       beginSyncRoundProofProjection_(state, roundId,
         pendingTaskDeletionsBeforeRound, pendingListDeletionsBeforeRound);
       safetyAtStart = getSafetyConfig_();
-      // v1.2.0 P1-4: only now are state + safety both proven available.  A
+      // only now are state + safety both proven available.  A
       // missing/invalid confirmation, or opt-in OFF, leaves the gate inert, so
       // the first round after enabling can never write importance/categories.
       ciRound.enabled = safetyAtStart.enableCategoryImportance;
@@ -1053,7 +1051,26 @@ function syncAll() {
       cleanupTombstones_(state);
       cleanupListTombstones_(state);
       snap = buildSnapshot_(state, startedAt);
-      if (safetyAtStart.enableSubtasks && typeof discoverSubtaskRelationships_ === 'function') {
+      // Rotation rebind MUST run before the create batch below: the candidate
+      // scan only checks state.g2m[freshId] and never the [TTS-REC] marker, so
+      // an un-rebound rotated id would be created as a duplicate Microsoft
+      // task.  Running before reconcileMapped_ also means a rotation is never
+      // observed as a user deletion.  The step is memory-only and fail-closed.
+      rotationRebind_(state, snap);
+      // Recurrence advancement sweep: advances the Google copy of a
+      // Microsoft-native recurring series after a completion is observed.
+      // Must run AFTER rotationRebind_ (re-keyed records are seen under their
+      // new Google id) and BEFORE the create batch below so the per-round
+      // create-hold set is armed before candidates are computed.
+      if (typeof recurrenceAdvanceSweep_ === 'function') {
+        recurrenceAdvanceSweep_(state, snap, {
+          advanceEnabled: true,
+          nowMs: Date.now(),
+          syncTimeZone: syncTimeZone_(),
+          roundId: roundId
+        });
+      }
+      if (typeof discoverSubtaskRelationships_ === 'function') {
         discoverSubtaskRelationships_(state, snap, startedAt, roundId, Date.now());
         // SYNC_ALLOW_DELETIONS is the operator-wide delete switch and subtask
         // deletes are deletions too (2026-10-13 decision): pass it down so the
@@ -1079,14 +1096,46 @@ function syncAll() {
         }
         if (SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) checkpointTaskCreateBatch_(state);
       }
+      // Rec-stamp backfill sweep (2026-11-17): pairs armed by the create lag
+      // path carry rec.rst; the sweep stamps through updateGTask_ once Graph
+      // materializes the recurrence field and is a no-op for every pair
+      // without rec.rst.  Runs before the Time Bridge so a freshly stamped
+      // pair converges within the same round.
+      if (typeof backfillRecStampSweep_ === 'function') {
+        backfillRecStampSweep_(state, snap, startedAt);
+      }
       if (typeof timeBridgeRun_ === 'function') {
         timeBridgeRun_(state, snap, startedAt, roundId);
       }
       reconcileMapped_(state, snap, startedAt, roundId, deletionProgress);
+      // Quarantine release sweep: re-evaluate collisionQuarantined pairs
+      // every round, independent of the intake knob. A pair whose collision is
+      // gone (event deleted / cancelled / reverted to the exact rendered echo)
+      // resumes rendering THIS round; still-colliding pairs stay quarantined.
+      // Fail-closed: sweep errors only count, never abort the round.
+      if (typeof calendarIntakeReleaseQuarantines_ === 'function') {
+        var releaseSweep = calendarIntakeReleaseQuarantines_(
+          state, snap, state.calendarProjection && state.calendarProjection.calendarId);
+        if (releaseSweep && releaseSweep.checked) {
+          console.log('[CalendarIntake] Release sweep: checked=' + releaseSweep.checked +
+            ' released=' + releaseSweep.released + ' stayed=' + releaseSweep.stayed +
+            ' errors=' + releaseSweep.errors);
+        }
+      }
       // The Calendar renderer runs after the merge: the merge decides the due
       // date, and the projection reads the converged rec.td (§3.8).
       if (typeof timeBridgeRunRenderersAfterMerge_ === 'function') {
         timeBridgeRunRenderersAfterMerge_(state, snap, startedAt, roundId);
+      }
+      // Calendar intake runs after the merge and the Calendar renderers:
+      // the intake observes this round's fully rendered Calendar state, so a
+      // same-round re-render cannot immediately undo an adoption or overwrite
+      // an isolated event.  An adopted due date is written through the engine's
+      // own Google task-update path so the next merge treats it as a genuine
+      // Google-side edit.  The SYNC_CALENDAR_INTAKE knob defaults to ON; users who
+      // prefer one-way projection only can set it to 'false'.
+      if (typeof calendarIntakeRun_ === 'function') {
+        calendarIntakeRun_(state, snap, startedAt);
       }
       deletionStateBeforeApply = captureTaskDeletionState_(state);
       applyConfirmedTaskDeletions_(state, snap, roundId, deletionProgress);
@@ -1219,7 +1268,7 @@ function syncAll() {
   }
   return round;
   } finally {
-    // v1.2.0 P1-4: never leak the confirmed round gate past this sync call.
+    // never leak the confirmed round gate past this sync call.
     setCategoryImportanceRound_(null);
   }
 }
@@ -1922,7 +1971,7 @@ function applyTaskCreateBatchRelease(params) {
 }
 
 /* -------------------------------------------------------------------------
- * v1.2.0 P1-4 — two-stage dry-run for category / importance opt-in.
+ * Two-stage dry-run for category / importance opt-in.
  *
  * Kept SEPARATE from dryRunReport(): that function is a read-only inventory
  * report that explicitly "does not preview task-level updates" (its own
@@ -1960,7 +2009,7 @@ function categoryImportanceInventory_(safety, state) {
         opaqueId: previewOpaqueId_('gTask', task.id),
         markers: markers,
         importance: high ? 'high' : null,
-        // C7: the masterCategories displayName is the tag string itself.  No
+        // The masterCategories displayName is the tag string itself.  No
         // lookup table, no MailboxSettings.ReadWrite, no re-consent.
         categories: (tags.ok && tags.categories) ? tags.categories : null
       });

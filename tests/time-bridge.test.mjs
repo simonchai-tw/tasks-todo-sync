@@ -1008,7 +1008,7 @@ test('R-4 retry ladder quarantines a repeatedly failing renderer and revives on 
  * Orchestrator, notification and adoption paths
  * ------------------------------------------------------------------ */
 
-test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and stops at the knob (§3.8)', () => {
+test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer (§3.8)', () => {
   const { c } = loadContext();
   // v0.8.3: dynamic fixture anchored on the REAL clock — the marker points 25
   // hours ahead so it is always future and never drifts into the expiry-lift
@@ -1043,17 +1043,6 @@ test('timeBridgeRun_ orchestrates intake, splice and the Microsoft renderer, and
   assert.equal(writes.g, 1);
   assert.equal(writes.ms, 2, 'the Microsoft renderer sends one reminder PATCH and one due PATCH');
   assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: tpeDate, time: tpeHhMm, v: 1 });
-
-  // With the knob off nothing runs at all.
-  c.PropertiesService.getScriptProperties().setProperty('SYNC_TIME_BRIDGE', 'false');
-  const offState = tbState('g-task');
-  const offSnap = tbSnap({ id: 'g-task', title: 'T', notes: marked, status: 'needsAction' }, { id: 'ms-task', title: 'T', dueDateTime: null, isReminderOn: false, status: 'notStarted' });
-  const offSummary = c.timeBridgeRun_(offState, offSnap, nowMs, 'round-2');
-  assert.equal(offSummary.intaken, 0);
-  assert.equal(offSummary.spliced, 0);
-  assert.equal(offSummary.msPatched, 0);
-  assert.equal(offSummary.migrated, null, 'legacy-record migration waits for the knob too (§3.15)');
-  assert.equal(offState.g2m['g-task'].td, undefined, 'no intake while the bridge is off');
 });
 
 test('timeBridgeRunRenderersAfterMerge_ aggregates one de-identified quarantine mail (§3.4.5)', () => {

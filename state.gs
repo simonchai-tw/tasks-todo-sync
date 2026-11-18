@@ -1645,7 +1645,7 @@ const SUBTASK_RECORD_FIELDS_ = [
   'lastRoundId', 'attempts', 'correlationId', 'fingerprint', 'reason', 'missingSide',
   'parentMsId', 'parentMsListId', 'intended', 'base', 'field', 'source', 'target', 'desired',
   'missingStreak', 'lastMissingObservationRound', 'firstMissingAt', 'survivorSemanticBaseline',
-  'gListId'
+  'gListId', 'title'
 ];
 
 function assertSubtaskTable_(table, field, allowRecords) {
@@ -1756,7 +1756,7 @@ function assertSubtaskOwnershipRecordShapes_(subtasks) {
       required: ['gChildId', 'msChecklistId', 'gParentId', 'missingSide']
     },
     moveJournal: {
-      fields: ['phase', 'gChildId', 'msChecklistId', 'nextMsChecklistId', 'gParentId'],
+      fields: ['phase', 'gChildId', 'msChecklistId', 'nextMsChecklistId', 'gParentId', 'title'],
       phases: ['PREPARED', 'REMOTE_CREATED', 'REBIND_PERSISTED', 'OLD_DELETE_PENDING', 'UNCERTAIN'],
       required: ['gChildId', 'msChecklistId', 'gParentId']
     },
@@ -1813,7 +1813,7 @@ function assertSubtaskOwnershipRecordShapes_(subtasks) {
 function assertOrdinaryFingerprint_(fp, label) {
   if (fp === undefined) return;
   if (!isStateObject_(fp)) throw new Error('STATE_MALFORMED: ' + label + '.fp must be an object; overwrite refused.');
-  // v1.2.0 P1-4: importanceFp / categoriesFp are independent three-way
+  // importanceFp / categoriesFp are independent three-way
   // fingerprints (null = unknown baseline, never "normal"/[]).  They are
   // bookkept in the same rec.fp object but NEVER enter ORDINARY_SHARED_FIELDS_,
   // so they cannot produce field conflicts or change the legacy merge chain.
@@ -1840,10 +1840,13 @@ function assertTimeBridgeMappingRem_(rem, label) {
   // project time-zone / DST offset shift apart from a genuine user edit).
   // The v0.7.5 ownership keys (ms / hasTime / markerOrphaned) stay accepted on
   // the load path so an upgrading installation can rebuild rec.td and drop them.
-  // v1.2.0 P1-3: lastRenderedBadge is the exact string this engine last rendered
+  // lastRenderedBadge is the exact string this engine last rendered
   // at the tail of the user notes; it is compared with === before stripping, so
   // it must round-trip byte-for-byte (VS16 and surrogate pairs included).
-  assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned', 'lastRenderedBadge'], label, 'STATE_MALFORMED');
+  // collisionQuarantined is set by calendar-intake when a
+  // foreign/all-day event collision halts the pair's Calendar projection; the
+  // renderer honours the halt for as long as the flag is set.
+  assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned', 'collisionQuarantined', 'lastRenderedBadge'], label, 'STATE_MALFORMED');
   if (rem.e !== undefined && rem.e !== null && (typeof rem.e !== 'string' || !/^[0-9a-f]{32}$/.test(rem.e))) {
     throw new Error('STATE_MALFORMED: ' + label + '.e is invalid; overwrite refused.');
   }
@@ -1862,7 +1865,10 @@ function assertTimeBridgeMappingRem_(rem, label) {
   if (rem.markerOrphaned !== undefined && rem.markerOrphaned !== null && typeof rem.markerOrphaned !== 'boolean') {
     throw new Error('STATE_MALFORMED: ' + label + '.markerOrphaned must be boolean or null/undefined; overwrite refused.');
   }
-  // v1.2.0 P1-3: the badge is an opaque exact-match string.  No shape or
+  if (rem.collisionQuarantined !== undefined && rem.collisionQuarantined !== null && typeof rem.collisionQuarantined !== 'boolean') {
+    throw new Error('STATE_MALFORMED: ' + label + '.collisionQuarantined must be boolean or null/undefined; overwrite refused.');
+  }
+  // The badge is an opaque exact-match string.  No shape or
   // character restriction is applied: it must be able to carry a VS16 selector
   // (\uFE0F) and astral/surrogate-pair clock glyphs without being rejected.
   if (rem.lastRenderedBadge !== undefined && rem.lastRenderedBadge !== null &&
@@ -2041,9 +2047,32 @@ function assertOrdinaryMappingExtras_(state) {
   Object.keys((state && state.g2m) || {}).forEach(function(gId) {
     const rec = state.g2m[gId];
     if (!rec || typeof rec !== 'object') return;
-    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem', 'td'],
+    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem', 'td', 'recCode', 'rst', 'nfp'],
       'g2m[' + gId + ']', 'STATE_MALFORMED');
     assertOrdinaryFingerprint_(rec.fp, 'g2m[' + gId + ']');
+    if (rec.nfp !== undefined) {
+      // Notes Diff3 baseline fingerprint (32-hex, same digest domain as the
+      // field fingerprints).  Absent = no mergeable baseline recorded; the
+      // merge gate falls back to the whole-column conflict path.
+      if (typeof rec.nfp !== 'string' || !/^[0-9a-f]{32}$/.test(rec.nfp)) {
+        throw new Error('STATE_MALFORMED: g2m[' + gId + '].nfp is invalid; overwrite refused.');
+      }
+    }
+    if (rec.rst !== undefined) {
+      // Rec-stamp backfill window: remaining rounds, positive integer only.
+      // Null is refused (unlike recCode): the engine never writes null and
+      // the sweep treats null as "no window", so a persisted null would be
+      // meaningless junk.
+      if (typeof rec.rst !== 'number' || !Number.isInteger(rec.rst) || rec.rst < 1) {
+        throw new Error('STATE_MALFORMED: g2m[' + gId + '].rst is invalid; overwrite refused.');
+      }
+    }
+    if (rec.recCode !== undefined && rec.recCode !== null) {
+      // Identity captured from the [TTS-REC] notes marker; always upper-case.
+      if (typeof rec.recCode !== 'string' || !/^[0-9A-F]{6}$/.test(rec.recCode)) {
+        throw new Error('STATE_MALFORMED: g2m[' + gId + '].recCode is invalid; overwrite refused.');
+      }
+    }
     if (rec.res !== undefined) {
       if (!isStateObject_(rec.res)) throw new Error('STATE_MALFORMED: g2m[' + gId + '].res must be an object; overwrite refused.');
       assertKnownObjectKeys_(rec.res, ['gBlockFp', 'msBlockFp', 'gBlockIntentFp', 'msBlockIntentFp', 'journal'],
@@ -2099,6 +2128,67 @@ function assertBootstrapState_(bootstrap) {
   }
 }
 
+function assertRecurrenceAdvancementState_(table) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: recurrenceAdvancement must be an object; overwrite refused.');
+  assertKnownObjectKeys_(table, ['waits', 'conflicts'], 'recurrenceAdvancement', 'STATE_MALFORMED');
+  const isoOrNull = function(v, label) {
+    if (v === null) return;
+    if (typeof v !== 'string' || isNaN(Date.parse(v))) {
+      throw new Error('STATE_MALFORMED: ' + label + ' must be an ISO string or null; overwrite refused.');
+    }
+  };
+  Object.keys(table.waits || {}).forEach(function(gId) {
+    const w = table.waits[gId];
+    if (!isStateObject_(w)) throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(w, ['phase', 'reason', 'openedAt', 'lastRoundId', 'roundsWaited', 'expectedDue', 'pendingBind', 'closedAt'],
+      'recurrenceAdvancement.waits[' + gId + ']', 'STATE_MALFORMED');
+    if (['WAIT_EVIDENCE', 'WAIT_PERSIST_CONFIRM', 'CLOSED'].indexOf(w.phase) < 0) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].phase is invalid; overwrite refused.');
+    }
+    if (typeof w.reason !== 'string' || !w.reason) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].reason is invalid; overwrite refused.');
+    }
+    isoOrNull(w.openedAt, 'recurrenceAdvancement.waits[' + gId + '].openedAt');
+    if (w.lastRoundId !== null && typeof w.lastRoundId !== 'string') {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].lastRoundId must be a string or null; overwrite refused.');
+    }
+    if (!Number.isInteger(w.roundsWaited) || w.roundsWaited < 0) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].roundsWaited must be a non-negative integer; overwrite refused.');
+    }
+    if (w.expectedDue !== null && (typeof w.expectedDue !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(w.expectedDue))) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].expectedDue must be YYYY-MM-DD or null; overwrite refused.');
+    }
+    if (w.pendingBind !== null && (!isStateObject_(w.pendingBind) || typeof w.pendingBind.msId !== 'string' || !w.pendingBind.msId)) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].pendingBind must be {msId} or null; overwrite refused.');
+    }
+    isoOrNull(w.closedAt, 'recurrenceAdvancement.waits[' + gId + '].closedAt');
+  });
+  Object.keys(table.conflicts || {}).forEach(function(gId) {
+    const c = table.conflicts[gId];
+    if (!isStateObject_(c)) throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(c, ['at', 'kind', 'reason', 'roundsWaited', 'candidateCount', 'msId', 'gListId', 'msListId'],
+      'recurrenceAdvancement.conflicts[' + gId + ']', 'STATE_MALFORMED');
+    if (['RECURRENCE_ADVANCE_TIMEOUT', 'RECURRENCE_ADVANCE_AMBIGUOUS'].indexOf(c.kind) < 0) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].kind is invalid; overwrite refused.');
+    }
+    isoOrNull(c.at, 'recurrenceAdvancement.conflicts[' + gId + '].at');
+    if (typeof c.reason !== 'string' || !c.reason) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].reason is invalid; overwrite refused.');
+    }
+    if (c.roundsWaited !== undefined && (!Number.isInteger(c.roundsWaited) || c.roundsWaited < 0)) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].roundsWaited must be a non-negative integer; overwrite refused.');
+    }
+    if (c.candidateCount !== undefined && (!Number.isInteger(c.candidateCount) || c.candidateCount < 0)) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].candidateCount must be a non-negative integer; overwrite refused.');
+    }
+    ['msId', 'gListId', 'msListId'].forEach(function(k) {
+      if (typeof c[k] !== 'string' || !c[k]) {
+        throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].' + k + ' is invalid; overwrite refused.');
+      }
+    });
+  });
+}
+
 function assertStrictSchema4StateShape_(state) {
   if (!state || state.schema !== 4) return;
   const allowedTopLevel = [
@@ -2112,7 +2202,7 @@ function assertStrictSchema4StateShape_(state) {
     'retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal', 'resourceObservationCursor',
     'resourceJournalConvergedRounds',
     'timeBridgeJournal', 'deadLetterJournal', 'pendingEventDeletions', 'deadLetterEventDeletions',
-    'calendarProjection', 'bootstrap'
+    'calendarProjection', 'bootstrap', 'recurrenceAdvancement'
   ];
   assertKnownObjectKeys_(state, allowedTopLevel.concat(schema4OptionalTopLevel), 'schema=4 state', 'STATE_MALFORMED');
   allowedTopLevel.forEach(function(field) {
@@ -2138,6 +2228,7 @@ function assertStrictSchema4StateShape_(state) {
   if (state.deadLetterEventDeletions) assertDeadLetterEventDeletionsTable_(state.deadLetterEventDeletions);
   if (state.calendarProjection) assertCalendarProjection_(state.calendarProjection);
   if (state.bootstrap) assertBootstrapState_(state.bootstrap);
+  if (state.recurrenceAdvancement) assertRecurrenceAdvancementState_(state.recurrenceAdvancement);
   const legacy = cloneStateForValidation_(state);
   delete legacy.subtasks;
   delete legacy.timeBridgeJournal;
@@ -2146,6 +2237,7 @@ function assertStrictSchema4StateShape_(state) {
   delete legacy.deadLetterEventDeletions;
   delete legacy.calendarProjection;
   delete legacy.bootstrap;
+  delete legacy.recurrenceAdvancement;
   legacy.schema = 3;
   Object.keys(legacy.g2m || {}).forEach(function(gId) {
     const rec = legacy.g2m[gId];
@@ -2155,6 +2247,9 @@ function assertStrictSchema4StateShape_(state) {
     delete rec.fc;
     delete rec.rem;
     delete rec.td;
+    delete rec.recCode;
+    delete rec.rst;
+    delete rec.nfp;
   });
   assertStrictSchema3StateShape_(legacy, 'STATE_MALFORMED');
   assertOrdinaryMappingExtras_(state);
@@ -2306,6 +2401,9 @@ function normalizeState_(state) {
       if (rec.fc) extra.fc = rec.fc;
       if (rec.rem) extra.rem = rec.rem;
       if (rec.td) extra.td = rec.td;
+      if (rec.recCode) extra.recCode = rec.recCode;
+      if (rec.rst !== undefined) extra.rst = rec.rst;
+      if (rec.nfp) extra.nfp = rec.nfp;
       if (Object.keys(extra).length) mappingExtras[gId] = extra;
     });
     const legacy = cloneStateForValidation_(source);
@@ -2318,6 +2416,7 @@ function normalizeState_(state) {
     delete legacy.deadLetterEventDeletions;
     delete legacy.calendarProjection;
     delete legacy.bootstrap;
+    delete legacy.recurrenceAdvancement;
     legacy.schema = 3;
     Object.keys(legacy.g2m || {}).forEach(function(gId) {
       const rec = legacy.g2m[gId];
@@ -2327,6 +2426,9 @@ function normalizeState_(state) {
       delete rec.fc;
       delete rec.rem;
       delete rec.td;
+      delete rec.recCode;
+      delete rec.rst;
+      delete rec.nfp;
     });
     const normalizedLegacy = normalizeStateV3_(legacy);
     canonical = source;
@@ -2340,6 +2442,9 @@ function normalizeState_(state) {
       if (mappingExtras[gId].fc) canonical.g2m[gId].fc = mappingExtras[gId].fc;
       if (mappingExtras[gId].rem) canonical.g2m[gId].rem = mappingExtras[gId].rem;
       if (mappingExtras[gId].td) canonical.g2m[gId].td = mappingExtras[gId].td;
+      if (mappingExtras[gId].recCode) canonical.g2m[gId].recCode = mappingExtras[gId].recCode;
+      if (mappingExtras[gId].rst !== undefined) canonical.g2m[gId].rst = mappingExtras[gId].rst;
+      if (mappingExtras[gId].nfp) canonical.g2m[gId].nfp = mappingExtras[gId].nfp;
     });
   } else {
     // bootstrap is a v4-only table.  Strip it before the strict legacy
@@ -2478,6 +2583,7 @@ function validateImportedState_(state) {
       delete rec.fc;
       delete rec.rem;
       delete rec.td;
+      delete rec.recCode;
     });
     validateImportedStateLegacy_(legacy);
     try { assertStrictSchema4StateShape_(state); }

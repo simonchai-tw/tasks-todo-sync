@@ -362,3 +362,97 @@ test('a cleared Google due on a timed pair clears Microsoft and parks the remind
   assert.deepEqual(JSON.parse(JSON.stringify(state.g2m['g-task'].td)), { date: '2026-10-02', time: null, v: 1, clear: true }, // FIXED-DATE-OK
     'the record parks as a pending clear so the renderer wipes the engine-authored reminder');
 });
+
+/* ------------------------------------------------------------------ */
+/* 2026-11-18 due bootstrap fix: "no due" must fingerprint identically */
+/* on both sides so rec.fp.due seeds and later-added dues sync.        */
+/* ------------------------------------------------------------------ */
+
+test('due bootstrap fix: a no-due pair fingerprints identically and seeds rec.fp.due', () => {
+  const c = load();
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: null };
+  // Live-measured shape (2026-11-18 probe): a no-due Microsoft task has NO
+  // dueDateTime property at all — the null-value branch is covered below.
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, isReminderOn: false, status: 'notStarted' };
+  const gProj = c.ordinaryProjectGoogle_(gTask, rec, ON);
+  const mProj = c.ordinaryProjectMicrosoft_(msTask, rec, ON);
+  assert.deepEqual(JSON.parse(JSON.stringify(gProj.due)), { date: null, time: null });
+  assert.deepEqual(JSON.parse(JSON.stringify(mProj.due)), { date: null, time: null },
+    'the Microsoft no-due unit is now the same { date: null } object shape');
+  assert.equal(c.ordinaryFieldFp_(mProj, 'due'), c.ordinaryFieldFp_(gProj, 'due'),
+    'fp("tts-fp-v1:") must match on both sides — never fp("tts-fp-v1:null")');
+  const plan = c.ordinaryMergeMappedFields_({ v: 1 }, gProj, mProj, rec);
+  assert.ok(!plan.bootstrapConflicts.some((x) => x.field === 'due'),
+    'a no-due pair can no longer record a permanent BOOTSTRAP_CONFLICT');
+  assert.ok(plan.initializedFields.indexOf('due') >= 0, 'due seeds on the first round');
+  assert.equal(plan.conflicts.length, 0);
+  c.ordinaryAdvanceFingerprints_(rec, gProj, mProj, plan);
+  assert.equal(rec.fp.due, c.ordinaryFingerprintHex_(''), 'the seeded baseline is the empty-date fingerprint');
+});
+
+test('due bootstrap fix: the null-value dueDateTime branch seeds identically', () => {
+  const c = load();
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: {} };
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: null };
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: null, isReminderOn: false, status: 'notStarted' };
+  const gProj = c.ordinaryProjectGoogle_(gTask, rec, ON);
+  const mProj = c.ordinaryProjectMicrosoft_(msTask, rec, ON);
+  assert.deepEqual(JSON.parse(JSON.stringify(mProj.due)), { date: null, time: null });
+  assert.equal(c.ordinaryFieldFp_(mProj, 'due'), c.ordinaryFieldFp_(gProj, 'due'));
+});
+
+test('due bootstrap fix: a due added on Google after a seeded no-due baseline reaches Microsoft', () => {
+  const c = load();
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: { v: 1, due: c.ordinaryFingerprintHex_('') } };
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2027-01-15T00:00:00.000Z' }; // FIXED-DATE-OK
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, isReminderOn: false, status: 'notStarted' };
+  const plan = c.ordinaryMergeMappedFields_(rec.fp,
+    c.ordinaryProjectGoogle_(gTask, rec, ON), c.ordinaryProjectMicrosoft_(msTask, rec, ON), rec);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.toMicrosoft.due)), { date: '2027-01-15', time: null }); // FIXED-DATE-OK
+  assert.equal(plan.conflicts.length, 0);
+  assert.equal(plan.bootstrapConflicts.length, 0);
+  const msPayload = c.ordinaryMicrosoftPatchFromPlan_(plan);
+  assert.equal(msPayload.dueDateTime.dateTime, '2027-01-15T00:00:00', // FIXED-DATE-OK
+    'the late-added due finally travels to Microsoft');
+});
+
+test('due bootstrap fix: a due added on Microsoft after a seeded no-due baseline reaches Google', () => {
+  const c = load();
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: { v: 1, due: c.ordinaryFingerprintHex_('') } };
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: null };
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: { dateTime: '2027-01-15T00:00:00', timeZone: 'Asia/Taipei' }, isReminderOn: false, status: 'notStarted' }; // FIXED-DATE-OK
+  const plan = c.ordinaryMergeMappedFields_(rec.fp,
+    c.ordinaryProjectGoogle_(gTask, rec, ON), c.ordinaryProjectMicrosoft_(msTask, rec, ON), rec);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.toGoogle.due)), { date: '2027-01-15', time: null }); // FIXED-DATE-OK
+  assert.equal(plan.conflicts.length, 0);
+  assert.equal(c.ordinaryGooglePatchFromPlan_(plan).due, '2027-01-15T00:00:00.000Z', // FIXED-DATE-OK
+    'the late-added due finally travels to Google');
+});
+
+test('due bootstrap fix: a Microsoft-side due clear writes payload.due = null to Google', () => {
+  const c = load();
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: { v: 1, due: c.ordinaryFingerprintHex_('2027-01-15') } }; // FIXED-DATE-OK
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: '2027-01-15T00:00:00.000Z' }; // FIXED-DATE-OK
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, isReminderOn: false, status: 'notStarted' };
+  const plan = c.ordinaryMergeMappedFields_(rec.fp,
+    c.ordinaryProjectGoogle_(gTask, rec, ON), c.ordinaryProjectMicrosoft_(msTask, rec, ON), rec);
+  assert.deepEqual(JSON.parse(JSON.stringify(plan.toGoogle.due)), { date: null, time: null });
+  assert.equal(c.ordinaryGooglePatchFromPlan_(plan).due, null,
+    'a cleared date travels as null, never the stringified "nullT00:00:00.000Z"');
+  assert.ok(!Object.prototype.hasOwnProperty.call(c.ordinaryMicrosoftPatchFromPlan_(plan), 'dueDateTime'),
+    'nothing travels back to the side that cleared it');
+});
+
+test('due bootstrap fix: both sides clearing the due in one round converges with zero writes', () => {
+  const c = load();
+  const rec = { msId: 'ms-task', gListId: 'g-list', msListId: 'ms-list', fp: { v: 1, due: c.ordinaryFingerprintHex_('2027-01-15') } }; // FIXED-DATE-OK
+  const gTask = { id: 'g-task', title: 'T', notes: 'body', status: 'needsAction', due: null };
+  const msTask = { id: 'ms-task', title: 'T', body: { contentType: 'text', content: 'body' }, dueDateTime: null, isReminderOn: false, status: 'notStarted' };
+  const plan = c.ordinaryMergeMappedFields_(rec.fp,
+    c.ordinaryProjectGoogle_(gTask, rec, ON), c.ordinaryProjectMicrosoft_(msTask, rec, ON), rec);
+  assert.equal(Object.keys(plan.toGoogle).length, 0, 'zero writes planned to Google');
+  assert.equal(Object.keys(plan.toMicrosoft).length, 0, 'zero writes planned to Microsoft');
+  assert.ok(plan.convergedFields.indexOf('due') >= 0);
+  assert.equal(plan.conflicts.length, 0);
+});

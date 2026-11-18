@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// P1 (advisory review): "Doc numbers generated from CI single source — single source of truth for version and test counts".
+// Generate documentation numbers from one CI-checked source of truth.
 //
 // The version badge, README test count, and audit test counts used to be hand
 //-edited and drifted apart (the review caught 445 vs 465 vs 470 in the wild).

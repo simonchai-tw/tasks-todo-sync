@@ -104,8 +104,7 @@ const PUBLIC_SETUP_DEFAULTS = {
   SYNC_LIST_DISCOVERY_MODE: 'auto',
   SYNC_ALLOW_DELETIONS: 'true',
   SYNC_ALLOW_LIST_DELETIONS: 'true',
-  SYNC_ALLOW_TASK_MOVES: 'true',
-  SYNC_ENABLE_SUBTASKS: 'true'
+  SYNC_ALLOW_TASK_MOVES: 'true'
 };
 const MICROSOFT_WINDOWS_TIME_ZONES = {
   'utc': 'UTC',
@@ -166,16 +165,15 @@ const TIME_BRIDGE_EVENT_DURATION_MINUTES = 30;
 const TIME_BRIDGE_DEAD_LETTER_EVENT_DELETIONS_MAX = 20;
 const TIME_BRIDGE_EVENT_DELETION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const TIME_BRIDGE_CALENDAR_SUMMARY = 'Tasks-ToDo-Sync';
-const DEFAULT_SYNC_TIME_BRIDGE = true;
 // Product decision (Simon, 2026-09-30): calendar projection ships ON by default;
 // the reminder duplication knob is what stays OFF by default.
 const DEFAULT_SYNC_CALENDAR_PROJECTION = true;
 const DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER = false;
-// v1.2.0 P1-3: the notes-tail time micro-badge rewrites user notes, so it is
+// The notes-tail time micro-badge rewrites user notes, so it is
 // opt-in and OFF by default.  Turning it on renders/updates 🕒 HH:mm at the end
 // of the user notes (before the managed resource block) for Time Bridge pairs.
 const DEFAULT_SYNC_TIME_BADGE = false;
-// v1.2.0 P1-4: category / importance mapping is opt-in and OFF by default.
+// Category / importance mapping is opt-in and OFF by default.
 // The confirmation record lives in a Script Property so it survives rounds and
 // can be reset; the round context below is execution-local only.  opt-in is
 // deliberately off until previewCategoryImportance() +

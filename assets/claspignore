@@ -10,11 +10,13 @@
 !relationship-discovery.gs
 !subtask-classification.gs
 !subtask-sync.gs
+!subtask-move.gs
 !resource-projection.gs
 !field-merge.gs
 !lifecycle.gs
 !lists.gs
 !time-bridge.gs
+!calendar-intake.gs
 !sync.gs
 !operations.gs
 !task-create-recovery.gs

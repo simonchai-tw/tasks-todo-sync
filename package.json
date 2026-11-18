@@ -1,6 +1,6 @@
 {
   "name": "tasks-todo-sync",
-  "version": "1.2.0",
+  "version": "1.5.0-rc.1",
   "private": false,
   "description": "Self-hosted, bidirectional sync between Google Tasks and Microsoft To Do that runs on Google Apps Script.",
   "keywords": [
@@ -48,6 +48,8 @@
     "relationship-discovery.gs",
     "subtask-classification.gs",
     "subtask-sync.gs",
+    "subtask-move.gs",
+    "calendar-intake.gs",
     "resource-projection.gs",
     "field-merge.gs",
     "lifecycle.gs",

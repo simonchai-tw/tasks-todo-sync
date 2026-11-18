@@ -69,12 +69,12 @@ test('subtask ownership reserves IDs independent of capability flag and quaranti
   assert.equal(JSON.stringify(state), before);
 });
 
-test('SYNC_ENABLE_SUBTASKS parses strict true false with safe default off', () => {
+test('subtask support is hardwired on: the SYNC_ENABLE_SUBTASKS knob no longer exists', () => {
   const blank = loadContext().context.getSafetyConfig_();
-  assert.equal(blank.enableSubtasks, false);
-  assert.equal(loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: 'true' } }).context.getSafetyConfig_().enableSubtasks, true);
-  assert.equal(loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: ' false ' } }).context.getSafetyConfig_().enableSubtasks, false);
-  assert.throws(() => loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: 'yes' } }).context.getSafetyConfig_(), /SYNC_SUBTASKS_FLAG_INVALID/);
+  assert.equal(blank.enableSubtasks, true);
+  // A stale property from an older install must be inert, not an error.
+  assert.equal(loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: 'yes' } }).context.getSafetyConfig_().enableSubtasks, true);
+  assert.equal(loadContext({ scriptValues: { SYNC_ENABLE_SUBTASKS: 'false' } }).context.getSafetyConfig_().enableSubtasks, true);
 });
 
 test('schema 4 migration preserves every schema 3 field and declared v4 never receives repair defaults', () => {
@@ -1950,8 +1950,7 @@ test('initializeSafeDefaults installs missing public defaults and preserves unre
     SYNC_LIST_DISCOVERY_MODE: 'auto',
     SYNC_ALLOW_DELETIONS: 'true',
     SYNC_ALLOW_LIST_DELETIONS: 'true',
-    SYNC_ALLOW_TASK_MOVES: 'true',
-    SYNC_ENABLE_SUBTASKS: 'true'
+    SYNC_ALLOW_TASK_MOVES: 'true'
   });
   assert.deepEqual(JSON.parse(JSON.stringify(second.updatedProperties)), {});
   assert.deepEqual(
@@ -2020,7 +2019,6 @@ test('setupStatus returns bounded public-default status without exposing credent
       SYNC_ALLOW_DELETIONS: 'true',
       SYNC_ALLOW_LIST_DELETIONS: 'true',
       SYNC_ALLOW_TASK_MOVES: 'true',
-      SYNC_ENABLE_SUBTASKS: 'true',
       MS_CLIENT_ID: 'client-id-sentinel',
       MS_CLIENT_SECRET: 'secret-sentinel',
       MS_TENANT_ID: 'tenant-id-sentinel',
@@ -2043,8 +2041,7 @@ test('setupStatus returns bounded public-default status without exposing credent
     'SYNC_LIST_DISCOVERY_MODE',
     'SYNC_ALLOW_DELETIONS',
     'SYNC_ALLOW_LIST_DELETIONS',
-    'SYNC_ALLOW_TASK_MOVES',
-    'SYNC_ENABLE_SUBTASKS'
+    'SYNC_ALLOW_TASK_MOVES'
   ]) {
     assert.equal(report.safetyDefaults[key].correct, true, key);
     assert.equal(report.safetyDefaults[key].valid, true, key);
@@ -2080,8 +2077,7 @@ test('setupStatus accepts deliberate valid overrides while showing public-defaul
       SYNC_LIST_DISCOVERY_MODE: 'explicit',
       SYNC_ALLOW_DELETIONS: 'false',
       SYNC_ALLOW_LIST_DELETIONS: 'false',
-      SYNC_ALLOW_TASK_MOVES: 'false',
-      SYNC_ENABLE_SUBTASKS: 'false'
+      SYNC_ALLOW_TASK_MOVES: 'false'
     },
     scriptApp: { getProjectTriggers: () => [] }
   });
@@ -2095,8 +2091,7 @@ test('setupStatus accepts deliberate valid overrides while showing public-defaul
     'SYNC_LIST_DISCOVERY_MODE',
     'SYNC_ALLOW_DELETIONS',
     'SYNC_ALLOW_LIST_DELETIONS',
-    'SYNC_ALLOW_TASK_MOVES',
-    'SYNC_ENABLE_SUBTASKS'
+    'SYNC_ALLOW_TASK_MOVES'
   ]) {
     assert.equal(report.safetyDefaults[key].valid, true, key);
     assert.equal(report.safetyDefaults[key].matchesPublicDefault, false, key);
@@ -9033,14 +9028,15 @@ test('managedGasSourceName maps pulled .js names onto canonical .gs names', () =
   assert.equal(managedGasSourceName('globals.js'), 'globals.gs');
   // The exact file list observed live from the installed project.
   // task-create-recovery.gs joined on 2026-10-12 (finalize-wedge operator exit).
-  const pulled = ['auth.js','Code.js','config.js','field-merge.js','globals.js','lifecycle.js',
+  // calendar-intake.gs (P2-D2) and subtask-move.gs (P2-D4) joined on 2026-11-17.
+  const pulled = ['auth.js','Code.js','calendar-intake.js','config.js','field-merge.js','globals.js','lifecycle.js',
     'lists.js','operations.js','providers.js','relationship-discovery.js','resource-projection.js',
-    'runtime.js','setup.js','state.js','subtask-classification.js','subtask-sync.js','sync.js','time-bridge.js',
+    'runtime.js','setup.js','state.js','subtask-classification.js','subtask-move.js','subtask-sync.js','sync.js','time-bridge.js',
     'task-create-recovery.js'];
   for (const name of pulled) {
     assert.ok(isManagedGasSourceFile(name), `${name} must be recognized as managed`);
   }
-  // 19 pulled files map onto exactly the 19 managed sources: no leftovers.
+  // 21 pulled files map onto exactly the 21 managed sources: no leftovers.
   assert.equal(pulled.length, GAS_SOURCE_FILES.length);
   assert.deepEqual(
     [...pulled].map(managedGasSourceName).sort(),

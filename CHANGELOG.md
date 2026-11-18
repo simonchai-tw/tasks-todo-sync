@@ -4,6 +4,46 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 1.5.0-rc.1 — 2026-11-18
+
+The first release candidate for 1.5.0. It promotes verified scheduling and collaboration features to core engine behavior, fixes due-date fingerprinting for tasks that start without a due date, and removes four developmental feature switches. No new OAuth scope and no re-authorization are required.
+
+### Calendar-backed due intake
+
+When a timed task is projected to the dedicated Google Calendar, a time edit made on the engine-owned calendar event is now read back into the paired task and synchronized to Microsoft To Do. Intake is read-only against Calendar events, uses a synchronization watermark, and fails closed for all-day or foreign-event collisions. It is **on by default**; set `SYNC_CALENDAR_INTAKE=false` to keep Calendar projection one-way.
+
+### Crash-safe subtask moves
+
+Moving a Google child task to another parent, or back to the top level, now resumes safely after an interrupted round. The move journal performs the new-side create, rebind, and old-side delete in a bounded order; ambiguous outcomes park without remote writes, and metadata-bearing children are held rather than silently losing notes or due dates. Demoting a parent remains preflight-blocked.
+
+### Recurring-task advancement
+
+Completing a Microsoft recurring task advances the paired Google due date and holds completed history instances out of the create path. A bounded recurrence-grid check and non-completed echo hold prevent duplicate instance creation across provider timing differences.
+
+### Notes three-way merge
+
+Concurrent notes edits that touch different lines merge on both sides. Concurrent insertions at the exact same line anchor remain a deliberate conflict and freeze safely instead of guessing an order. The merge preserves recurrence markers and engine-managed resource blocks.
+
+### Due-date fingerprint alignment
+
+Tasks created without a due date now seed the same due fingerprint on both providers. Previously, adding a due date later could be treated as a permanent conflict and silently fail to sync in either direction.
+
+### Simplified defaults
+
+Time Bridge, subtask and checklist synchronization, recurrence advancement, and notes three-way merge are core capabilities and are always on. The former `SYNC_TIME_BRIDGE` and `SYNC_ENABLE_SUBTASKS` switches are no longer read; stale properties are ignored. Calendar-backed due intake defaults to `true` and remains a user choice. Calendar projection, projection reminders, the notes time badge, category/importance mapping, and deletion/move authorization remain user-facing controls.
+
+### Packaging
+
+The npm package now carries all 21 canonical Apps Script source files, including the Calendar intake and subtask move modules. The deployment validator rejects a package that omits any canonical runtime file.
+
+### Verification
+
+- `npm test`: 727/727 passing.
+- `npm run check` (static validation + package dry-run), `npm run docs:check` (727/727, v1.5.0-rc.1) and `git diff --check`: clean.
+- Version `1.5.0-rc.1` is consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge, this changelog and the companion project (`Version`, `FileVersion`, `AssemblyVersion`).
+- Live verification was performed on a disposable test Apps Script account with no manual overrides for the newly promoted core features: two complete sync rounds were green, state was not corrupt, and deleted test pairs converged to zero mappings.
+- Windows installer: `Tasks-ToDo-Sync-Setup.exe` (58.4 MB, `ProductVersion 1.5.0-rc.1`, SHA-256 `3282ac1325a11cf6df49b295a0b27b41127a628810bd2aabbbed7fc7342dfa853`). The `v1.5.0-rc.1` release carries exactly four assets — the installer, `RELEASES-win-x64`, `releases.win-x64.json` and `TasksToDoSync-1.5.0-rc.1-win-x64-full.nupkg` — and both indexes reference only that full package.
+
 ## 1.2.0 — 2026-11-08
 
 A feature release landing four sync-engine improvements. The two capabilities that rewrite existing user data — the notes-tail time badge and category/importance mapping — ship **opt-in and OFF by default**; upgrading changes no existing notes, importance or categories. No new OAuth scope and no re-authorization are required.

@@ -1313,9 +1313,267 @@ function putMapping_(state, gTask, gListId, msTask, msListId) {
   // v0.8.3 (advisory C): keep the canonical time record across mapping rebuilds
   // (cross-list moves) so td.retry and td.quarantine survive the transition.
   if (previous && previous.td) rec.td = previous.td;
+  // The [TTS-REC] code is the identity that survives a Google id rotation, so
+  // it must survive a mapping rebuild for exactly the same reason as rec.rem.
+  if (previous && previous.recCode) rec.recCode = previous.recCode;
+  // The rec-stamp backfill window (rst) belongs to the same identity domain:
+  // a mapping rebuild mid-window must not silently drop the pending stamp.
+  if (previous && previous.rst !== undefined && previous.rst !== null) rec.rst = previous.rst;
   state.g2m[gTask.id] = rec;
   state.m2g[msTask.id] = gTask.id;
 }
+
+/* Rotation rebind (identity, not event-id bookkeeping).
+ *
+ * Google's daily recurrence regenerates a task under a FRESH Google id while
+ * the Microsoft counterpart keeps its id.  Nothing carried the mapping across
+ * that id change: bothRecurrenceGuard_ deliberately leaves the old mapping in
+ * place and only alerts, putMapping_ re-reads the same key, and the create
+ * batch only checks state.g2m[freshId] (never the [TTS-REC] marker).  The
+ * result was a duplicate Microsoft task for the fresh Google id, plus a second
+ * Calendar event because rec.rem.e is derived from the Google id.
+ *
+ * The fix is to re-key the EXISTING record (rec.rem / rec.td / rec.fp /
+ * rec.recCode included) onto the fresh Google id BEFORE the create batch and
+ * BEFORE any deletion observation.  rec.rem.e then travels with the record, so
+ * no second Calendar event is inserted and no duplicate Microsoft task is
+ * created.  No owner key, no detId v2, no extra Calendar property is needed.
+ *
+ * Everything here is fail-closed and memory-only: no provider or Calendar call
+ * is made, and any ambiguity leaves the old mapping exactly where it was.
+ */
+
+function rotationRecCodeFromNotes_(notes) {
+  // The marker is only ever parsed from the two leading lines, matching
+  // parseLeadingTtsHeadersUnified_.  Readers accept mixed case; the stored
+  // code is always upper-case so equality checks stay exact.
+  var lines = String(notes == null ? '' : notes).split(/\r?\n/);
+  for (var i = 0; i < Math.min(lines.length, 2); i += 1) {
+    var match = String(lines[i]).match(/^\s*\[TTS-REC:([0-9A-Fa-f]{6})\]\s*$/);
+    if (match) return match[1].toUpperCase();
+  }
+  return null;
+}
+
+function rotationTitleKey_(title) {
+  return String(title == null ? '' : title).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function rotationRebind_(state, snap) {
+  var result = { scanned: 0, codeCaptured: 0, rebound: [], skipped: [], blocked: false, reason: null };
+  if (!state || !state.g2m || !state.m2g || !snap) {
+    result.blocked = true;
+    result.reason = 'NO_STATE_OR_SNAPSHOT';
+    return result;
+  }
+  // A disappeared id is only meaningful against a COMPLETE inventory.  This is
+  // the same gate the deletion path uses, so a partial fetch can never be
+  // mistaken for a rotation (and never for a deletion either).
+  if (!hasCompleteTaskDeletionInventory_(snap)) {
+    result.blocked = true;
+    result.reason = 'INCOMPLETE_INVENTORY';
+    return result;
+  }
+  var gTasks = snap.gTasksById || {};
+  var msTasks = snap.msTasksById || {};
+  var gListByTask = snap.gListByTask || {};
+  var gIds = Object.keys(state.g2m);
+  result.scanned = gIds.length;
+
+  // Phase 1: capture the [TTS-REC] code for pairs that are still alive.  This
+  // is the only write in this phase and it touches sync state only, never the
+  // notes themselves.  It runs every round, so a code is already on record
+  // before the day the rotation happens.
+  gIds.forEach(function(gId) {
+    var rec = state.g2m[gId];
+    var gTask = gTasks[gId];
+    if (!rec || !gTask) return;
+    var code = rotationRecCodeFromNotes_(gTask.notes);
+    if (code && rec.recCode !== code) {
+      rec.recCode = code;
+      result.codeCaptured += 1;
+    }
+  });
+
+  // Phase 2: re-key mappings whose Google id disappeared from this round's
+  // complete inventory.  Every guard below returns WITHOUT mutating state.
+  gIds.forEach(function(oldGId) {
+    var rec = state.g2m[oldGId];
+    if (!rec || gTasks[oldGId]) return;
+    function skip(reason) {
+      result.skipped.push({ gId: oldGId, reason: reason });
+    }
+    // A prepared or tombstoned deletion belongs to the deletion recovery path;
+    // rebinding here would race a remote DELETE that may already have run.
+    if (state.deletionJournal && state.deletionJournal[oldGId]) { skip('DELETION_JOURNAL_PRESENT'); return; }
+    if (state.tombstones && state.tombstones.g && state.tombstones.g[oldGId]) { skip('OLD_ID_TOMBSTONED'); return; }
+    if (state.taskMoveJournal && state.taskMoveJournal[oldGId]) { skip('MOVE_JOURNAL_PRESENT'); return; }
+    if (!rec.msId) { skip('NO_MS_ID'); return; }
+    // The reverse index must still point at this same old id; anything else
+    // means the pair is already claimed elsewhere and must not be stolen.
+    if (state.m2g[rec.msId] && state.m2g[rec.msId] !== oldGId) { skip('REVERSE_INDEX_CONFLICT'); return; }
+    var msTask = msTasks[rec.msId];
+    if (!msTask) { skip('MS_ALSO_MISSING'); return; }
+    // Same premise as bothRecurrenceGuard_: only a recurring Microsoft task
+    // regenerates its Google copy daily.
+    if (!msTaskHasRecurrence_(msTask)) { skip('NO_MS_RECURRENCE'); return; }
+    var code = rec.recCode;
+    if (!code) { skip('NO_STORED_CODE'); return; }
+    var candidates = Object.keys(gTasks).filter(function(id) {
+      if (id === oldGId || state.g2m[id]) return false;
+      if (gListByTask[id] !== rec.gListId) return false;
+      if (state.tombstones && state.tombstones.g && state.tombstones.g[id]) return false;
+      if (state.deletionJournal && state.deletionJournal[id]) return false;
+      if (state.taskMoveJournal && state.taskMoveJournal[id]) return false;
+      return rotationRecCodeFromNotes_(gTasks[id] && gTasks[id].notes) === code;
+    });
+    // Exactly one candidate or nothing happens.  Never take candidates[0] the
+    // way the alert-only guard does: a 24-bit code is a family label, not a
+    // unique key, so uniqueness is established by this filter, not assumed.
+    if (candidates.length !== 1) { skip(candidates.length ? 'AMBIGUOUS_CANDIDATES' : 'NO_CANDIDATE'); return; }
+    var newGId = candidates[0];
+    var newTitle = rotationTitleKey_(gTasks[newGId] && gTasks[newGId].title);
+    // Second, independent piece of evidence.  A mismatch only defers the
+    // rebind (the user may have edited the title this round); it deletes
+    // nothing and the next round can still succeed.
+    if (!newTitle || newTitle !== rotationTitleKey_(msTask.title)) { skip('TITLE_MISMATCH'); return; }
+
+    state.g2m[newGId] = rec;
+    delete state.g2m[oldGId];
+    state.m2g[rec.msId] = newGId;
+    // The disappearance was a rotation, not a user deletion: drop the pending
+    // candidate so the two-round confirmation cannot delete the live Microsoft
+    // task.  Prepared journals were excluded above and are never touched.
+    if (state.pendingTaskDeletions && state.pendingTaskDeletions[oldGId]) {
+      clearPendingTaskDeletion_(state, oldGId);
+    }
+    if (state.taskDeletionConflicts && state.taskDeletionConflicts[oldGId]) {
+      delete state.taskDeletionConflicts[oldGId];
+    }
+    result.rebound.push({
+      from: oldGId,
+      to: newGId,
+      msId: rec.msId,
+      code: code,
+      keptCalendarEventId: !!(rec.rem && rec.rem.e)
+    });
+    console.log('[Rotation] Rebound mapping ' + oldGId + ' -> ' + newGId +
+      ' via [TTS-REC:' + code + ']; Calendar event id preserved: ' + !!(rec.rem && rec.rem.e));
+  });
+  return result;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Rec-stamp backfill (create-time marker lag, 2026-11-17).
+ *
+ * Microsoft Graph is eventually consistent: a JUST-created recurring task may
+ * read back WITHOUT its recurrence field (observed live: absent at 41s and
+ * 3.2min, present by 5.5min).  googlePayloadFromMs_ stamps [TTS-REC] only on
+ * the MS->Google create payload, so a fast "create then sync" pair is mapped
+ * WITHOUT the marker — and nothing re-visited it, which disarms
+ * rotationRebind_ exactly on the day the Google id rotates.  The create
+ * finalize has the same gap: its fingerprint re-projection re-stamps a fresh
+ * random code and the subsequent 'update'-mode write erases even a
+ * prepare-time stamp.
+ *
+ * The fix is a bounded tracker on the fresh mapping (rec.rst = window rounds
+ * left) plus a per-round sweep.  The sweep stamps through the engine's
+ * ordinary updateGTask_ path once the field materializes, prepends the marker
+ * on line 1 without touching user content, and gives up after the window.
+ * Pairs without rec.rst are NEVER touched: the engine does not fight a user
+ * who deliberately removed a marker from an old pair.
+ *
+ * Everything is fail-closed: the write is verified by a fresh read, an
+ * unverified write throws (the round aborts, rec.rst survives, the next round
+ * retries), and the sweep never mutates mappings.
+ * ------------------------------------------------------------------------- */
+
+var REC_STAMP_BACKFILL_ROUNDS_ = 2;
+
+/* Called right after putMapping_ for a Microsoft->Google create finalize. */
+function afterMsCreateRecStamp_(state, snap, gId, gListId, msTask) {
+  const rec = (state && state.g2m) ? state.g2m[gId] : null;
+  if (!rec) return;
+  const gTask = snap ? snap.gTasksById[gId] : null;
+  if (!gTask || googleNotesHaveTtsRecMarker_(gTask.notes)) return;
+  if (msTaskHasRecurrence_(msTask)) {
+    backfillRecMarkerOnGoogle_(state, snap, gId, gListId, msTask);
+    return;
+  }
+  // Graph lag: the recurrence field had not materialized at create time.
+  // Arm the bounded window unless a previous attempt is already tracking it
+  // (a recovery re-entry must not reset the window).
+  if (rec.rst === undefined || rec.rst === null) rec.rst = REC_STAMP_BACKFILL_ROUNDS_;
+}
+
+/* The only writer.  Precondition-checked and idempotent: false means
+ * "nothing to do" (already stamped / no recurrence / blocked surface);
+ * a thrown error means the write could not be verified. */
+function backfillRecMarkerOnGoogle_(state, snap, gId, gListId, msTask) {
+  const gTask = snap ? snap.gTasksById[gId] : null;
+  if (!gTask || !msTask) return false;
+  if (googleNotesHaveTtsRecMarker_(gTask.notes) || !msTaskHasRecurrence_(msTask)) return false;
+  // The same gates the ordinary merge applies before touching Google notes:
+  // assigned-task notes are read-only for the engine, and a notes surface
+  // whose managed-resource block state is not provably writable stays alone.
+  if (googleNotesWriteBlocked_(gTask)) return false;
+  if (!notesWriteAllowed_(parseManagedResourceBlock_(gTask.notes, undefined, undefined).status)) return false;
+  const notes = String(gTask.notes == null ? '' : gTask.notes);
+  const composed = newTtsRecMarker_() + (notes ? '\n' + notes : '');
+  updateGTask_(gListId, gId, { notes: composed });
+  const verified = getGTask_(gListId, gId);
+  if (!verified || !googleNotesHaveTtsRecMarker_(verified.notes)) {
+    throw new Error('TTS_REC_BACKFILL_UNVERIFIED');
+  }
+  snap.gTasksById[gId] = verified;
+  const rec = (state && state.g2m) ? state.g2m[gId] : null;
+  if (rec) {
+    const code = rotationRecCodeFromNotes_(verified.notes);
+    if (code) rec.recCode = code;
+    delete rec.rst;
+  }
+  return true;
+}
+
+/* Per-round sweep (runs after the create batch, before the Time Bridge).
+ * Only pairs carrying rec.rst are examined — the set is empty in steady
+ * state, so the sweep is a no-op for every pre-existing pair. */
+function backfillRecStampSweep_(state, snap, startedAt) {
+  let stamped = 0;
+  if (!state || !state.g2m || !snap) return stamped;
+  Object.keys(state.g2m).forEach(function(gId) {
+    const rec = state.g2m[gId];
+    if (!rec || rec.rst === undefined || rec.rst === null) return;
+    const gTask = snap.gTasksById[gId];
+    const msTask = rec.msId ? (snap.msTasksById[rec.msId] || null) : null;
+    // The pair is not alive in this round's inventory: the ordinary
+    // deletion/rebind paths own it now.
+    if (!gTask || !msTask) { delete rec.rst; return; }
+    // A stale mapping (the task moved lists) must never be written through.
+    if (snap.gListByTask && snap.gListByTask[gId] && snap.gListByTask[gId] !== rec.gListId) {
+      delete rec.rst; return;
+    }
+    if (googleNotesHaveTtsRecMarker_(gTask.notes)) { delete rec.rst; return; }
+    if (!msTaskHasRecurrence_(msTask)) {
+      rec.rst -= 1;
+      if (rec.rst <= 0) delete rec.rst;
+      return;
+    }
+    // The merge owns blocked surfaces; a mid-window block surrenders the
+    // window instead of looping forever.
+    if (googleNotesWriteBlocked_(gTask) ||
+        !notesWriteAllowed_(parseManagedResourceBlock_(gTask.notes, undefined, undefined).status)) {
+      delete rec.rst; return;
+    }
+    if (!remainingTimeOk_(startedAt, TASK_CREATE_BATCH_START_RESERVE_MS)) {
+      throw new Error('TIME_BUDGET_REC_STAMP');
+    }
+    if (backfillRecMarkerOnGoogle_(state, snap, gId, rec.gListId, msTask)) stamped += 1;
+  });
+  return stamped;
+}
+
 
 function deletionRoundId_(startedAt) {
   return String(startedAt === undefined ? Date.now() : startedAt);
@@ -2801,4 +3059,538 @@ function saveTaskMoveOperationReceipt_(operation, entry, state) {
   } catch (e) {
     throw new Error('MOVE_OPERATION_RECEIPT_SAVE_FAILED: Could not save private before-image; no journal was changed.');
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * Recurrence advancement for Microsoft To Do native recurring tasks.
+ *
+ * When an occurrence of a recurring Microsoft task is completed, Microsoft To
+ * Do advances the series on its own recurrence grid.  Three shapes are
+ * handled, each with its own evidence rules:
+ *
+ *   1. The SAME task id flips back to notStarted with the due advanced on the
+ *      grid, and a separate completed history instance (echoing the series
+ *      pattern and range) holds the finished occurrence.  The mapping stays,
+ *      the Google due is advanced once, and the history instance is held out
+ *      of the create batch so it never becomes a duplicate Google task.
+ *   2. The old id stays completed and a NEW id is born.  The sweep never
+ *      binds anything itself: the ordinary create path maps the new task, and
+ *      the old copy's [TTS-REC] marker is stripped only after that new
+ *      mapping is observed in loaded (persisted) state in a later round.
+ *   3. The series disappears or the evidence never arrives.  A durable wait
+ *      on the sync state ticks across rounds and closes through a multi-round
+ *      timeout: one conflict record, one operator alert, nothing deleted.
+ *
+ * Identity evidence is strict: recurrence pattern and range must echo the
+ * mapped series, the due must sit exactly on the projected grid, and the
+ * finished occurrence must exist as a completed instance.  Zero or two-plus
+ * candidates never bind; they hold and report instead.  Title plus a recent
+ * createdDateTime is deliberately NOT used as evidence.
+ *
+ * Everything here is fail-closed and single-shot: one provider write per
+ * decision, no retry, convergence left to the next sync round.  Cross-round
+ * waiting lives on the sync state object (state.recurrenceAdvancement), so it
+ * survives process restarts like every other lifecycle table.  The whole
+ * sweep is inert unless the caller passes { advanceEnabled: true }.
+ * --------------------------------------------------------------------------- */
+
+var RECURRENCE_ADVANCE_TIMEOUT_ROUNDS_ = 3;
+/* Upper bound for grid walk in recurrenceGridReachable_: a daily series walked
+ * from the Google due to the observed provider due cannot legitimately need
+ * more steps than this; the cap keeps a malformed or far-future due from
+ * turning the signature pass into an unbounded loop. */
+var RECURRENCE_ADVANCE_GRID_STEP_CAP_ = 3660;
+
+function ensureRecurrenceAdvanceState_(state) {
+  if (!state.recurrenceAdvancement || typeof state.recurrenceAdvancement !== 'object' ||
+      Array.isArray(state.recurrenceAdvancement)) {
+    state.recurrenceAdvancement = { waits: {}, conflicts: {} };
+  }
+  if (!state.recurrenceAdvancement.waits || typeof state.recurrenceAdvancement.waits !== 'object' ||
+      Array.isArray(state.recurrenceAdvancement.waits)) {
+    state.recurrenceAdvancement.waits = {};
+  }
+  if (!state.recurrenceAdvancement.conflicts || typeof state.recurrenceAdvancement.conflicts !== 'object' ||
+      Array.isArray(state.recurrenceAdvancement.conflicts)) {
+    state.recurrenceAdvancement.conflicts = {};
+  }
+}
+
+function recurrenceAdvanceSweep_(state, snap, options) {
+  var result = {
+    enabled: false, scanned: 0, advanced: 0, waitsOpened: 0, waitsTicked: 0,
+    markerStripped: 0, closures: 0, ambiguous: 0, heldCreateIds: [],
+    blocked: false, reason: null
+  };
+  // The create-batch hold set is rebuilt every round (and cleared whenever the
+  // knob is off), so a stale hold can never outlive the evidence that armed it.
+  RECURRENCE_ADVANCE_CREATE_HOLDS_ = null;
+  if (!options || !options.advanceEnabled) return result;
+  result.enabled = true;
+  if (!state || !state.g2m || !state.m2g || !snap) {
+    result.blocked = true;
+    result.reason = 'NO_STATE_OR_SNAPSHOT';
+    return result;
+  }
+  // Identity evidence is only meaningful against a complete inventory; the
+  // same gate protects the deletion and rotation paths.
+  if (!hasCompleteTaskDeletionInventory_(snap)) {
+    result.blocked = true;
+    result.reason = 'INCOMPLETE_INVENTORY';
+    return result;
+  }
+  ensureRecurrenceAdvanceState_(state);
+  var waits = state.recurrenceAdvancement.waits;
+  var conflicts = state.recurrenceAdvancement.conflicts;
+  var holds = {};
+  RECURRENCE_ADVANCE_CREATE_HOLDS_ = holds;
+  var nowMs = typeof options.nowMs === 'number' && isFinite(options.nowMs) ? options.nowMs : Date.now();
+  var roundId = options.roundId ? String(options.roundId) : null;
+
+  function holdForCreate(msId) {
+    if (!msId || holds[msId]) return;
+    holds[msId] = true;
+    result.heldCreateIds.push(msId);
+  }
+  function tickAndMaybeClose_(gId, rec, gTask, wait) {
+    if (roundId && wait.lastRoundId === roundId) return;
+    wait.roundsWaited = (Number(wait.roundsWaited) || 0) + 1;
+    wait.lastRoundId = roundId;
+    result.waitsTicked += 1;
+    if (wait.roundsWaited < RECURRENCE_ADVANCE_TIMEOUT_ROUNDS_) return;
+    conflicts[gId] = {
+      at: new Date(nowMs).toISOString(),
+      kind: 'RECURRENCE_ADVANCE_TIMEOUT',
+      reason: wait.reason || 'WAIT_TIMEOUT',
+      roundsWaited: wait.roundsWaited,
+      msId: rec.msId,
+      gListId: rec.gListId,
+      msListId: rec.msListId
+    };
+    // The durable closed record below is what keeps this to a single alert;
+    // no cooldown registry is consulted, because closure itself happens once.
+    sendRecurrenceAdvanceClosureAlert_({
+      title: (gTask && gTask.title) || '(Untitled)',
+      gId: gId,
+      msId: rec.msId,
+      reason: wait.reason || 'WAIT_TIMEOUT',
+      roundsWaited: wait.roundsWaited
+    });
+    wait.phase = 'CLOSED';
+    wait.closedAt = new Date(nowMs).toISOString();
+    result.closures += 1;
+  }
+  function openWait_(gId, phase, reason, expectedDue, pendingMsId) {
+    waits[gId] = {
+      phase: phase,
+      reason: reason,
+      openedAt: new Date(nowMs).toISOString(),
+      lastRoundId: roundId,
+      roundsWaited: 0,
+      expectedDue: expectedDue || null,
+      pendingBind: pendingMsId ? { msId: pendingMsId } : null,
+      closedAt: null
+    };
+    result.waitsOpened += 1;
+    return waits[gId];
+  }
+  function recordAmbiguous_(gId, rec, reason, candidateCount) {
+    conflicts[gId] = {
+      at: new Date(nowMs).toISOString(),
+      kind: 'RECURRENCE_ADVANCE_AMBIGUOUS',
+      reason: reason,
+      candidateCount: candidateCount,
+      msId: rec.msId,
+      gListId: rec.gListId,
+      msListId: rec.msListId
+    };
+    result.ambiguous += 1;
+  }
+  // One provider write per decision; a failure here is never retried.  The
+  // next sync round re-evaluates the same evidence and converges.
+  function advanceGoogleDue_(rec, gId, msTask, histIds) {
+    var due = googleDue_(msTask.dueDateTime);
+    if (!due) return false;
+    updateGTask_(rec.gListId, gId, { due: due });
+    (histIds || []).forEach(function (msId) { holdForCreate(msId); });
+    result.advanced += 1;
+    return true;
+  }
+  // Stripping re-reads fresh notes first: a payload built from the round's
+  // snapshot could otherwise clobber a concurrent note edit.
+  function stripOldMarker_(rec, gId) {
+    var fresh = null;
+    try { fresh = getGTask_(rec.gListId, gId); } catch (e) { fresh = null; }
+    if (!fresh) return false;
+    var notes = String(fresh.notes == null ? '' : fresh.notes);
+    var stripped = stripTtsRecMarkerFromNotes_(notes);
+    if (stripped === notes) return false;
+    updateGTask_(rec.gListId, gId, { notes: stripped });
+    result.markerStripped += 1;
+    return true;
+  }
+  function boundGoogleIdFor_(msId) {
+    var boundGId = state.m2g[msId];
+    if (!boundGId) return null;
+    var boundRec = state.g2m[boundGId];
+    return boundRec && boundRec.msId === msId ? boundGId : null;
+  }
+
+  Object.keys(state.g2m).sort().forEach(function (gId) {
+    var rec = state.g2m[gId];
+    if (!rec || !rec.msId) return;
+    var msTask = snap.msTasksById[rec.msId] || null;
+    var gTask = snap.gTasksById[gId] || null;
+    var wait = waits[gId] || null;
+
+    // Evidence recomputation for this round.
+    var sigA = (gTask && msTask && msTask.status !== 'completed')
+      ? recurrenceModelASignature_(msTask, gTask) : null;
+    // Completed echo instances are held out of the create batch regardless of
+    // the signature: the provider can roll the due several grid dates at once
+    // or backwards (verified against the live API), so a hold
+    // that only armed on an actionable signature would let the completed echo
+    // instance leak into the create batch as a duplicate task.
+    var histIds = (msTask && msTask.status !== 'completed')
+      ? recurrenceHistoryCandidates_(state, snap, rec, msTask) : [];
+    if (histIds.length) holdForCreateAll_(histIds, holdForCreate);
+    var sigB = (!sigA && gTask && msTask) ? recurrenceModelBSignature_(msTask, gTask) : null;
+    var cont = sigB ? recurrenceContinuationCandidates_(state, snap, rec, gId, msTask) : null;
+    var actionableA = !!(sigA && histIds.length === 1);
+    var boundGId = (wait && wait.pendingBind && wait.pendingBind.msId)
+      ? boundGoogleIdFor_(wait.pendingBind.msId) : null;
+
+    if (wait) {
+      if (wait.phase === 'CLOSED') {
+        // A closed record is sticky: it reopens only when the evidence finally
+        // becomes actionable, so stale evidence can never re-alert.
+        if (actionableA || (boundGId && boundGId !== gId)) {
+          delete waits[gId];
+          wait = null;
+        } else {
+          return;
+        }
+      } else if (wait.phase === 'WAIT_PERSIST_CONFIRM') {
+        if (boundGId && boundGId !== gId) {
+          // The new mapping is visible in loaded state, so it was persisted by
+          // an earlier round; the old marker may go now.  A failed strip keeps
+          // the wait and retries next round via ordinary convergence.
+          if (stripOldMarker_(rec, gId)) delete waits[gId];
+        } else if (boundGId === gId) {
+          // The series continues on the same Google task: its marker is still
+          // live and must stay for the rotation path.
+          delete waits[gId];
+        } else if (msTask && msTask.status !== 'completed') {
+          // The completion was undone; the evidence chain is broken.
+          delete waits[gId];
+        } else {
+          tickAndMaybeClose_(gId, rec, gTask, wait);
+        }
+        return;
+      } else { // WAIT_EVIDENCE
+        if (actionableA) {
+          if (advanceGoogleDue_(rec, gId, msTask, histIds)) delete waits[gId];
+          return;
+        }
+        if (msTask && msTask.status !== 'completed' && !sigA) {
+          delete waits[gId]; // converged or an ordinary manual due edit
+          return;
+        }
+        if (sigA && histIds.length >= 2) {
+          holdForCreateAll_(histIds, holdForCreate);
+          recordAmbiguous_(gId, rec, 'MODEL_A_ECHO_AMBIGUOUS', histIds.length);
+        } else if (sigB && cont && cont.candidates.length === 1 && !boundGoogleIdFor_(cont.candidates[0])) {
+          // A clean continuation appeared: upgrade the wait to persist-confirm.
+          wait.phase = 'WAIT_PERSIST_CONFIRM';
+          wait.pendingBind = { msId: cont.candidates[0] };
+          wait.reason = 'MODEL_B_CONTINUATION_PENDING';
+        }
+        tickAndMaybeClose_(gId, rec, gTask, wait);
+        return;
+      }
+    }
+
+    // No wait: fresh trigger evaluation for this round.
+    if (sigA) {
+      if (histIds.length === 1) {
+        if (!advanceGoogleDue_(rec, gId, msTask, histIds)) {
+          openWait_(gId, 'WAIT_EVIDENCE', 'MODEL_A_ECHO_PENDING', sigA.msDue, null);
+        }
+      } else if (histIds.length === 0) {
+        openWait_(gId, 'WAIT_EVIDENCE', 'MODEL_A_ECHO_PENDING', sigA.msDue, null);
+      } else {
+        histIds.forEach(function (msId) { holdForCreate(msId); });
+        recordAmbiguous_(gId, rec, 'MODEL_A_ECHO_AMBIGUOUS', histIds.length);
+        openWait_(gId, 'WAIT_EVIDENCE', 'MODEL_A_ECHO_AMBIGUOUS', sigA.msDue, null);
+      }
+      return;
+    }
+    if (sigB && cont) {
+      if (cont.candidates.length === 1) {
+        var candId = cont.candidates[0];
+        var candBoundGId = boundGoogleIdFor_(candId);
+        if (candBoundGId && candBoundGId !== gId) {
+          stripOldMarker_(rec, gId);
+        } else if (!candBoundGId) {
+          // The sweep never binds: the ordinary create path owns new mappings.
+          openWait_(gId, 'WAIT_PERSIST_CONFIRM', 'MODEL_B_CONTINUATION_PENDING',
+            cont.projected, candId);
+        }
+      } else if (cont.candidates.length === 0) {
+        openWait_(gId, 'WAIT_EVIDENCE', 'MODEL_B_CONTINUATION_PENDING', cont.projected, null);
+      } else {
+        recordAmbiguous_(gId, rec, 'MODEL_B_CONTINUATION_AMBIGUOUS', cont.candidates.length);
+        openWait_(gId, 'WAIT_EVIDENCE', 'MODEL_B_CONTINUATION_AMBIGUOUS', cont.projected, null);
+      }
+    }
+  });
+
+  // Waits whose pair left the mapping table belong to the deletion domain now.
+  Object.keys(waits).forEach(function (gId) {
+    if (!state.g2m[gId]) delete waits[gId];
+  });
+  return result;
+}
+
+function holdForCreateAll_(msIds, holdOne) {
+  (msIds || []).forEach(function (msId) { holdOne(msId); });
+}
+
+function sendRecurrenceAdvanceClosureAlert_(info) {
+  // WO-12: titles are user content and may contain newlines that would spoof
+  // the report layout; raw provider IDs never belong in operator mail.
+  var title = String((info && info.title) || '(Untitled)').replace(/[\r\n]+/g, ' ');
+  var body = 'A recurring Microsoft To Do task could not be advanced safely.\n\n' +
+    'Task: ' + title + '\n' +
+    'Google task id: ' + ((info && info.gId) ? previewOpaqueId_('google-task', info.gId) : '(unknown)') + '\n' +
+    'Microsoft task id: ' + ((info && info.msId) ? previewOpaqueId_('microsoft-task', info.msId) : '(unknown)') + '\n' +
+    'Reason: ' + ((info && info.reason) || '(unknown)') + '\n' +
+    'Rounds waited: ' + ((info && info.roundsWaited) || 0) + '\n\n' +
+    'No mapping, task, or due date was changed by this notice. ' +
+    'Run dryRunReport() and inspectSyncState() to review the pair.';
+  return sendMailAlert_('[Sync engine] Recurring task advancement needs attention', body);
+}
+
+/* Recurrence grid projection: the next occurrence date strictly after
+ * fromDate, computed from the series pattern and range alone.  Returns null
+ * whenever the grid cannot be proven (unknown pattern type, missing weekday
+ * list, expired endDate) so callers fail closed instead of guessing. */
+function recurrenceAdvanceNextDue_(recurrence, fromDate) {
+  var from = validDateOnly_(fromDate);
+  if (!from || !recurrence || typeof recurrence !== 'object') return null;
+  var pattern = recurrence.pattern;
+  var range = recurrence.range;
+  if (!pattern || typeof pattern !== 'object' || !range || typeof range !== 'object') return null;
+  var type = String(pattern.type || '').toLowerCase();
+  var interval = Math.max(1, Math.floor(Number(pattern.interval) || 1));
+  var endDate = range.type === 'endDate' ? validDateOnly_(range.endDate) : null;
+  var next = null;
+  if (type === 'daily') {
+    next = recAdvShiftDays_(from, interval);
+  } else if (type === 'weekly') {
+    next = recAdvNextWeekly_(pattern, range, from, interval);
+  } else if (type === 'monthly' || type === 'yearly') {
+    next = recAdvNextMonthlyOrYearly_(pattern, range, from, interval, type);
+  }
+  if (!next) return null;
+  if (endDate && next > endDate) return null;
+  return next;
+}
+
+function recAdvPad2_(value) {
+  return (value < 10 ? '0' : '') + value;
+}
+
+function recAdvDateToMs_(date) {
+  var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(date || ''));
+  return match ? Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : NaN;
+}
+
+function recAdvDateFromMs_(ms) {
+  var d = new Date(ms);
+  return d.getUTCFullYear() + '-' + recAdvPad2_(d.getUTCMonth() + 1) + '-' + recAdvPad2_(d.getUTCDate());
+}
+
+function recAdvShiftDays_(date, days) {
+  var ms = recAdvDateToMs_(date);
+  return isNaN(ms) ? null : recAdvDateFromMs_(ms + days * 86400000);
+}
+
+function recAdvWeekday_(date) {
+  return new Date(recAdvDateToMs_(date)).getUTCDay();
+}
+
+var REC_ADV_WEEKDAY_INDEX_ = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6
+};
+
+function recAdvNextWeekly_(pattern, range, from, interval) {
+  var wanted = (pattern.daysOfWeek || []).map(function (day) {
+    return REC_ADV_WEEKDAY_INDEX_[String(day || '').toLowerCase()];
+  }).filter(function (index) { return index !== undefined; });
+  if (!wanted.length) return null;
+  var firstDay = REC_ADV_WEEKDAY_INDEX_[String(pattern.firstDayOfWeek || 'sunday').toLowerCase()];
+  if (firstDay === undefined) firstDay = 0;
+  var anchor = validDateOnly_(range.startDate) || from;
+  var anchorMs = recAdvDateToMs_(anchor);
+  if (isNaN(anchorMs)) return null;
+  function weekStart(date) {
+    return recAdvDateToMs_(date) - ((recAdvWeekday_(date) - firstDay + 7) % 7) * 86400000;
+  }
+  var anchorWeek = weekStart(anchor);
+  for (var offset = 1; offset <= 7 * interval; offset += 1) {
+    var candidate = recAdvShiftDays_(from, offset);
+    if (!candidate || wanted.indexOf(recAdvWeekday_(candidate)) < 0) continue;
+    var weeks = Math.round((weekStart(candidate) - anchorWeek) / (7 * 86400000));
+    if (weeks < 0 || weeks % interval !== 0) continue;
+    return candidate;
+  }
+  return null;
+}
+
+function recAdvNextMonthlyOrYearly_(pattern, range, from, interval, kind) {
+  var anchor = validDateOnly_(range.startDate) || from;
+  var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(anchor);
+  if (!match) return null;
+  var day = Number(match[3]);
+  var year = Number(from.slice(0, 4));
+  var month = Number(from.slice(5, 7));
+  for (var step = 0; step < 24; step += 1) {
+    month += kind === 'yearly' ? interval * 12 : interval;
+    while (month > 12) { month -= 12; year += 1; }
+    var daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    var candidate = year + '-' + recAdvPad2_(month) + '-' + recAdvPad2_(Math.min(day, daysInMonth));
+    if (candidate > from) return candidate;
+  }
+  return null;
+}
+
+/* Stable comparison of a series' pattern and range echo.  Key order must not
+ * influence equality, so keys are sorted before serializing. */
+function recurrenceEchoMatch_(left, right) {
+  if (!left || typeof left !== 'object' || !right || typeof right !== 'object') return false;
+  if (!left.pattern || !right.pattern || !left.range || !right.range) return false;
+  return stableRecurrenceKey_(left) === stableRecurrenceKey_(right);
+}
+
+function stableRecurrenceKey_(value) {
+  return JSON.stringify(value, function (key, val) {
+    if (val && typeof val === 'object' && !Array.isArray(val)) {
+      return Object.keys(val).sort().reduce(function (acc, k) {
+        acc[k] = val[k];
+        return acc;
+      }, {});
+    }
+    return val;
+  });
+}
+
+function recurrenceTaskDueDate_(task) {
+  return validDateOnly_(task && task.dueDateTime && task.dueDateTime.dateTime);
+}
+
+function googleTaskDueDate_(task) {
+  return validDateOnly_(task && task.due);
+}
+
+/* The canonical date-only view of a Microsoft due, projected exactly like the
+ * field merge projects it (googleDue_ -> date part).  A raw prefix read of the
+ * dateTime string is wrong whenever the provider returns the value rendered in
+ * a zone other than the sync zone: a rolled daily series measured live on
+ * 2026-11-18 came back as 2026-11-20T16:00Z, which is 2026-11-21 in +08:00.
+ * Every recurrence-advance comparison and write must use this one projection
+ * so the signature and the write cannot disagree about the same due. */
+function recurrenceCanonicalMsDue_(msTask) {
+  if (!msTask || !msTask.dueDateTime) return null;
+  var projected = googleDue_(msTask.dueDateTime);
+  return projected ? googleDueDateOnly_(projected) : null;
+}
+
+/* Bounded reachability: whether targetDate sits on the series grid reachable
+ * from fromDate.  The provider's rollover is grid-anchored on its side and is
+ * known to skip grid dates or move backwards (verified against the live
+ * API), so this check only asserts that the observed due is a
+ * real grid date of the series -- never that it is exactly one step ahead.
+ * A backwards target is unreachable by construction and stays with the
+ * ordinary field merge, which follows the provider value directly. */
+function recurrenceGridReachable_(recurrence, fromDate, targetDate) {
+  var from = validDateOnly_(fromDate);
+  var target = validDateOnly_(targetDate);
+  if (!from || !target || !recurrence || typeof recurrence !== 'object') return false;
+  var pattern = recurrence.pattern;
+  var range = recurrence.range;
+  if (!pattern || typeof pattern !== 'object' || !range || typeof range !== 'object') return false;
+  var cursor = from;
+  for (var i = 0; i < RECURRENCE_ADVANCE_GRID_STEP_CAP_; i++) {
+    var next = recurrenceAdvanceNextDue_(recurrence, cursor);
+    if (!next) return false;
+    if (next === target) return true;
+    cursor = next;
+  }
+  return false;
+}
+
+/* Model 1 signature: the mapped task is live again with a due that sits on a
+ * grid date other than the Google copy.  The rollover value is grid-anchored
+ * on the provider side -- neither the due sent at creation nor one sent in the
+ * completion PATCH affects it, it can skip grid dates and it can move
+ * backwards.  Predicting the next due from the current due is therefore
+ * wrong by construction; the signature only requires that the observed due is
+ * a reachable grid date, and the write copies the provider value verbatim.
+ * Anything else is an ordinary edit and belongs to the field merge. */
+function recurrenceModelASignature_(msTask, gTask) {
+  if (!msTask || !msTaskHasRecurrence_(msTask)) return null;
+  var msDue = recurrenceCanonicalMsDue_(msTask);
+  var gDue = googleTaskDueDate_(gTask);
+  if (!msDue || !gDue || msDue === gDue) return null;
+  if (!recurrenceGridReachable_(msTask.recurrence, gDue, msDue)) return null;
+  return { msDue: msDue, gDue: gDue, projected: msDue };
+}
+
+/* Model 2 signature: the mapped task is completed while still echoing the
+ * series pattern and range, and its Google copy still carries the marker. */
+function recurrenceModelBSignature_(msTask, gTask) {
+  if (!msTask || msTask.status !== 'completed' || !msTaskHasRecurrence_(msTask)) return null;
+  if (!gTask || !googleNotesHaveTtsRecMarker_(gTask.notes)) return null;
+  return { oldDue: recurrenceCanonicalMsDue_(msTask) };
+}
+
+/* Completed history instances of the mapped series: same list, unmapped,
+ * completed, echoing the exact pattern and range.  Title and createdDateTime
+ * are deliberately ignored here; they are not identity evidence. */
+function recurrenceHistoryCandidates_(state, snap, rec, msTask) {
+  return Object.keys(snap.msTasksById || {}).sort().filter(function (msId) {
+    if (msId === rec.msId || state.m2g[msId]) return false;
+    if (snap.msListByTask[msId] !== rec.msListId) return false;
+    var task = snap.msTasksById[msId];
+    if (!task || task.status !== 'completed') return false;
+    return recurrenceEchoMatch_(task.recurrence, msTask.recurrence);
+  });
+}
+
+/* Continuation candidates for model 2: unmapped live tasks in the same list
+ * whose due sits exactly on the next grid step after the finished occurrence. */
+function recurrenceContinuationCandidates_(state, snap, rec, gId, msTask) {
+  var anchor = recurrenceCanonicalMsDue_(msTask) || googleTaskDueDate_(snap.gTasksById[gId]);
+  var projected = recurrenceAdvanceNextDue_(msTask.recurrence, anchor);
+  if (!projected) return { candidates: [], projected: null };
+  var candidates = Object.keys(snap.msTasksById || {}).sort().filter(function (msId) {
+    if (msId === rec.msId || state.m2g[msId]) return false;
+    if (snap.msListByTask[msId] !== rec.msListId) return false;
+    var task = snap.msTasksById[msId];
+    if (!task || task.status === 'completed') return false;
+    if (!recurrenceEchoMatch_(task.recurrence, msTask.recurrence)) return false;
+    return recurrenceCanonicalMsDue_(task) === projected;
+  });
+  return { candidates: candidates, projected: projected };
+}
+
+/* Remove exactly one marker occurrence, preserving every other byte of the
+ * notes.  The leading marker line is the canonical placement; a marker
+ * elsewhere is still removed verbatim with one trailing newline. */
+function stripTtsRecMarkerFromNotes_(notes) {
+  var s = String(notes == null ? '' : notes);
+  var split = splitTtsRecMarkerLine_(s);
+  if (split.markerLine) return split.notes;
+  return s.replace(/\[TTS-REC:[0-9A-Fa-f]{6}\]/, '');
 }
