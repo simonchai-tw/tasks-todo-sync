@@ -1645,7 +1645,7 @@ const SUBTASK_RECORD_FIELDS_ = [
   'lastRoundId', 'attempts', 'correlationId', 'fingerprint', 'reason', 'missingSide',
   'parentMsId', 'parentMsListId', 'intended', 'base', 'field', 'source', 'target', 'desired',
   'missingStreak', 'lastMissingObservationRound', 'firstMissingAt', 'survivorSemanticBaseline',
-  'gListId'
+  'gListId', 'title'
 ];
 
 function assertSubtaskTable_(table, field, allowRecords) {
@@ -1756,7 +1756,7 @@ function assertSubtaskOwnershipRecordShapes_(subtasks) {
       required: ['gChildId', 'msChecklistId', 'gParentId', 'missingSide']
     },
     moveJournal: {
-      fields: ['phase', 'gChildId', 'msChecklistId', 'nextMsChecklistId', 'gParentId'],
+      fields: ['phase', 'gChildId', 'msChecklistId', 'nextMsChecklistId', 'gParentId', 'title'],
       phases: ['PREPARED', 'REMOTE_CREATED', 'REBIND_PERSISTED', 'OLD_DELETE_PENDING', 'UNCERTAIN'],
       required: ['gChildId', 'msChecklistId', 'gParentId']
     },
@@ -1843,7 +1843,10 @@ function assertTimeBridgeMappingRem_(rem, label) {
   // v1.2.0 P1-3: lastRenderedBadge is the exact string this engine last rendered
   // at the tail of the user notes; it is compared with === before stripping, so
   // it must round-trip byte-for-byte (VS16 and surrogate pairs included).
-  assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned', 'lastRenderedBadge'], label, 'STATE_MALFORMED');
+  // v1.3.0 P2-D2: collisionQuarantined is set by calendar-intake when a
+  // foreign/all-day event collision halts the pair's Calendar projection; the
+  // renderer honours the halt for as long as the flag is set.
+  assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned', 'collisionQuarantined', 'lastRenderedBadge'], label, 'STATE_MALFORMED');
   if (rem.e !== undefined && rem.e !== null && (typeof rem.e !== 'string' || !/^[0-9a-f]{32}$/.test(rem.e))) {
     throw new Error('STATE_MALFORMED: ' + label + '.e is invalid; overwrite refused.');
   }
@@ -1861,6 +1864,9 @@ function assertTimeBridgeMappingRem_(rem, label) {
   }
   if (rem.markerOrphaned !== undefined && rem.markerOrphaned !== null && typeof rem.markerOrphaned !== 'boolean') {
     throw new Error('STATE_MALFORMED: ' + label + '.markerOrphaned must be boolean or null/undefined; overwrite refused.');
+  }
+  if (rem.collisionQuarantined !== undefined && rem.collisionQuarantined !== null && typeof rem.collisionQuarantined !== 'boolean') {
+    throw new Error('STATE_MALFORMED: ' + label + '.collisionQuarantined must be boolean or null/undefined; overwrite refused.');
   }
   // v1.2.0 P1-3: the badge is an opaque exact-match string.  No shape or
   // character restriction is applied: it must be able to carry a VS16 selector
@@ -2041,9 +2047,24 @@ function assertOrdinaryMappingExtras_(state) {
   Object.keys((state && state.g2m) || {}).forEach(function(gId) {
     const rec = state.g2m[gId];
     if (!rec || typeof rec !== 'object') return;
-    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem', 'td'],
+    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem', 'td', 'recCode', 'rst'],
       'g2m[' + gId + ']', 'STATE_MALFORMED');
     assertOrdinaryFingerprint_(rec.fp, 'g2m[' + gId + ']');
+    if (rec.rst !== undefined) {
+      // Rec-stamp backfill window: remaining rounds, positive integer only.
+      // Null is refused (unlike recCode): the engine never writes null and
+      // the sweep treats null as "no window", so a persisted null would be
+      // meaningless junk.
+      if (typeof rec.rst !== 'number' || !Number.isInteger(rec.rst) || rec.rst < 1) {
+        throw new Error('STATE_MALFORMED: g2m[' + gId + '].rst is invalid; overwrite refused.');
+      }
+    }
+    if (rec.recCode !== undefined && rec.recCode !== null) {
+      // Identity captured from the [TTS-REC] notes marker; always upper-case.
+      if (typeof rec.recCode !== 'string' || !/^[0-9A-F]{6}$/.test(rec.recCode)) {
+        throw new Error('STATE_MALFORMED: g2m[' + gId + '].recCode is invalid; overwrite refused.');
+      }
+    }
     if (rec.res !== undefined) {
       if (!isStateObject_(rec.res)) throw new Error('STATE_MALFORMED: g2m[' + gId + '].res must be an object; overwrite refused.');
       assertKnownObjectKeys_(rec.res, ['gBlockFp', 'msBlockFp', 'gBlockIntentFp', 'msBlockIntentFp', 'journal'],
@@ -2155,6 +2176,8 @@ function assertStrictSchema4StateShape_(state) {
     delete rec.fc;
     delete rec.rem;
     delete rec.td;
+    delete rec.recCode;
+    delete rec.rst;
   });
   assertStrictSchema3StateShape_(legacy, 'STATE_MALFORMED');
   assertOrdinaryMappingExtras_(state);
@@ -2306,6 +2329,8 @@ function normalizeState_(state) {
       if (rec.fc) extra.fc = rec.fc;
       if (rec.rem) extra.rem = rec.rem;
       if (rec.td) extra.td = rec.td;
+      if (rec.recCode) extra.recCode = rec.recCode;
+      if (rec.rst !== undefined) extra.rst = rec.rst;
       if (Object.keys(extra).length) mappingExtras[gId] = extra;
     });
     const legacy = cloneStateForValidation_(source);
@@ -2327,6 +2352,8 @@ function normalizeState_(state) {
       delete rec.fc;
       delete rec.rem;
       delete rec.td;
+      delete rec.recCode;
+      delete rec.rst;
     });
     const normalizedLegacy = normalizeStateV3_(legacy);
     canonical = source;
@@ -2340,6 +2367,8 @@ function normalizeState_(state) {
       if (mappingExtras[gId].fc) canonical.g2m[gId].fc = mappingExtras[gId].fc;
       if (mappingExtras[gId].rem) canonical.g2m[gId].rem = mappingExtras[gId].rem;
       if (mappingExtras[gId].td) canonical.g2m[gId].td = mappingExtras[gId].td;
+      if (mappingExtras[gId].recCode) canonical.g2m[gId].recCode = mappingExtras[gId].recCode;
+      if (mappingExtras[gId].rst !== undefined) canonical.g2m[gId].rst = mappingExtras[gId].rst;
     });
   } else {
     // bootstrap is a v4-only table.  Strip it before the strict legacy
@@ -2478,6 +2507,7 @@ function validateImportedState_(state) {
       delete rec.fc;
       delete rec.rem;
       delete rec.td;
+      delete rec.recCode;
     });
     validateImportedStateLegacy_(legacy);
     try { assertStrictSchema4StateShape_(state); }

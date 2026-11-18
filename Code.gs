@@ -1053,6 +1053,12 @@ function syncAll() {
       cleanupTombstones_(state);
       cleanupListTombstones_(state);
       snap = buildSnapshot_(state, startedAt);
+      // Rotation rebind MUST run before the create batch below: the candidate
+      // scan only checks state.g2m[freshId] and never the [TTS-REC] marker, so
+      // an un-rebound rotated id would be created as a duplicate Microsoft
+      // task.  Running before reconcileMapped_ also means a rotation is never
+      // observed as a user deletion.  The step is memory-only and fail-closed.
+      rotationRebind_(state, snap);
       if (safetyAtStart.enableSubtasks && typeof discoverSubtaskRelationships_ === 'function') {
         discoverSubtaskRelationships_(state, snap, startedAt, roundId, Date.now());
         // SYNC_ALLOW_DELETIONS is the operator-wide delete switch and subtask
@@ -1079,14 +1085,45 @@ function syncAll() {
         }
         if (SYNC_TASK_CREATE_BATCH_AWAITING_FINAL_COMMIT_) checkpointTaskCreateBatch_(state);
       }
+      // Rec-stamp backfill sweep (2026-11-17): pairs armed by the create lag
+      // path carry rec.rst; the sweep stamps through updateGTask_ once Graph
+      // materializes the recurrence field and is a no-op for every pair
+      // without rec.rst.  Runs before the Time Bridge so a freshly stamped
+      // pair converges within the same round.
+      if (typeof backfillRecStampSweep_ === 'function') {
+        backfillRecStampSweep_(state, snap, startedAt);
+      }
       if (typeof timeBridgeRun_ === 'function') {
         timeBridgeRun_(state, snap, startedAt, roundId);
       }
       reconcileMapped_(state, snap, startedAt, roundId, deletionProgress);
+      // P2-D2 quarantine release sweep: re-evaluate collisionQuarantined pairs
+      // every round, independent of the intake knob. A pair whose collision is
+      // gone (event deleted / cancelled / reverted to the exact rendered echo)
+      // resumes rendering THIS round; still-colliding pairs stay quarantined.
+      // Fail-closed: sweep errors only count, never abort the round.
+      if (typeof calendarIntakeReleaseQuarantines_ === 'function') {
+        var releaseSweep = calendarIntakeReleaseQuarantines_(
+          state, snap, state.calendarProjection && state.calendarProjection.calendarId);
+        if (releaseSweep && releaseSweep.checked) {
+          console.log('[CalendarIntake] Release sweep: checked=' + releaseSweep.checked +
+            ' released=' + releaseSweep.released + ' stayed=' + releaseSweep.stayed +
+            ' errors=' + releaseSweep.errors);
+        }
+      }
       // The Calendar renderer runs after the merge: the merge decides the due
       // date, and the projection reads the converged rec.td (§3.8).
       if (typeof timeBridgeRunRenderersAfterMerge_ === 'function') {
         timeBridgeRunRenderersAfterMerge_(state, snap, startedAt, roundId);
+      }
+      // P2-D2 calendar intake runs after the merge and the Calendar renderers:
+      // the intake observes this round's fully rendered Calendar state, so a
+      // same-round re-render cannot immediately undo an adoption (C3/C8/C9),
+      // and an adopted due date is written through the engine's own Google
+      // task-update path so the next merge treats it as a genuine Google-side
+      // edit (C11).  Inert unless SYNC_CALENDAR_INTAKE is explicitly enabled.
+      if (typeof calendarIntakeRun_ === 'function') {
+        calendarIntakeRun_(state, snap, startedAt);
       }
       deletionStateBeforeApply = captureTaskDeletionState_(state);
       applyConfirmedTaskDeletions_(state, snap, roundId, deletionProgress);

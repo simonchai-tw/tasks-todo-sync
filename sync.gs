@@ -725,6 +725,14 @@ function createUnmappedBatch_(state, snap, startedAt) {
       }
     }
     putMapping_(state, source, gListId, destination, msListId);
+    // A fast-synced recurring task can be mapped without its [TTS-REC] marker:
+    // Graph materializes the recurrence field late, and the fingerprint
+    // re-projection above re-stamps a fresh random code whose mismatch update
+    // ('update' mode) erases even a prepare-time stamp.  Stamp now when the
+    // field is already visible; otherwise arm the bounded backfill window.
+    if (batch.direction === 'microsoft_to_google') {
+      afterMsCreateRecStamp_(state, snap, source.id, gListId, destination);
+    }
   });
   SYNC_TASK_CREATE_BATCH_PENDING_STATE_ = JSON.parse(JSON.stringify(batch));
   state.taskCreateBatch = null;

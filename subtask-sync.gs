@@ -849,6 +849,13 @@ function reconcileSubtasks_(state, snap, options) {
     !!(snap && snap.safety && snap.safety.enableSubtasks === true);
   if (!enabled) return { writes: 0, scheduled: 0, skipped: 'FEATURE_OFF' };
   var sub = subtaskEnsureNamespace_(state);
+  // D4 move-journal resume (subtask-move.gs): must run FIRST — before
+  // tombstone cleanup, the other journal recoveries, and above all before
+  // deletion observation — so a vanished old checklist id is consumed by the
+  // move and never misread as a user deletion (S6/S9).  The typeof guard
+  // mirrors the subtaskClassifyCandidate_ pattern above and keeps this file
+  // loadable before the lead wires subtask-move.gs into the runtime file set.
+  if (typeof subtaskMoveRecovery_ === 'function') subtaskMoveRecovery_(state, snap, options);
   var result = { writes: 0, creates: 0, updates: 0, conflicts: 0, quarantined: 0, deletes: 0 };
   subtaskCleanupTombstones_(state, options.now);
   subtaskRecoverCreateJournals_(state, snap, options);

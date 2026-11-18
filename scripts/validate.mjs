@@ -88,9 +88,10 @@ function claspGasAllowlist(text) {
     .map((line) => line.slice(1))
     .sort();
 }
-// 19 since 2026-10-12: task-create-recovery.gs joined the deployable set.
+// 21 since 2026-11-17: calendar-intake.gs (P2-D2) and subtask-move.gs (P2-D4)
+// joined the deployable set (19 since 2026-10-12: task-create-recovery.gs).
 const canonicalGasFiles = [...GAS_SOURCE_FILES].sort();
-assert(canonicalGasFiles.length === 19, `Expected 19 canonical .gs files, found ${canonicalGasFiles.length}`);
+assert(canonicalGasFiles.length === 21, `Expected 21 canonical .gs files, found ${canonicalGasFiles.length}`);
 assert(JSON.stringify(claspGasAllowlist(rootClaspignore)) === JSON.stringify(canonicalGasFiles),
   'Root .claspignore GAS allowlist must match canonical deployable set');
 assert(JSON.stringify(claspGasAllowlist(packagedClaspignore)) === JSON.stringify(canonicalGasFiles),

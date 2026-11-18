@@ -658,8 +658,52 @@ function timeBridgeMsRenderer_(state, snap, syncTimeZone, nowMs, authoredTimeZon
   return { patched: patched, quarantined: quarantined };
 }
 
+/* ------------------------------------------------------------------ */
 /* §3.7 Calendar renderer (SYNC_CALENDAR_PROJECTION ships ON by default since
  * the 2026-09-30 product decision; the popup reminder knob stays OFF). */
+
+/* Knob: opt-in, OFF by default ("delete calendar ⇒ clear time" is a behaviour
+ * change a deployment must ask for).  The property is parsed here so the
+ * module is self-contained, exactly like calendar-intake.gs reads its
+ * SYNC_CALENDAR_INTAKE knob; consolidating knobs into getSafetyConfig_ is a
+ * lead-only wiring step and is deliberately not assumed. */
+var DEFAULT_TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME = false;
+var TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME_PROPERTY = 'SYNC_TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME';
+
+function timeBridgeCalendarDeleteClearsTime_() {
+  var raw = '';
+  try {
+    raw = String(PropertiesService.getScriptProperties()
+      .getProperty(TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME_PROPERTY) || '').trim().toLowerCase();
+  } catch (e) {
+    return DEFAULT_TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME === true;
+  }
+  if (raw === '') return DEFAULT_TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME === true;
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  throw new Error('TIME_BRIDGE_FLAG_INVALID: ' + TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME_PROPERTY +
+    ' must be true or false.');
+}
+
+/* D2 conservative deletion (frozen report §D2, mirrored from
+ * calendar-intake.gs:314-325): a cancelled observation may be a deletion OR a
+ * cross-calendar move, so the only safe default is to stop projecting this
+ * pair — clear rec.rem.e / eFp (and rem itself when it becomes empty), touch
+ * nothing else, and let the caller return with ZERO Calendar writes and no
+ * same-round rebuild.  With SYNC_TIME_BRIDGE_CALENDAR_DELETE_CLEARS_TIME
+ * explicitly 'true', the observation additionally routes rec.td through the
+ * pendingClear path (the intake NONE shape) so the leftover Microsoft reminder
+ * is wiped next round — td.time is NOT touched in the conservative default. */
+function timeBridgeStopProjectionForCancelled_(rec) {
+  if (rec.rem) {
+    delete rec.rem.e;
+    delete rec.rem.eFp;
+    if (!Object.keys(rec.rem).length) delete rec.rem;
+  }
+  if (timeBridgeCalendarDeleteClearsTime_() && rec.td) {
+    rec.td = { date: rec.td.date, time: null, v: 1, clear: true };
+  }
+}
 
 function timeBridgeGetOrCreateCalendar_(state, syncTimeZone) {
   if (typeof CalendarApp === 'undefined') return null;
@@ -711,6 +755,12 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
     summary: title || 'Task',
     start: { dateTime: startIso, timeZone: syncTimeZone },
     end: { dateTime: endIso, timeZone: syncTimeZone },
+    // D2 ownership marker (frozen report §D2): stamped on EVERY write (insert
+    // and patch share this resource) so a future 409/foreign disambiguation
+    // has an ownership marker.  This is the event-ownership marker of the
+    // frozen D2 spec, NOT the superseded Option-A ttsOwner-as-owner task
+    // mapping mechanism (2026-11-17 ruling); nothing reads it in this task.
+    extendedProperties: { private: { ttsOwner: '1' } },
     reminders: {
       useDefault: false,
       overrides: reminderMode === 'silent' ? [] : [{ method: 'popup', minutes: 0 }]
@@ -726,9 +776,10 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
   try {
     var existing = Calendar.Events.get(calendarId, deterministicId);
     if (existing && existing.status === 'cancelled') {
-      Calendar.Events.patch(Object.assign({}, eventResource, { status: 'confirmed' }), calendarId, deterministicId);
-      confirm();
-      return true;
+      // D2 conservative deletion: STOP projecting this pair.  Zero Calendar
+      // writes, no same-round rebuild, td.time and the MS reminder untouched.
+      timeBridgeStopProjectionForCancelled_(rec);
+      return false;
     }
     if (existing && existing.status === 'confirmed') {
       Calendar.Events.patch(eventResource, calendarId, deterministicId);
@@ -744,17 +795,28 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
         return true;
       } catch (insertErr) {
         if (timeBridgeCalendarHttpStatus_(insertErr) === 409) {
-          Calendar.Events.patch(Object.assign({}, eventResource, { status: 'confirmed' }), calendarId, deterministicId);
-          confirm();
-          return true;
+          // D2 foreign-collision quarantine (frozen report §D2): something
+          // already occupies our deterministic id.  Blindly patching it
+          // confirmed would clobber a possibly foreign event (zero-data-loss
+          // violation), so: ZERO writes, quarantine the pair, and return.
+          // The release decision lives in calendar-intake.gs — the flag is
+          // set here and never cleared here.
+          rec.rem = rec.rem || {};
+          rec.rem.collisionQuarantined = true;
+          console.warn('[TimeBridge] Insert collided on the deterministic id; pair quarantined: ' +
+            timeBridgeBoundedErrorCode_(insertErr));
+          return false;
         }
         throw insertErr;
       }
     }
     if (status === 409) {
-      Calendar.Events.patch(Object.assign({}, eventResource, { status: 'confirmed' }), calendarId, deterministicId);
-      confirm();
-      return true;
+      // Same foreign-collision rule on the get path: zero writes, quarantine.
+      rec.rem = rec.rem || {};
+      rec.rem.collisionQuarantined = true;
+      console.warn('[TimeBridge] Get collided on the deterministic id; pair quarantined: ' +
+        timeBridgeBoundedErrorCode_(e));
+      return false;
     }
     throw e;
   }
@@ -792,6 +854,10 @@ function timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, s
     if (opsCount >= TIME_BRIDGE_OPS_MAX_PER_ROUND) return;
     var rec = state.g2m[gId];
     if (!rec || !rec.msId) return;
+    // P2-D2: a quarantined pair's Calendar projection is halted entirely —
+    // the engine must neither repaint nor delete the event it stopped owning
+    // (C8/C9); resumption is a deliberate operator decision, not automatic.
+    if (rec.rem && rec.rem.collisionQuarantined === true) return;
     var gTask = snap.gTasksById[gId];
     if (!gTask) return;
     var completed = gTask.status === 'completed' ||

@@ -1313,9 +1313,267 @@ function putMapping_(state, gTask, gListId, msTask, msListId) {
   // v0.8.3 (advisory C): keep the canonical time record across mapping rebuilds
   // (cross-list moves) so td.retry and td.quarantine survive the transition.
   if (previous && previous.td) rec.td = previous.td;
+  // The [TTS-REC] code is the identity that survives a Google id rotation, so
+  // it must survive a mapping rebuild for exactly the same reason as rec.rem.
+  if (previous && previous.recCode) rec.recCode = previous.recCode;
+  // The rec-stamp backfill window (rst) belongs to the same identity domain:
+  // a mapping rebuild mid-window must not silently drop the pending stamp.
+  if (previous && previous.rst !== undefined && previous.rst !== null) rec.rst = previous.rst;
   state.g2m[gTask.id] = rec;
   state.m2g[msTask.id] = gTask.id;
 }
+
+/* Rotation rebind (identity, not event-id bookkeeping).
+ *
+ * Google's daily recurrence regenerates a task under a FRESH Google id while
+ * the Microsoft counterpart keeps its id.  Nothing carried the mapping across
+ * that id change: bothRecurrenceGuard_ deliberately leaves the old mapping in
+ * place and only alerts, putMapping_ re-reads the same key, and the create
+ * batch only checks state.g2m[freshId] (never the [TTS-REC] marker).  The
+ * result was a duplicate Microsoft task for the fresh Google id, plus a second
+ * Calendar event because rec.rem.e is derived from the Google id.
+ *
+ * The fix is to re-key the EXISTING record (rec.rem / rec.td / rec.fp /
+ * rec.recCode included) onto the fresh Google id BEFORE the create batch and
+ * BEFORE any deletion observation.  rec.rem.e then travels with the record, so
+ * no second Calendar event is inserted and no duplicate Microsoft task is
+ * created.  No owner key, no detId v2, no extra Calendar property is needed.
+ *
+ * Everything here is fail-closed and memory-only: no provider or Calendar call
+ * is made, and any ambiguity leaves the old mapping exactly where it was.
+ */
+
+function rotationRecCodeFromNotes_(notes) {
+  // The marker is only ever parsed from the two leading lines, matching
+  // parseLeadingTtsHeadersUnified_.  Readers accept mixed case; the stored
+  // code is always upper-case so equality checks stay exact.
+  var lines = String(notes == null ? '' : notes).split(/\r?\n/);
+  for (var i = 0; i < Math.min(lines.length, 2); i += 1) {
+    var match = String(lines[i]).match(/^\s*\[TTS-REC:([0-9A-Fa-f]{6})\]\s*$/);
+    if (match) return match[1].toUpperCase();
+  }
+  return null;
+}
+
+function rotationTitleKey_(title) {
+  return String(title == null ? '' : title).trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function rotationRebind_(state, snap) {
+  var result = { scanned: 0, codeCaptured: 0, rebound: [], skipped: [], blocked: false, reason: null };
+  if (!state || !state.g2m || !state.m2g || !snap) {
+    result.blocked = true;
+    result.reason = 'NO_STATE_OR_SNAPSHOT';
+    return result;
+  }
+  // A disappeared id is only meaningful against a COMPLETE inventory.  This is
+  // the same gate the deletion path uses, so a partial fetch can never be
+  // mistaken for a rotation (and never for a deletion either).
+  if (!hasCompleteTaskDeletionInventory_(snap)) {
+    result.blocked = true;
+    result.reason = 'INCOMPLETE_INVENTORY';
+    return result;
+  }
+  var gTasks = snap.gTasksById || {};
+  var msTasks = snap.msTasksById || {};
+  var gListByTask = snap.gListByTask || {};
+  var gIds = Object.keys(state.g2m);
+  result.scanned = gIds.length;
+
+  // Phase 1: capture the [TTS-REC] code for pairs that are still alive.  This
+  // is the only write in this phase and it touches sync state only, never the
+  // notes themselves.  It runs every round, so a code is already on record
+  // before the day the rotation happens.
+  gIds.forEach(function(gId) {
+    var rec = state.g2m[gId];
+    var gTask = gTasks[gId];
+    if (!rec || !gTask) return;
+    var code = rotationRecCodeFromNotes_(gTask.notes);
+    if (code && rec.recCode !== code) {
+      rec.recCode = code;
+      result.codeCaptured += 1;
+    }
+  });
+
+  // Phase 2: re-key mappings whose Google id disappeared from this round's
+  // complete inventory.  Every guard below returns WITHOUT mutating state.
+  gIds.forEach(function(oldGId) {
+    var rec = state.g2m[oldGId];
+    if (!rec || gTasks[oldGId]) return;
+    function skip(reason) {
+      result.skipped.push({ gId: oldGId, reason: reason });
+    }
+    // A prepared or tombstoned deletion belongs to the deletion recovery path;
+    // rebinding here would race a remote DELETE that may already have run.
+    if (state.deletionJournal && state.deletionJournal[oldGId]) { skip('DELETION_JOURNAL_PRESENT'); return; }
+    if (state.tombstones && state.tombstones.g && state.tombstones.g[oldGId]) { skip('OLD_ID_TOMBSTONED'); return; }
+    if (state.taskMoveJournal && state.taskMoveJournal[oldGId]) { skip('MOVE_JOURNAL_PRESENT'); return; }
+    if (!rec.msId) { skip('NO_MS_ID'); return; }
+    // The reverse index must still point at this same old id; anything else
+    // means the pair is already claimed elsewhere and must not be stolen.
+    if (state.m2g[rec.msId] && state.m2g[rec.msId] !== oldGId) { skip('REVERSE_INDEX_CONFLICT'); return; }
+    var msTask = msTasks[rec.msId];
+    if (!msTask) { skip('MS_ALSO_MISSING'); return; }
+    // Same premise as bothRecurrenceGuard_: only a recurring Microsoft task
+    // regenerates its Google copy daily.
+    if (!msTaskHasRecurrence_(msTask)) { skip('NO_MS_RECURRENCE'); return; }
+    var code = rec.recCode;
+    if (!code) { skip('NO_STORED_CODE'); return; }
+    var candidates = Object.keys(gTasks).filter(function(id) {
+      if (id === oldGId || state.g2m[id]) return false;
+      if (gListByTask[id] !== rec.gListId) return false;
+      if (state.tombstones && state.tombstones.g && state.tombstones.g[id]) return false;
+      if (state.deletionJournal && state.deletionJournal[id]) return false;
+      if (state.taskMoveJournal && state.taskMoveJournal[id]) return false;
+      return rotationRecCodeFromNotes_(gTasks[id] && gTasks[id].notes) === code;
+    });
+    // Exactly one candidate or nothing happens.  Never take candidates[0] the
+    // way the alert-only guard does: a 24-bit code is a family label, not a
+    // unique key, so uniqueness is established by this filter, not assumed.
+    if (candidates.length !== 1) { skip(candidates.length ? 'AMBIGUOUS_CANDIDATES' : 'NO_CANDIDATE'); return; }
+    var newGId = candidates[0];
+    var newTitle = rotationTitleKey_(gTasks[newGId] && gTasks[newGId].title);
+    // Second, independent piece of evidence.  A mismatch only defers the
+    // rebind (the user may have edited the title this round); it deletes
+    // nothing and the next round can still succeed.
+    if (!newTitle || newTitle !== rotationTitleKey_(msTask.title)) { skip('TITLE_MISMATCH'); return; }
+
+    state.g2m[newGId] = rec;
+    delete state.g2m[oldGId];
+    state.m2g[rec.msId] = newGId;
+    // The disappearance was a rotation, not a user deletion: drop the pending
+    // candidate so the two-round confirmation cannot delete the live Microsoft
+    // task.  Prepared journals were excluded above and are never touched.
+    if (state.pendingTaskDeletions && state.pendingTaskDeletions[oldGId]) {
+      clearPendingTaskDeletion_(state, oldGId);
+    }
+    if (state.taskDeletionConflicts && state.taskDeletionConflicts[oldGId]) {
+      delete state.taskDeletionConflicts[oldGId];
+    }
+    result.rebound.push({
+      from: oldGId,
+      to: newGId,
+      msId: rec.msId,
+      code: code,
+      keptCalendarEventId: !!(rec.rem && rec.rem.e)
+    });
+    console.log('[Rotation] Rebound mapping ' + oldGId + ' -> ' + newGId +
+      ' via [TTS-REC:' + code + ']; Calendar event id preserved: ' + !!(rec.rem && rec.rem.e));
+  });
+  return result;
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Rec-stamp backfill (create-time marker lag, 2026-11-17).
+ *
+ * Microsoft Graph is eventually consistent: a JUST-created recurring task may
+ * read back WITHOUT its recurrence field (observed live: absent at 41s and
+ * 3.2min, present by 5.5min).  googlePayloadFromMs_ stamps [TTS-REC] only on
+ * the MS->Google create payload, so a fast "create then sync" pair is mapped
+ * WITHOUT the marker — and nothing re-visited it, which disarms
+ * rotationRebind_ exactly on the day the Google id rotates.  The create
+ * finalize has the same gap: its fingerprint re-projection re-stamps a fresh
+ * random code and the subsequent 'update'-mode write erases even a
+ * prepare-time stamp.
+ *
+ * The fix is a bounded tracker on the fresh mapping (rec.rst = window rounds
+ * left) plus a per-round sweep.  The sweep stamps through the engine's
+ * ordinary updateGTask_ path once the field materializes, prepends the marker
+ * on line 1 without touching user content, and gives up after the window.
+ * Pairs without rec.rst are NEVER touched: the engine does not fight a user
+ * who deliberately removed a marker from an old pair.
+ *
+ * Everything is fail-closed: the write is verified by a fresh read, an
+ * unverified write throws (the round aborts, rec.rst survives, the next round
+ * retries), and the sweep never mutates mappings.
+ * ------------------------------------------------------------------------- */
+
+var REC_STAMP_BACKFILL_ROUNDS_ = 2;
+
+/* Called right after putMapping_ for a Microsoft->Google create finalize. */
+function afterMsCreateRecStamp_(state, snap, gId, gListId, msTask) {
+  const rec = (state && state.g2m) ? state.g2m[gId] : null;
+  if (!rec) return;
+  const gTask = snap ? snap.gTasksById[gId] : null;
+  if (!gTask || googleNotesHaveTtsRecMarker_(gTask.notes)) return;
+  if (msTaskHasRecurrence_(msTask)) {
+    backfillRecMarkerOnGoogle_(state, snap, gId, gListId, msTask);
+    return;
+  }
+  // Graph lag: the recurrence field had not materialized at create time.
+  // Arm the bounded window unless a previous attempt is already tracking it
+  // (a recovery re-entry must not reset the window).
+  if (rec.rst === undefined || rec.rst === null) rec.rst = REC_STAMP_BACKFILL_ROUNDS_;
+}
+
+/* The only writer.  Precondition-checked and idempotent: false means
+ * "nothing to do" (already stamped / no recurrence / blocked surface);
+ * a thrown error means the write could not be verified. */
+function backfillRecMarkerOnGoogle_(state, snap, gId, gListId, msTask) {
+  const gTask = snap ? snap.gTasksById[gId] : null;
+  if (!gTask || !msTask) return false;
+  if (googleNotesHaveTtsRecMarker_(gTask.notes) || !msTaskHasRecurrence_(msTask)) return false;
+  // The same gates the ordinary merge applies before touching Google notes:
+  // assigned-task notes are read-only for the engine, and a notes surface
+  // whose managed-resource block state is not provably writable stays alone.
+  if (googleNotesWriteBlocked_(gTask)) return false;
+  if (!notesWriteAllowed_(parseManagedResourceBlock_(gTask.notes, undefined, undefined).status)) return false;
+  const notes = String(gTask.notes == null ? '' : gTask.notes);
+  const composed = newTtsRecMarker_() + (notes ? '\n' + notes : '');
+  updateGTask_(gListId, gId, { notes: composed });
+  const verified = getGTask_(gListId, gId);
+  if (!verified || !googleNotesHaveTtsRecMarker_(verified.notes)) {
+    throw new Error('TTS_REC_BACKFILL_UNVERIFIED');
+  }
+  snap.gTasksById[gId] = verified;
+  const rec = (state && state.g2m) ? state.g2m[gId] : null;
+  if (rec) {
+    const code = rotationRecCodeFromNotes_(verified.notes);
+    if (code) rec.recCode = code;
+    delete rec.rst;
+  }
+  return true;
+}
+
+/* Per-round sweep (runs after the create batch, before the Time Bridge).
+ * Only pairs carrying rec.rst are examined — the set is empty in steady
+ * state, so the sweep is a no-op for every pre-existing pair. */
+function backfillRecStampSweep_(state, snap, startedAt) {
+  let stamped = 0;
+  if (!state || !state.g2m || !snap) return stamped;
+  Object.keys(state.g2m).forEach(function(gId) {
+    const rec = state.g2m[gId];
+    if (!rec || rec.rst === undefined || rec.rst === null) return;
+    const gTask = snap.gTasksById[gId];
+    const msTask = rec.msId ? (snap.msTasksById[rec.msId] || null) : null;
+    // The pair is not alive in this round's inventory: the ordinary
+    // deletion/rebind paths own it now.
+    if (!gTask || !msTask) { delete rec.rst; return; }
+    // A stale mapping (the task moved lists) must never be written through.
+    if (snap.gListByTask && snap.gListByTask[gId] && snap.gListByTask[gId] !== rec.gListId) {
+      delete rec.rst; return;
+    }
+    if (googleNotesHaveTtsRecMarker_(gTask.notes)) { delete rec.rst; return; }
+    if (!msTaskHasRecurrence_(msTask)) {
+      rec.rst -= 1;
+      if (rec.rst <= 0) delete rec.rst;
+      return;
+    }
+    // The merge owns blocked surfaces; a mid-window block surrenders the
+    // window instead of looping forever.
+    if (googleNotesWriteBlocked_(gTask) ||
+        !notesWriteAllowed_(parseManagedResourceBlock_(gTask.notes, undefined, undefined).status)) {
+      delete rec.rst; return;
+    }
+    if (!remainingTimeOk_(startedAt, TASK_CREATE_BATCH_START_RESERVE_MS)) {
+      throw new Error('TIME_BUDGET_REC_STAMP');
+    }
+    if (backfillRecMarkerOnGoogle_(state, snap, gId, rec.gListId, msTask)) stamped += 1;
+  });
+  return stamped;
+}
+
 
 function deletionRoundId_(startedAt) {
   return String(startedAt === undefined ? Date.now() : startedAt);
