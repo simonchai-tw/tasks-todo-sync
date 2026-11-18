@@ -1,17 +1,13 @@
-/* Phase 2 D4: move-journal resume executor.
+/* Crash-safe move-journal resume executor.
  *
- * state.subtasks.moveJournal has been a declared ownership-reservation table
- * since v4 (state.gs moveJournal contract: fields phase/gChildId/msChecklistId/
- * nextMsChecklistId/gParentId, phases PREPARED/REMOTE_CREATED/REBIND_PERSISTED/
- * OLD_DELETE_PENDING/UNCERTAIN), but nothing ever read it back.  This module is
- * the missing consumer: it replays interrupted child moves and drives each row
- * to a terminal state (journal retired) or to UNCERTAIN (fail-closed park).
+ * state.subtasks.moveJournal reserves ownership of interrupted child moves.
+ * This module replays each row to a terminal state (journal retired) or to
+ * UNCERTAIN (fail-closed park).
  *
- * Iron rules honoured here (frozen report §D4 :169-171, supplemental rulings
- * §2 S1-S9, option-a-superseded-ruling §6 R5):
+ * Safety rules:
  *  - The caller (reconcileSubtasks_ hook) runs this BEFORE deletion
  *    observation, so a vanished old checklist id is never misread as a user
- *    deletion and the two-round confirmation can never eat a new item (S9).
+ *    deletion and two-round confirmation can never consume a new item.
  *  - UNNEST (Google child became top-level) creates the new MS top-level task
  *    with createMsTask_ stamped with TASK_CREATE_EXTENSION_NAME and a
  *    deterministic correlationId ("subtask-move:"+gChildId).  A PREPARED row
@@ -20,27 +16,22 @@
  *    The same-round snapshot's raw Google task (notes/due, [TTS-REC] header
  *    verbatim) is projected through msPayloadFromGoogle_ — never re-parsed.
  *  - REPARENT (Google child changed parent): a checklistItem POST has no
- *    idempotency primitive (providers.gs seams comment), so an ambiguous
- *    resume must never blindly repost.  Instead the PREPARED create leg is
- *    completed by exact-title correlation (2026-11-17 reparent ruling): on a
- *    COMPLETE observation of the NEW MS parent, 0 exact matches against the
- *    journal-recorded child title proves the POST never landed => safe to
+ *    idempotency primitive, so an ambiguous resume must never blindly repost.
+ *    Instead the PREPARED create leg is completed by exact-title correlation:
+ *    on a COMPLETE observation of the NEW MS parent, 0 exact matches against
+ *    the journal-recorded child title proves the POST never landed => safe to
  *    POST exactly once; >=1 match is ambiguous (our orphan vs a pre-existing
  *    user item — checklistItems carry no notes/extendedProperties, so no
  *    artifact stamp is possible) => park UNCERTAIN, never adopt, never POST,
- *    never delete.  The row must carry the journaled title (written at
- *    PREPARED write time; state.gs whitelist extension is lead-owned wiring);
- *    a row without it cannot correlate and parks UNCERTAIN as before.  A
- *    metadata-bearing child (non-empty notes OR due) is HELD with the loss
- *    list and zero remote writes (S5); a clean child completes create-then-
- *    delete from REMOTE_CREATED exactly once.
+ *    never delete.  The row must carry the journaled title; a row without it
+ *    cannot correlate and parks UNCERTAIN.  A metadata-bearing child (non-empty
+ *    notes OR due) is HELD with the loss list and zero remote writes; a clean
+ *    child completes create-then-delete from REMOTE_CREATED exactly once.
  *  - Demote is Preflight BLOCK only.  This executor implements no demotion and
  *    never writes subtask metadata into a parent's notes.
  *  - Every remote delete of the old checklist item is gated by the
- *    operator-wide deletion switch (subtaskDeletionsAllowed_), matching the
- *    2026-10-13 ruling that "allow deletions" must mean every deletion the
- *    engine can perform.  The delete itself is idempotent: a 404 on resume is
- *    the crash-safe success path.
+ *    operator-wide deletion switch (subtaskDeletionsAllowed_).  The delete is
+ *    idempotent: a 404 on resume is the crash-safe success path.
  *  - The rebind (tombstone the old checklist id + release/rebind the checklist
  *    mapping) is persisted BEFORE the old-item delete, so the deletion can
  *    never be observed while the mapping still claims the item.
@@ -48,7 +39,7 @@
  *    ownership cross-check), so the unnest finalize writes the new pairing in
  *    the SAME persist that retires the row.
  *  - UNCERTAIN rows are never consumed remotely and never dropped; they wait
- *    for observation/operator disambiguation (supplemental rulings §3).
+ *    for observation/operator disambiguation.
  */
 
 var SUBTASK_MOVE_PHASES_ = Object.freeze({
@@ -67,9 +58,8 @@ function subtaskMoveCorrelationId_(gChildId) {
   return SUBTASK_MOVE_CORRELATION_PREFIX_ + String(gChildId || '');
 }
 
-/* Strict shape gate: the frozen 5-field contract plus an OPTIONAL journaled
- * title (wiring pending: state.gs moveJournal whitelist is lead-owned).  A
- * present-but-non-string title is malformed; anything else unknown is
+/* Strict shape gate: the five base fields plus an OPTIONAL journaled title.
+ * A present-but-non-string title is malformed; anything else unknown is
  * reported as blocked and left byte-identical (fail-closed). */
 function subtaskMoveRowValid_(row) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
@@ -124,7 +114,7 @@ function subtaskMoveParkUncertain_(state, row, options, result) {
 
 /* Scan the target list for a task stamped with our deterministic create
  * correlation.  Read failure defers (zero writes); more than one match is
- * ambiguous and parks the row — never pick candidates[0] (supplemental §C1). */
+ * ambiguous and parks the row — never pick candidates[0]. */
 function subtaskMoveScanCorrelatedTask_(listId, gChildId) {
   if (typeof getMsTasks_ !== 'function') return { ok: false };
   var expected = subtaskMoveCorrelationId_(gChildId);
@@ -151,7 +141,7 @@ function subtaskMoveScanCorrelatedTask_(listId, gChildId) {
 /* UNNEST PREPARED resume: adopt the correlated orphan, or create the top-level
  * MS task exactly once.  notes/due come from the SAME-ROUND snapshot's raw
  * Google task via msPayloadFromGoogle_ — the [TTS-REC] header is carried
- * verbatim, never re-parsed or rewritten (S3). */
+ * verbatim, never re-parsed or rewritten. */
 function subtaskMoveCreateTopLevelTask_(state, snap, row, oldRec, options, result) {
   var gTask = snap && snap.gTasksById && snap.gTasksById[row.gChildId];
   if (!gTask) return subtaskMoveParkUncertain_(state, row, options, result);
@@ -178,7 +168,7 @@ function subtaskMoveCreateTopLevelTask_(state, snap, row, oldRec, options, resul
   }
   row.nextMsChecklistId = created.id;
   row.phase = SUBTASK_MOVE_PHASES_.REMOTE_CREATED;
-  /* Same-round snapshot refresh (S6): register the new task so the ordinary
+  /* Same-round snapshot refresh: register the new task so the ordinary
    * create/adoption machinery cannot double-create it later in this round.
    * The correlation scan is a fresh full read of the target list, so an
    * adopted orphan is registered on the same evidence basis (mirrors the
@@ -207,7 +197,7 @@ function subtaskMoveNewParentItems_(state, snap, kind, options, result) {
  * checklistItems carry no notes/extendedProperties (providers.gs seams
  * comment), so no artifact stamp is possible — the title is the only
  * correlation signal, and ANY match is ambiguous with a pre-existing user
- * item (supplemental §C1: never pick candidates[0]). */
+ * item, so never pick candidates[0]. */
 function subtaskMoveCountTitleMatches_(items, title) {
   var matches = 0;
   (Array.isArray(items) ? items : []).forEach(function(item) {
@@ -235,7 +225,7 @@ function subtaskMoveCountTitleMatches_(items, title) {
  * A thrown POST is an ambiguous outcome (it may have landed server-side) =>
  * park, never blind-retry.  REMOTE_CREATED is persisted (with the new id)
  * BEFORE any old-parent write, then the same-round snapshot refresh registers
- * the created item (S6) so the rebind/verify below and the ordinary M->G
+ * the created item so the rebind/verify below and the ordinary M->G
  * adoption loop see it in this round. */
 function subtaskMoveCompleteReparentCreate_(state, snap, row, oldRec, kind, options, result) {
   var title = typeof row.title === 'string' ? row.title : '';
@@ -271,7 +261,7 @@ function subtaskMoveCompleteReparentCreate_(state, snap, row, oldRec, kind, opti
   return { advanced: true };
 }
 
-/* Local rebind, persisted BEFORE any old-item delete (S9 ordering invariant):
+/* Local rebind, persisted BEFORE any old-item delete (ordering invariant):
  * tombstone the old checklist id (so its coming disappearance is never
  * misread as a user deletion and the M->G adoption loop cannot re-adopt it)
  * and release or rebind the checklist mapping.  Zero remote writes. */
@@ -398,8 +388,8 @@ function subtaskMoveHoldReparent_(state, row, result, gTask) {
 
 function subtaskMoveProcessRow_(state, snap, key, row, options, result) {
   if (row.phase === SUBTASK_MOVE_PHASES_.UNCERTAIN) {
-    /* Fail-closed park: zero POST/PATCH/DELETE, row preserved (supplemental
-     * rulings §3); resolution needs observation/operator disambiguation. */
+    /* Fail-closed park: zero POST/PATCH/DELETE, row preserved; resolution
+     * needs observation/operator disambiguation. */
     result.uncertain += 1;
     return;
   }
@@ -407,8 +397,8 @@ function subtaskMoveProcessRow_(state, snap, key, row, options, result) {
   if (kind.kind === 'DEFER') { result.deferred += 1; return; }
   if (kind.kind === 'STALE') { result.deferred += 1; return; }
   if (kind.kind === 'MISSING_CHILD') {
-    /* Never fabricate deletion evidence and never dereference the missing id
-     * (S4): park the row untouched-remotely. */
+    /* Never fabricate deletion evidence and never dereference the missing id;
+     * park the row without touching the remote provider. */
     subtaskMoveParkUncertain_(state, row, options, result);
     return;
   }
@@ -423,11 +413,10 @@ function subtaskMoveProcessRow_(state, snap, key, row, options, result) {
       var step = subtaskMoveCreateTopLevelTask_(state, snap, row, oldRec, options, result);
       if (!step.advanced) return;
     } else {
-      /* REPARENT PREPARED: metadata gate first (S5).  A clean child then
-       * completes the create leg by exact-title correlation: 0 exact matches
-       * on a COMPLETE new-parent observation proves the POST never landed, so
-       * it is re-issued exactly once; any match is ambiguous and parks
-       * fail-closed (2026-11-17 reparent ruling, supplemental §C1). */
+      /* REPARENT PREPARED: metadata gate first.  A clean child then completes
+       * the create leg by exact-title correlation: 0 exact matches on a
+       * COMPLETE new-parent observation proves the POST never landed, so it is
+       * re-issued exactly once; any match is ambiguous and parks fail-closed. */
       var gTask = snap.gTasksById && snap.gTasksById[row.gChildId];
       var notesEmpty = !gTask || gTask.notes === undefined || gTask.notes === null || String(gTask.notes) === '';
       var dueEmpty = !gTask || gTask.due === undefined || gTask.due === null || String(gTask.due) === '';
@@ -459,7 +448,7 @@ function subtaskMoveProcessRow_(state, snap, key, row, options, result) {
 
 /* Entry seam.  Called at the very front of reconcileSubtasks_, before
  * tombstone cleanup and every other journal recovery, and above all before
- * deletion observation (S9).  Returns a bounded stats record. */
+ * deletion observation.  Returns a bounded stats record. */
 function subtaskMoveRecovery_(state, snap, options) {
   options = options || {};
   var sub = subtaskEnsureNamespace_(state);

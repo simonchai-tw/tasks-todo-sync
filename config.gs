@@ -27,11 +27,9 @@ function getSafetyConfig_() {
     p.getProperty('SYNC_ALLOW_LIST_DELETIONS') || ''
   ).trim().toLowerCase();
   const allowTaskMovesRaw = String(p.getProperty('SYNC_ALLOW_TASK_MOVES') || '').trim().toLowerCase();
-  const enableSubtasksRaw = String(p.getProperty('SYNC_ENABLE_SUBTASKS') || '').trim().toLowerCase();
-  if (enableSubtasksRaw && enableSubtasksRaw !== 'true' && enableSubtasksRaw !== 'false') {
-    throw new Error('SYNC_SUBTASKS_FLAG_INVALID: SYNC_ENABLE_SUBTASKS must be true or false.');
-  }
-  const enableSubtasks = enableSubtasksRaw === 'true';
+  // Subtask support is a core engine capability: the user-facing knob was
+  // removed and the capability is hardwired on (see the safety object below).
+  // A stale SYNC_ENABLE_SUBTASKS property from an older install is inert.
   const enableNativeLinkedRaw = String(p.getProperty('SYNC_ENABLE_NATIVE_LINKED_RESOURCES') || '').trim().toLowerCase();
   if (enableNativeLinkedRaw && enableNativeLinkedRaw !== 'true' && enableNativeLinkedRaw !== 'false') {
     throw new Error('SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID: SYNC_ENABLE_NATIVE_LINKED_RESOURCES must be true or false.');
@@ -45,11 +43,8 @@ function getSafetyConfig_() {
     throw new Error('SYNC_ABSENCE_TERMINAL_FLAG_INVALID: SYNC_ENABLE_ABSENCE_TERMINAL must be true or false.');
   }
   const enableAbsenceTerminal = enableAbsenceTerminalRaw === 'true';
-  const enableTimeBridgeRaw = String(p.getProperty('SYNC_TIME_BRIDGE') || '').trim().toLowerCase();
-  if (enableTimeBridgeRaw && enableTimeBridgeRaw !== 'true' && enableTimeBridgeRaw !== 'false') {
-    throw new Error('SYNC_TIME_BRIDGE_FLAG_INVALID: SYNC_TIME_BRIDGE must be true or false.');
-  }
-  const enableTimeBridge = enableTimeBridgeRaw === '' ? DEFAULT_SYNC_TIME_BRIDGE : enableTimeBridgeRaw === 'true';
+  // Time Bridge is a core engine capability: the user-facing knob was removed
+  // and the capability is hardwired on (see the safety object below).
 
   const enableCalendarProjectionRaw = String(p.getProperty('SYNC_CALENDAR_PROJECTION') || '').trim().toLowerCase();
   if (enableCalendarProjectionRaw && enableCalendarProjectionRaw !== 'true' && enableCalendarProjectionRaw !== 'false') {
@@ -65,7 +60,7 @@ function getSafetyConfig_() {
     ? DEFAULT_SYNC_CALENDAR_PROJECTION_REMINDER
     : calendarProjectionReminderRaw === 'true';
 
-  // v1.2.0 P1-3: the notes-tail time micro-badge is opt-in.  Parsing is kept
+  // The notes-tail time micro-badge is opt-in.  Parsing is kept
   // identical to SYNC_CALENDAR_PROJECTION_REMINDER so an invalid value fails
   // closed with a bounded error code instead of silently enabling a rewrite of
   // user notes.
@@ -75,7 +70,7 @@ function getSafetyConfig_() {
   }
   const enableTimeBadge = timeBadgeRaw === '' ? DEFAULT_SYNC_TIME_BADGE : timeBadgeRaw === 'true';
 
-  // v1.2.0 P1-4: category/importance mapping is opt-in.  Parsing is identical
+  // Category/importance mapping is opt-in.  Parsing is identical
   // to the reminder/time-badge knobs so an invalid value fails closed with a
   // bounded error code instead of silently enabling Microsoft field rewrites.
   const enableCategoryImportanceRaw = String(
@@ -87,21 +82,6 @@ function getSafetyConfig_() {
   }
   const enableCategoryImportance = enableCategoryImportanceRaw === ''
     ? DEFAULT_SYNC_ENABLE_CATEGORY_IMPORTANCE : enableCategoryImportanceRaw === 'true';
-
-  // Both P3 knobs are opt-in and default OFF.  Same fail-closed parsing as the
-  // other boolean knobs: an invalid value aborts round start with a bounded
-  // error code instead of silently enabling new write paths.
-  const recurrenceAdvanceRaw = String(p.getProperty('SYNC_RECURRENCE_ADVANCE') || '').trim().toLowerCase();
-  if (recurrenceAdvanceRaw && recurrenceAdvanceRaw !== 'true' && recurrenceAdvanceRaw !== 'false') {
-    throw new Error('SYNC_RECURRENCE_ADVANCE_FLAG_INVALID: SYNC_RECURRENCE_ADVANCE must be true or false.');
-  }
-  const syncRecurrenceAdvance = recurrenceAdvanceRaw === 'true';
-
-  const notesDiff3Raw = String(p.getProperty('SYNC_NOTES_DIFF3') || '').trim().toLowerCase();
-  if (notesDiff3Raw && notesDiff3Raw !== 'true' && notesDiff3Raw !== 'false') {
-    throw new Error('SYNC_NOTES_DIFF3_FLAG_INVALID: SYNC_NOTES_DIFF3 must be true or false.');
-  }
-  const notesDiff3 = notesDiff3Raw === 'true';
 
   const discoveryMode = String(
     p.getProperty('SYNC_LIST_DISCOVERY_MODE') || DEFAULT_LIST_DISCOVERY_MODE
@@ -139,16 +119,17 @@ function getSafetyConfig_() {
     requestedListDeletions: requestedListDeletions,
     allowListDeletions: requestedListDeletions && discoveryMode === 'auto',
     allowTaskMoves: allowTaskMovesRaw === 'true' || DEFAULT_ALLOW_TASK_MOVES,
-    enableSubtasks: enableSubtasks,
+    // Core capabilities hardwired on: the user-facing knobs were removed, so
+    // no property value can disable them.  Tests isolate subsystems by passing
+    // explicit safety objects or sweep options, never by setting a property.
+    enableSubtasks: true,
     enableNativeLinkedResources: enableNativeLinkedResources,
     absenceProbe: enableAbsenceTerminal,
-    enableTimeBridge: enableTimeBridge,
+    enableTimeBridge: true,
     enableCalendarProjection: enableCalendarProjection,
     enableCalendarProjectionReminder: enableCalendarProjectionReminder,
     enableTimeBadge: enableTimeBadge,
     enableCategoryImportance: enableCategoryImportance,
-    syncRecurrenceAdvance: syncRecurrenceAdvance,
-    notesDiff3: notesDiff3,
     listDiscoveryMode: discoveryMode,
     excludedListNames: Array.from(new Set(excludedNames))
   };
@@ -156,7 +137,7 @@ function getSafetyConfig_() {
 
 function boundedSafetyConfigIssue_(error) {
   const code = String(error && error.message || error || '').match(
-    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID|SYNC_TIME_BRIDGE_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID|SYNC_TIME_BADGE_FLAG_INVALID|SYNC_CATEGORY_IMPORTANCE_FLAG_INVALID|SYNC_RECURRENCE_ADVANCE_FLAG_INVALID|SYNC_NOTES_DIFF3_FLAG_INVALID)\b/
+    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID|SYNC_TIME_BADGE_FLAG_INVALID|SYNC_CATEGORY_IMPORTANCE_FLAG_INVALID)\b/
   );
   return 'SAFETY_CONFIGURATION_INVALID:' + (code ? code[1] : 'UNCLASSIFIED');
 }

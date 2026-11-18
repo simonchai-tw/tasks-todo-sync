@@ -1,19 +1,17 @@
-/* Phase 2A.6: crash-safe, one-level Google child/checklist sync.
+/* Crash-safe, one-level Google child/checklist sync.
  *
  * This module intentionally has no relationship to ordinary task payloads.
  * Checklist writes use their own no-retry provider seams and only the shared
- * title/completion fields are projected.  The feature is opt-in at the call
- * site; journals remain ownership reservations while it is disabled.
+ * title/completion fields are projected.  Journals reserve ownership across
+ * interrupted rounds.
  */
 
 var SUBTASK_CREATE_PHASES_ = Object.freeze({ PREPARED: 'PREPARED', REMOTE_CREATED: 'REMOTE_CREATED', UNCERTAIN: 'UNCERTAIN' });
 var SUBTASK_UPDATE_PHASES_ = Object.freeze({ PREPARED: 'PREPARED', UNCERTAIN: 'UNCERTAIN' });
 var SUBTASK_DELETE_PHASES_ = Object.freeze({ PREPARED: 'PREPARED', REMOTE_DELETED: 'REMOTE_DELETED', UNCERTAIN: 'UNCERTAIN' });
 /* Deliberately conservative static per-round ceiling on checklist collection
- * reads. This is NOT the outcome of the CT-05 measurement lab: it is a safe
- * starting bound that keeps one round well inside the Apps Script time budget.
- * Spec §25 forbids presenting an unmeasured ceiling as measured, so the status
- * is reported honestly instead of claiming MEASURED. */
+ * reads. This is a safe starting bound that keeps one round well inside the
+ * Apps Script time budget; it is not presented as a measured API limit. */
 var SUBTASK_DISCOVERY_MAX_PARENTS_ = 10;
 var SUBTASK_BOUNDED_REASONS_ = Object.freeze([
   'SUBTASK_STRUCTURAL_QUARANTINE', 'SUBTASK_BASE_INVALID', 'SUBTASK_TITLE_CONFLICT',
@@ -849,10 +847,10 @@ function reconcileSubtasks_(state, snap, options) {
     !!(snap && snap.safety && snap.safety.enableSubtasks === true);
   if (!enabled) return { writes: 0, scheduled: 0, skipped: 'FEATURE_OFF' };
   var sub = subtaskEnsureNamespace_(state);
-  // D4 move-journal resume (subtask-move.gs): must run FIRST — before
+  // Move-journal resume (subtask-move.gs): must run FIRST — before
   // tombstone cleanup, the other journal recoveries, and above all before
   // deletion observation — so a vanished old checklist id is consumed by the
-  // move and never misread as a user deletion (S6/S9).  The typeof guard
+  // move and never misread as a user deletion.  The typeof guard
   // mirrors the subtaskClassifyCandidate_ pattern above and keeps this file
   // loadable before the lead wires subtask-move.gs into the runtime file set.
   if (typeof subtaskMoveRecovery_ === 'function') subtaskMoveRecovery_(state, snap, options);
@@ -936,7 +934,7 @@ function discoverSubtaskRelationships_(state, snap, startedAt, roundId, nowMs) {
       msListId: rec.msListId || (snap.msListByTask && snap.msListByTask[rec.msId]) });
   });
 
-  // v1.2.0 P1-2: prefer a single $expand=checklistItems inventory read per
+  // Prefer a single $expand=checklistItems inventory read per
   // distinct list.  A parent the expansion cannot cover falls back to the
   // original bounded per-parent direct GET; a failed expansion read discards
   // ALL expanded data and falls back wholesale (fail-soft, never surfaced).
@@ -972,7 +970,7 @@ function discoverSubtaskRelationships_(state, snap, startedAt, roundId, nowMs) {
   candidates.forEach(function(c) {
     var task = expandedByMsId ? expandedByMsId[c.msParentId] : null;
     var hasChecklistProp = !!task && Object.prototype.hasOwnProperty.call(task, 'checklistItems');
-    // A missing checklistItems property is a normal empty collection (C2).
+    // A missing checklistItems property is a normal empty collection.
     // A present-but-non-array value is malformed provider data: never treat it
     // as "no children" (that would look like a user deletion).  Fall back to
     // the authoritative per-parent read instead.

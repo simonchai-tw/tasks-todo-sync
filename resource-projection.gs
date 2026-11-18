@@ -152,7 +152,7 @@ function notesWriteAllowed_(parseStatus) {
     parseStatus === RESOURCE_BLOCK_STATUS_.REMOVED;
 }
 
-/* v1.2.0 P1-3: read the exact badge string this engine last rendered for a
+/* Read the exact badge string this engine last rendered for a
  * pair.  Returning '' (rather than undefined/null/unknown) keeps every caller
  * on one comparison path and guarantees byte-for-byte round-tripping of VS16
  * and surrogate-pair glyphs. */
@@ -161,7 +161,7 @@ function timeBadgeForRec_(rec) {
   return typeof badge === 'string' ? badge : '';
 }
 
-/* v1.2.0 P1-3: strip ONLY the value we rendered ourselves, and ONLY when the
+/* Strip ONLY the value we rendered ourselves, and ONLY when the
  * projected user-notes tail is byte-for-byte (===) equal to that value.  Never
  * a bare clock regex: a user-written "記得 🕒 15:30 開會", any 🕐–🕛 glyph,
  * or a VS16 variant (🕒️) must survive untouched.  The one separator newline
@@ -182,7 +182,7 @@ function observedManagedBlockFingerprint_(rawNotes) {
   return parsed && parsed.block ? parsed.blockFp : null;
 }
 
-/* v1.2.0 P1-3: an optional third argument carries the exact time badge.  With
+/* An optional third argument carries the exact time badge.  With
  * no badge (the default, and every legacy caller) the output is byte-for-byte
  * what it has always been.  With a badge it is appended to the END of the user
  * notes and BEFORE the managed block:
@@ -233,7 +233,7 @@ function resourceNormalizeDisplayName_(text) {
   if (cleaned.length <= RESOURCE_DISPLAY_NAME_MAX_) return cleaned;
   // Split by code point, not code unit: a naive slice can cut a surrogate
   // pair in half and write a lone surrogate into the managed block, which
-  // then fails to round-trip through JSON/Graph (0.9.9 review P2).
+  // then fails to round-trip through JSON/Graph.
   return Array.from(cleaned).slice(0, RESOURCE_DISPLAY_NAME_MAX_).join('');
 }
 
@@ -473,7 +473,7 @@ function msLinkedObservationForPair_(rec, msTask) {
 
 function planResourceProjection_(googleTask, msTask, rec, safety, userNotesGoogle, userNotesMicrosoft, msObservation) {
   var res = (rec && rec.res) || {};
-  // v1.2.0 P1-3: both sides must compose the SAME badge, otherwise a Google
+  // Both sides must compose the SAME badge, otherwise a Google
   // notes write and a Microsoft body write diverge in the same round.
   var badge = timeBadgeForRec_(rec);
   var diagnostic = [];
@@ -580,9 +580,9 @@ function planResourceProjection_(googleTask, msTask, rec, safety, userNotesGoogl
 }
 
 /* -------------------------------------------------------------------------
- * v1.2.0 P1-4 — category / importance syntax readers (pure, unit-testable).
+ * Category / importance syntax readers (pure, unit-testable).
  *
- * Syntax is deliberately narrow, per report §肆 D6 (line 191):
+ * Syntax is deliberately narrow:
  *   - title: ONLY /^(\[!\]|★)\s/  (leading marker + whitespace).  This avoids
  *     Markdown `[!NOTE]` / `[!IMPORTANT]` callouts, `★★★★★` ratings, and a
  *     `[!]` appearing mid-title.  The title TEXT is never stripped (decision 2

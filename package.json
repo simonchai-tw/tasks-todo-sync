@@ -48,6 +48,8 @@
     "relationship-discovery.gs",
     "subtask-classification.gs",
     "subtask-sync.gs",
+    "subtask-move.gs",
+    "calendar-intake.gs",
     "resource-projection.gs",
     "field-merge.gs",
     "lifecycle.gs",

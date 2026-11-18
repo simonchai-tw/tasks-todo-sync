@@ -69,7 +69,7 @@ for (const { filename, source } of gasSources) {
   }
 }
 const publicEntrypoints = topLevelFunctions.filter(([name]) => !name.endsWith('_'));
-// 60 since v1.2.0 P1-4 (2026-11-08): previewCategoryImportance and
+// 60 since v1.2.0 (2026-11-08): previewCategoryImportance and
 // applyCategoryImportanceConfirmation joined the public surface as the two-stage
 // dry-run / confirmation entrypoints for the category-importance opt-in.  All
 // of their helpers end with _ so the rest of the count is unchanged.
@@ -88,7 +88,7 @@ function claspGasAllowlist(text) {
     .map((line) => line.slice(1))
     .sort();
 }
-// 21 since 2026-11-17: calendar-intake.gs (P2-D2) and subtask-move.gs (P2-D4)
+// 21 since 2026-11-17: calendar-intake.gs and subtask-move.gs
 // joined the deployable set (19 since 2026-10-12: task-create-recovery.gs).
 const canonicalGasFiles = [...GAS_SOURCE_FILES].sort();
 assert(canonicalGasFiles.length === 21, `Expected 21 canonical .gs files, found ${canonicalGasFiles.length}`);
@@ -176,8 +176,7 @@ for (const [name, expected] of [
   ['SYNC_LIST_DISCOVERY_MODE', "'auto'"],
   ['SYNC_ALLOW_DELETIONS', "'true'"],
   ['SYNC_ALLOW_LIST_DELETIONS', "'true'"],
-  ['SYNC_ALLOW_TASK_MOVES', "'true'"],
-  ['SYNC_ENABLE_SUBTASKS', "'true'"]
+  ['SYNC_ALLOW_TASK_MOVES', "'true'"]
 ]) {
   assert(new RegExp(`${name}\\s*:\\s*${expected}(?:,\\s*)?$`, 'm').test(publicSetupDefaultsMatch[0]),
     `PUBLIC_SETUP_DEFAULTS.${name} must remain ${expected}`);

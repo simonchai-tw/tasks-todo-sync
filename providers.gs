@@ -326,10 +326,10 @@ function getMsTasks_(listId, options) {
 }
 
 /* Read a list's task inventory with checklistItems expanded inline.  Kept as a
- * separate request from getMsTasks_: combining two $expand clauses was not
- * covered by the C2 live measurement, so the ordinary inventory URL shape is
+ * separate request from getMsTasks_: combining two $expand clauses is not
+ * verified behavior for this endpoint, so the ordinary inventory URL shape is
  * left untouched.  $select is intentionally omitted because this endpoint
- * rejects it with HTTP 400. (C2, live 2026-11-07) */
+ * rejects it with HTTP 400. */
 function getMsTasksWithChecklistItems_(listId) {
   const first = MS_TODO_BASE + '/' + encodeURIComponent(listId) +
     '/tasks?$top=100&$expand=checklistItems';
@@ -404,9 +404,9 @@ function getMsChecklistItemsDirect_(listId, parentTaskId) {
 
 /* Read a Microsoft task's linkedResources through the navigation endpoint.
  * A plain task GET already carries the collection without $expand, and adding
- * $expand=linkedResources changes nothing (C5, live 2026-11-07): the parameter
- * is redundant, not silently ignored. $select remains rejected with HTTP 400
- * on this endpoint (C2, live 2026-11-07), so this dedicated collection GET
+ * $expand=linkedResources changes nothing in the live API: the parameter is
+ * redundant, not silently ignored. $select remains rejected with HTTP 400 on
+ * this endpoint, so this dedicated collection GET
  * with $top=100 stays the reference read path, separate from the
  * POST /linkedResources write path, because it returns the exact items with a
  * complete-inventory guarantee.
@@ -960,7 +960,7 @@ function msPayloadFromGoogle_(task, mode) {
   }
   payload.dueDateTime = msDue_(task.due);
   payload.status = task.status === 'completed' ? 'completed' : 'notStarted';
-  // v1.2.0 P1-4: a CREATE payload may carry a POSITIVE Google marker (there is
+  // A CREATE payload may carry a POSITIVE Google marker (there is
   // no Microsoft current value to diff).  The gate is the execution-local round
   // context; with no context (every legacy caller and existing unit test) this
   // adds NOTHING, so the exact JSON.stringify payload assertions still hold.
@@ -1008,7 +1008,7 @@ function msUpdatePayloadFromGoogle_(googleTask, microsoftTask) {
       microsoftNotesPlainTextProjection_(microsoftTask)) {
     delete payload.body;
   }
-  // v1.2.0 P1-4: compute the independent chain with the REAL Microsoft current
+  // Compute the independent chain with the REAL Microsoft current
   // value (the create builder has none), then diff-prune fields that already
   // equal it so a converged round never emits a redundant PATCH.  Gate closed
   // -> ci is {} -> not a single key is added or removed (legacy byte-for-byte).

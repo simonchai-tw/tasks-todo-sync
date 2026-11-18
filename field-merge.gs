@@ -13,12 +13,11 @@ var ORDINARY_FP_VERSION_ = 1;
 // can see what was last attempted/confirmed.  Bounded — oldest entries are
 // evicted once it reaches RESOURCE_JOURNAL_MAX_.
 var RESOURCE_JOURNAL_MAX_ = 50;
-// v1.2.0 — rec.res.journal convergence pruning (report §貳 B2, lines 120-122).
-// Pruning is only safe after a persistent, top-level convergence marker has
-// counted this many consecutive converged rounds.  BENCH-01 defines a compacted
-// journal as "one journal entry per mapping", so a pruned journal keeps exactly
-// its last entry.  The counter lives at top-level state (see state.gs), not in
-// rec.res, because field-merge.gs rebuilds rec.res mid-round.
+// Convergence pruning is only safe after a persistent, top-level convergence
+// marker has counted this many consecutive converged rounds.  A compacted
+// journal keeps exactly its last entry (one entry per mapping).  The counter
+// lives at top-level state, not in rec.res, because field-merge rebuilds
+// rec.res mid-round.
 var RESOURCE_JOURNAL_COMPACTION_MIN_ROUNDS_ = 2;
 
 function resourceJournalNow_() {
@@ -147,7 +146,7 @@ function ordinaryFingerprintHex_(canonical) {
 }
 
 function ordinaryEmptyFp_() {
-  // v1.2.0 P1-4: two independent fingerprints. null = unknown baseline
+  // two independent fingerprints. null = unknown baseline
   // (Leave Alone), NEVER a claim that Google said "normal" / "[]".
   return { v: ORDINARY_FP_VERSION_, title: null, notes: null, completed: null, due: null,
     importanceFp: null, categoriesFp: null };
@@ -178,8 +177,8 @@ function ordinaryCanonicalDueFromMicrosoft_(msTask) {
  * canonical wall clock carried by rec.td (the Time Bridge record); when the
  * bridge is off, or the record is absent, the unit is date-only exactly like
  * v0.6.x.  A caller that passes no safety object is treated as "bridge on"
- * (SYNC_TIME_BRIDGE defaults to true), which is what the legacy callers and the
- * unit tests assume. */
+ * (the bridge is hardwired on; the knob was removed), which is what the legacy
+ * callers and the unit tests assume. */
 function ordinaryTimeBridgeOn_(safety) {
   return safety === undefined || safety === null ? true : safety.enableTimeBridge !== false;
 }
@@ -225,8 +224,8 @@ function ordinaryUserNotesFromGoogle_(gTask, rec) {
   var stripped = splitTtsRecMarkerLine_(googleNotesPlainTextProjection_(parsed.canonicalUserNotes));
   return {
     ok: true,
-    // v1.2.0 P1-3: strip the badge we rendered ourselves BEFORE it reaches
-    // ordinaryFieldFp_, so rec.fp.notes never drifts and the A4 splice baseline
+    // strip the badge we rendered ourselves BEFORE it reaches
+    // ordinaryFieldFp_, so rec.fp.notes never drifts and the splice baseline
     // (ordinaryProjectGoogle_ -> ordinaryFieldFp_) picks this up for free.
     notes: stripRenderedTimeBadge_(stripped.notes, timeBadgeForRec_(rec)),
     markerLine: stripped.markerLine,
@@ -243,7 +242,7 @@ function ordinaryUserNotesFromMicrosoft_(msTask, rec) {
   }
   return {
     ok: true,
-    // v1.2.0 P1-3: same strict strip as the Google side, before the fingerprint
+    // same strict strip as the Google side, before the fingerprint
     // projection sees the notes.
     notes: stripRenderedTimeBadge_(googleNotesPlainTextProjection_(parsed.canonicalUserNotes), timeBadgeForRec_(rec)),
     status: parsed.status
@@ -312,7 +311,7 @@ function ordinaryFieldFp_(proj, field) {
  *
  * Round options (passed by the sync round caller; see ordinaryReconcileMappedPair_):
  *   {
- *     diff3Enabled: <SYNC_NOTES_DIFF3>,   // config knob, default false
+ *     diff3Enabled: true,                 // hardwired on; tests may pass false to isolate
  *     nowMs: <Date.now()>,
  *     cache: { get(key) -> string|null, put(key, value, ttlSeconds) }
  *   }
@@ -714,7 +713,7 @@ function ordinaryMicrosoftPatchFromPlan_(plan, ciFields) {
       payload.dueDateTime = msDue_(plan.toMicrosoft.due.date + 'T00:00:00.000Z');
     }
   }
-  // v1.2.0 P1-4: the independent importance/categories chain contributes ONLY
+  // the independent importance/categories chain contributes ONLY
   // these two keys.  With no ciFields (every legacy caller and existing test)
   // the payload is byte-for-byte unchanged.  These keys never enter the four
   // ORDINARY_SHARED_FIELDS_ and never produce a field conflict.
@@ -795,14 +794,14 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   var gId = gTask && gTask.id;
   ordinaryStoreFieldConflicts_(rec, plan, gId);
   var gPayload = ordinaryGooglePatchFromPlan_(plan);
-  // v1.2.0 P1-4: independent importance/categories three-way chain (decision
+  // independent importance/categories three-way chain (decision
   // 1).  It only decides whether two extra keys reach the MS PATCH payload; it
   // is deliberately NOT part of ORDINARY_SHARED_FIELDS_ and produces no field
   // conflicts.  With the round gate closed ciOutcome.fields is {} and the
   // payload stays byte-for-byte legacy.
   var ciOutcome = categoryImportanceMsDelta_(gTask, msTask, rec, CATEGORY_IMPORTANCE_ROUND_);
   var msPayload = ordinaryMicrosoftPatchFromPlan_(plan, ciOutcome.fields);
-  // v1.2.0 P1-3: the badge is composed into BOTH payloads from the same exact
+  // the badge is composed into BOTH payloads from the same exact
   // string, and it survives the "no managed block" branch via composeManagedNotes_.
   var badge = timeBadgeForRec_(rec);
 
@@ -1025,7 +1024,7 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
   var gNow = ordinaryProjectGoogle_(gAfter, rec, safety);
   var mNow = ordinaryProjectMicrosoft_(msAfter, rec, safety);
   ordinaryAdvanceFingerprints_(rec, gNow, mNow, plan);
-  // v1.2.0 P1-4: advance the two independent fingerprints only when the
+  // advance the two independent fingerprints only when the
   // Microsoft side truly reached the planned value: either no write was needed
   // (already converged) or a write succeeded.  A skipped/failed MS patch keeps
   // the unknown baseline so no later round can mistake a stale value for proof.
@@ -1043,7 +1042,7 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
     // renderer owns the write), so reading the date back off Microsoft would
     // lock in the stale pre-round value and the user's edit would never arrive
     // — the renderer would compare its target against the very value it was
-    // supposed to change.  0.9.9 review P1 (G→M deadlock).
+    // supposed to change, deadlocking the Google-to-Microsoft edit.
     var plannedDue = Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'due') ? plan.toMicrosoft.due : undefined;
     var plannedClear = Object.prototype.hasOwnProperty.call(plan.toMicrosoft, 'due') && (!plannedDue || !plannedDue.date);
     var convergedDate = (plannedDue && plannedDue.date) || (mNow.due && mNow.due.date) || (gNow.due && gNow.due.date) || null;
@@ -1096,7 +1095,7 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
 }
 
 /* -------------------------------------------------------------------------
- * v1.2.0 P1-4 — independent importance / categories three-way chain.
+ * Independent importance / categories three-way chain.
  *
  * Deliberately NOT part of ORDINARY_SHARED_FIELDS_ (construction decision 1).
  * This chain only decides whether an `importance` / `categories` key may be
@@ -1112,7 +1111,7 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
  * canonical of a Microsoft value equals the canonical of the Google marker we
  * wrote for it, `base` also IS the fingerprint of the last-written category
  * name / importance.  Comparing g and m against base therefore remembers the
- * last-written value without persisting any plaintext name (C7): a Google tag
+ * last-written value without persisting any plaintext name: a Google tag
  * that did not change can never resurrect a category the user renamed.
  *
  *   - base === null: never derive normal/[]; only a POSITIVE marker may set.

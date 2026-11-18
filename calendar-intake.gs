@@ -1,4 +1,4 @@
-/* Calendar intake valve (D2, conservative edition).
+/* Calendar intake valve (conservative edition).
  *
  * Reads the engine-owned projection calendar (the one Time Bridge creates) and
  * lets calendar-side time edits flow INTO rec.td — the reverse direction of
@@ -6,12 +6,12 @@
  * Calendar.Events: every "zero patch / insert / remove" guarantee below is
  * structural, because the module never calls a Calendar write verb at all.
  *
- * Mechanism per the 2026-11-17 ruling (Option A SUPERSEDED):
+ * Mechanism:
  *  - Ownership evidence is the reverse index built each round from state.g2m:
  *    rec.rem.e (the authoritative event id, inherited wholesale by
  *    rotationRebind_ across a Google id rotation) plus the deterministic id
- *    timeBridgeDeterministicEventId_(gId).  No ttsOwner stamp, no detId-v2
- *    salt, no persisted index.
+ *    timeBridgeDeterministicEventId_(gId).  No persisted ownership stamp,
+ *    salt, or index.
  *  - Adjudication is field-level only: the stored rec.rem.eFp must describe
  *    exactly what the CURRENT rec.td would project; a stored fingerprint that
  *    matches neither the observed event nor that baseline means the evidence
@@ -19,10 +19,9 @@
  *  - Watermark: a Calendar syncToken kept in a Script Property (never inside
  *    sync state, so the closed top-level schema whitelist stays untouched).
  *    It is written only after every page was read and every action completed.
- *  - C11 anti-revert: the merge aligns rec.td.date back to the converged due
+ *  - Anti-revert: the merge aligns rec.td.date back to the converged due
  *    (field-merge.gs:688-717), so an adopted cross-day drag advances the
- *    Google due in the same breath — the frozen spec's "由進氣閥直接同步推進
- *    Google due" branch — instead of writing a td.source marker the closed
+ *    Google due in the same breath instead of writing a td.source marker the
  *    td whitelist would reject.
  *  - Quarantine (all-day / foreign collisions) writes rec.rem.collisionQuarantined
  *    ONLY when the real state.gs validator accepts the key (capability probe);
@@ -32,11 +31,10 @@
  * All top-level declarations end with _ (no public entrypoint count change).
  */
 
-/* Knob: opt-in, OFF by default (a valve that writes user-facing task fields
- * must not switch itself on).  The property is parsed here so the module is
- * self-contained; consolidating the knob into getSafetyConfig_ is a lead-only
- * wiring step and is deliberately not assumed. */
-var DEFAULT_SYNC_CALENDAR_INTAKE = false;
+/* Knob: ON by default — one-way Calendar intake is the expected workflow and
+ * was live-verified before the default flipped.  The valve still respects an
+ * explicit user choice: setting SYNC_CALENDAR_INTAKE to 'false' turns it off. */
+var DEFAULT_SYNC_CALENDAR_INTAKE = true;
 var CALENDAR_INTAKE_ENABLED_PROPERTY = 'SYNC_CALENDAR_INTAKE';
 var CALENDAR_INTAKE_TOKEN_PROPERTY = 'SYNC_CALENDAR_INTAKE_SYNC_TOKEN';
 var CALENDAR_INTAKE_PAGE_SIZE = 250;
@@ -70,7 +68,7 @@ function calendarIntakeReadToken_() {
 }
 
 /* Writing the token IS advancing the watermark (atomic per key), so "the
- * watermark advanced" and "the persist succeeded" are the same event (C7). */
+ * watermark advanced" and "the persist succeeded" are the same event. */
 function calendarIntakeWriteToken_(token) {
   PropertiesService.getScriptProperties()
     .setProperty(CALENDAR_INTAKE_TOKEN_PROPERTY, String(token));
@@ -198,11 +196,11 @@ function calendarIntakeQuarantine_(rec) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Quarantine release sweep (D2: sticky-while-colliding)               */
+/* Quarantine release sweep (sticky-while-colliding)                    */
 /* ------------------------------------------------------------------ */
 
 /* RELEASE is state-only: the flag is deleted (and an emptied rec.rem is
- * deleted with it — the same shape rule the C3 path uses), and the sweep
+ * deleted with it — the same shape rule the conservative-deletion path uses), and the sweep
  * NEVER writes to Calendar.  After release the ordinary outbound ensure /
  * intake flow re-manages the pair on its own schedule. */
 function calendarIntakeReleaseOne_(rec, result) {
@@ -215,31 +213,31 @@ function calendarIntakeReleaseOne_(rec, result) {
  * Re-runs the SAME evidence predicates adjudication uses
  * (calendarIntakeAdjudicateEvent_): RELEASE only when the slot is provably
  * ours again —
- *   - 'cancelled': the source is gone; the intake C3 path cleans the
+ *   - 'cancelled': the source is gone; the conservative-deletion path cleans the
  *     projection next round, so releasing the flag is safe;
- *   - C1 echo: the observed fingerprint equals the stored rec.rem.eFp (the
+ *   - echo: the observed fingerprint equals the stored rec.rem.eFp (the
  *     user reverted the slot to exactly what this engine last rendered);
- *   - not foreign per C9: the title matches ours OR the start matches the
+ *   - not foreign: the title matches ours OR the start matches the
  *     current td projection, AND the chain that lets adjudication act is
  *     intact (a usable td baseline and an etag).
- * Everything else STAYS quarantined (fail-closed): all-day (C8), foreign
- * (C9), no stored fingerprint, stale td baseline, missing etag.  A fingerprint
+ * Everything else STAYS quarantined (fail-closed): all-day, foreign
+ * events, no stored fingerprint, stale td baseline, missing etag.  A fingerprint
  * that mismatches the stored echo without that intact chain can never prove
  * the collision is gone, so it can never release. */
 function calendarIntakeQuarantineCleared_(rec, gTask, ev, syncTimeZone, reminderMode) {
   if (!ev || typeof ev !== 'object') return false;
   if (ev.status === 'cancelled') return true;
   if (ev.status !== 'confirmed') return false;
-  // C8: an all-day event still occupies the pair's slot.
+  // An all-day event still occupies the pair's slot.
   if (!ev.start || !ev.start.dateTime) return false;
 
   var storedFp = rec.rem && rec.rem.eFp;
   var startRaw = String(ev.start.dateTime);
   var endRaw = ev.end && ev.end.dateTime ? String(ev.end.dateTime) : '';
   var observedFp = timeBridgeEventFingerprint_(ev.summary, startRaw, endRaw, reminderMode);
-  if (storedFp && observedFp === storedFp) return true; // C1 echo
+  if (storedFp && observedFp === storedFp) return true; // echo of our own write
 
-  // The chain below is exactly adjudication's: baseline → etag → C9.
+  // The chain below mirrors adjudication: baseline → etag → foreign check.
   var expected = calendarIntakeExpectedProjection_(rec, gTask, syncTimeZone, reminderMode);
   if (!expected || !storedFp) return false;             // no usable baseline
   if (storedFp !== expected.fingerprint) return false;  // stale td baseline
@@ -247,11 +245,11 @@ function calendarIntakeQuarantineCleared_(rec, gTask, ev, syncTimeZone, reminder
   var evTitle = String(ev.summary == null ? '' : ev.summary).trim() || 'Task';
   var taskTitle = String(gTask.title == null ? '' : gTask.title).trim() || 'Task';
   var startMatches = !isNaN(Date.parse(startRaw)) && Date.parse(startRaw) === expected.startMs;
-  if (evTitle !== taskTitle && !startMatches) return false; // C9 foreign persists
+  if (evTitle !== taskTitle && !startMatches) return false; // foreign event persists
   return true;
 }
 
-/* Re-evaluates every quarantined pair, every round (the 2026-11-17 D2 ruling:
+/* Re-evaluates every quarantined pair, every round (sticky-while-colliding:
  * quarantine is sticky-WHILE-colliding, not sticky-forever — nothing pauses
  * the time-bridge renderers for a pair whose collision has vanished).
  *
@@ -326,7 +324,7 @@ function calendarIntakeReleaseQuarantines_(state, snap, calendarId) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Pagination + watermark (C5/C6/C7)                                   */
+/* Pagination + watermark                                               */
 /* ------------------------------------------------------------------ */
 
 /* Reads every page.  Any page failure throws BEFORE any state mutation has
@@ -360,7 +358,7 @@ function calendarIntakeListEvents_(calendarId, storedToken) {
     } catch (e) {
       if (token && !pageToken && fullRescans === 0 &&
           timeBridgeCalendarHttpStatus_(e) === 410) {
-        // C5: the token is dead.  Clear it FIRST, then re-scan in full; the
+        // An invalid token is dead.  Clear it FIRST, then re-scan in full; the
         // replacement token only lands after the whole scan succeeded.
         token = null;
         fullRescans += 1;
@@ -384,12 +382,12 @@ function calendarIntakeListEvents_(calendarId, storedToken) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Adoption (C11 anti-revert branch)                                   */
+/* Adoption (anti-revert branch)                                        */
 /* ------------------------------------------------------------------ */
 
 /* Applies the calendar wall clock to rec.td and, for a date change, advances
  * the Google due so the merge sees a genuine Google-side edit instead of
- * reverting the drag (C11).  Per-pair fail-closed: any failure rolls the pair
+ * reverting the drag.  Per-pair fail-closed: any failure rolls the pair
  * back to its previous td and writes nothing. */
 function calendarIntakeAdopt_(state, snap, rec, gId, gTask, wall, dateChanged, result) {
   var previousTd = rec.td;
@@ -441,7 +439,7 @@ function calendarIntakeAdjudicateEvent_(state, snap, ev, index, syncTimeZone, re
   }
 
   if (ev.status === 'cancelled') {
-    // C3 (conservative deletion): stop projecting this pair and nothing else.
+    // Conservative deletion: stop projecting this pair and nothing else.
     // td.time and the MS reminder stay; zero Calendar writes; no same-round
     // rebuild (the valve runs after the Calendar renderer in the round).
     if (rec.rem) {
@@ -453,7 +451,7 @@ function calendarIntakeAdjudicateEvent_(state, snap, ev, index, syncTimeZone, re
     return;
   }
 
-  // C8: an all-day event cannot carry an engine time.  Occupying a pair's
+  // An all-day event cannot carry an engine time.  Occupying a pair's
   // slot is a collision, never an intake signal.
   if (!ev.start || !ev.start.dateTime) {
     result.quarantined.push({
@@ -474,7 +472,7 @@ function calendarIntakeAdjudicateEvent_(state, snap, ev, index, syncTimeZone, re
   var observedFp = timeBridgeEventFingerprint_(ev.summary, startRaw, endRaw, reminderMode);
   var storedFp = rec.rem && rec.rem.eFp;
 
-  // C1: the event is byte-for-byte what this engine last rendered.
+  // Echo: the event is byte-for-byte what this engine last rendered.
   if (storedFp && storedFp === observedFp) {
     result.echoSkipped += 1;
     return;
@@ -497,7 +495,7 @@ function calendarIntakeAdjudicateEvent_(state, snap, ev, index, syncTimeZone, re
     return;
   }
 
-  // C2: an etag is the minimum change evidence; without one a deviating start
+  // An etag is the minimum change evidence; without one a deviating start
   // is never adopted.
   if (!ev.etag) {
     result.failClosed += 1;
@@ -508,7 +506,7 @@ function calendarIntakeAdjudicateEvent_(state, snap, ev, index, syncTimeZone, re
   var taskTitle = String(gTask.title == null ? '' : gTask.title).trim() || 'Task';
   var startMatches = !isNaN(Date.parse(startRaw)) && Date.parse(startRaw) === expected.startMs;
 
-  // C9: neither the title nor the start matches what we last wrote —
+  // Foreign event: neither the title nor the start matches what we last wrote —
   // ownership of the event cannot be established.  Quarantine, zero writes.
   if (evTitle !== taskTitle && !startMatches) {
     result.quarantined.push({
@@ -545,7 +543,7 @@ function calendarIntakeAdjudicateEvent_(state, snap, ev, index, syncTimeZone, re
     if (!m) { result.failClosed += 1; return; }
     wall = { date: m[1], time: m[2] };
   }
-  // C10: a wall time inside a spring gap does not exist in the zone — reject.
+  // A wall time inside a spring gap does not exist in the zone — reject.
   if (!wall || !wall.date || !wall.time ||
       !calendarIntakeWallIsRealizable_(wall.date, wall.time, evTimeZone)) {
     result.rejected += 1;
@@ -578,7 +576,7 @@ function calendarIntakeRun_(state, snap, startedAt) {
   };
 
   var safety = getSafetyConfig_();
-  if (!safety.enableTimeBridge || !safety.enableCalendarProjection) return result;
+  if (!safety.enableCalendarProjection) return result;
 
   result.enabled = calendarIntakeEnabled_();
   if (!result.enabled) return result;
@@ -608,7 +606,7 @@ function calendarIntakeRun_(state, snap, startedAt) {
   var reminderMode = safety.enableCalendarProjectionReminder === false ? 'silent' : 'default';
 
   // Pure read phase.  Everything below runs only after ALL pages succeeded;
-  // a failure here throws with zero state mutations and no token write (C6).
+  // a failure here throws with zero state mutations and no token write.
   var listing = calendarIntakeListEvents_(calendarId, calendarIntakeReadToken_());
   result.pagesFetched = listing.pagesFetched;
   result.fullRescans = listing.fullRescans;
@@ -625,7 +623,7 @@ function calendarIntakeRun_(state, snap, startedAt) {
     }
   }
 
-  // Watermark LAST (C7): the token is written only after every page was read
+  // Watermark LAST: the token is written only after every page was read
   // and every adoption completed.  The write is atomic — it either lands
   // (advanced) or throws (not advanced), never half-way.
   if (listing.nextSyncToken) {

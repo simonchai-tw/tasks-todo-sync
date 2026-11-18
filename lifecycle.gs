@@ -3248,7 +3248,7 @@ function recurrenceAdvanceSweep_(state, snap, options) {
       ? recurrenceModelASignature_(msTask, gTask) : null;
     // Completed echo instances are held out of the create batch regardless of
     // the signature: the provider can roll the due several grid dates at once
-    // or backwards (measured live 2026-11-18; PROBE-01 controls), so a hold
+    // or backwards (verified against the live API), so a hold
     // that only armed on an actionable signature would let the completed echo
     // instance leak into the create batch as a duplicate task.
     var histIds = (msTask && msTask.status !== 'completed')
@@ -3508,8 +3508,8 @@ function recurrenceCanonicalMsDue_(msTask) {
 
 /* Bounded reachability: whether targetDate sits on the series grid reachable
  * from fromDate.  The provider's rollover is grid-anchored on its side and is
- * known to skip grid dates or move backwards (PROBE-01 controls; measured
- * live 2026-11-18), so this check only asserts that the observed due is a
+ * known to skip grid dates or move backwards (verified against the live
+ * API), so this check only asserts that the observed due is a
  * real grid date of the series -- never that it is exactly one step ahead.
  * A backwards target is unreachable by construction and stays with the
  * ordinary field merge, which follows the provider value directly. */
@@ -3533,9 +3533,8 @@ function recurrenceGridReachable_(recurrence, fromDate, targetDate) {
 /* Model 1 signature: the mapped task is live again with a due that sits on a
  * grid date other than the Google copy.  The rollover value is grid-anchored
  * on the provider side -- neither the due sent at creation nor one sent in the
- * completion PATCH affects it, it can skip grid dates (measured live:
- * 2026-11-19 rolled to 2026-11-21) and it can move backwards (PROBE-01
- * controls).  Predicting the next due from the current due is therefore
+ * completion PATCH affects it, it can skip grid dates and it can move
+ * backwards.  Predicting the next due from the current due is therefore
  * wrong by construction; the signature only requires that the observed due is
  * a reachable grid date, and the write copies the provider value verbatim.
  * Anything else is an ordinary edit and belongs to the field merge. */

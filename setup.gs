@@ -121,7 +121,7 @@ function boundedWizardErrorText_(error) {
   return text.slice(0, 200);
 }
 
-// P1 (advisory review): the wizard must display health from a real, traceable
+// The wizard must display health from a real, traceable
 // check result — never inferred from trigger existence. The outcome of the last
 // real check (finalize's dry-run + healthCheck) is persisted here; a missing or
 // unreadable record means "not yet verified", never "healthy".

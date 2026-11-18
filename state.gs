@@ -1813,7 +1813,7 @@ function assertSubtaskOwnershipRecordShapes_(subtasks) {
 function assertOrdinaryFingerprint_(fp, label) {
   if (fp === undefined) return;
   if (!isStateObject_(fp)) throw new Error('STATE_MALFORMED: ' + label + '.fp must be an object; overwrite refused.');
-  // v1.2.0 P1-4: importanceFp / categoriesFp are independent three-way
+  // importanceFp / categoriesFp are independent three-way
   // fingerprints (null = unknown baseline, never "normal"/[]).  They are
   // bookkept in the same rec.fp object but NEVER enter ORDINARY_SHARED_FIELDS_,
   // so they cannot produce field conflicts or change the legacy merge chain.
@@ -1840,10 +1840,10 @@ function assertTimeBridgeMappingRem_(rem, label) {
   // project time-zone / DST offset shift apart from a genuine user edit).
   // The v0.7.5 ownership keys (ms / hasTime / markerOrphaned) stay accepted on
   // the load path so an upgrading installation can rebuild rec.td and drop them.
-  // v1.2.0 P1-3: lastRenderedBadge is the exact string this engine last rendered
+  // lastRenderedBadge is the exact string this engine last rendered
   // at the tail of the user notes; it is compared with === before stripping, so
   // it must round-trip byte-for-byte (VS16 and surrogate pairs included).
-  // v1.3.0 P2-D2: collisionQuarantined is set by calendar-intake when a
+  // collisionQuarantined is set by calendar-intake when a
   // foreign/all-day event collision halts the pair's Calendar projection; the
   // renderer honours the halt for as long as the flag is set.
   assertKnownObjectKeys_(rem, ['e', 'eFp', 'ms', 'msAt', 'hasTime', 'markerOrphaned', 'collisionQuarantined', 'lastRenderedBadge'], label, 'STATE_MALFORMED');
@@ -1868,7 +1868,7 @@ function assertTimeBridgeMappingRem_(rem, label) {
   if (rem.collisionQuarantined !== undefined && rem.collisionQuarantined !== null && typeof rem.collisionQuarantined !== 'boolean') {
     throw new Error('STATE_MALFORMED: ' + label + '.collisionQuarantined must be boolean or null/undefined; overwrite refused.');
   }
-  // v1.2.0 P1-3: the badge is an opaque exact-match string.  No shape or
+  // The badge is an opaque exact-match string.  No shape or
   // character restriction is applied: it must be able to carry a VS16 selector
   // (\uFE0F) and astral/surrogate-pair clock glyphs without being rejected.
   if (rem.lastRenderedBadge !== undefined && rem.lastRenderedBadge !== null &&

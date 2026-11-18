@@ -308,7 +308,7 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
     }
     try {
       ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, snap.safety, {
-        diff3Enabled: snap.safety && snap.safety.notesDiff3 === true,
+        diff3Enabled: true,
         nowMs: startedAt,
         cache: notesUserCacheAdapter_()
       });

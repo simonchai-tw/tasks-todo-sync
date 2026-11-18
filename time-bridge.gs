@@ -445,11 +445,11 @@ function timeBridgeSpliceRenderer_(state, snap, syncTimeZone, nowMs) {
         // reread reports a phantom user edit against the stale string.
         gTask.notes = finalNotes;
         if (rec.fp && typeof rec.fp === 'object') {
-          // A4 / BUG-V1-02: the merge baseline is ordinaryFieldFp_(gProj,'notes')
-          // — the user notes AFTER the managed resource block and the [TTS-REC]
-          // header have been stripped (field-merge.gs:126-144, :188-200).
-          // Hashing the raw finalNotes made the next one-sided notes edit look
-          // like a two-sided change, i.e. a phantom TRUE_FIELD_CONFLICT.
+          // The merge baseline is ordinaryFieldFp_(gProj,'notes') — the user
+          // notes AFTER the managed resource block and the [TTS-REC] header
+          // have been stripped.  Hashing the raw finalNotes instead would make
+          // the next one-sided notes edit look like a two-sided change, i.e. a
+          // phantom TRUE_FIELD_CONFLICT.
           // Only the notes projection is used here, so safety is deliberately
           // omitted; ordinaryProjectGoogle_ treats that as "bridge on".
           var gProj = ordinaryProjectGoogle_(gTask, rec, null);
@@ -685,8 +685,8 @@ function timeBridgeCalendarDeleteClearsTime_() {
     ' must be true or false.');
 }
 
-/* D2 conservative deletion (frozen report §D2, mirrored from
- * calendar-intake.gs:314-325): a cancelled observation may be a deletion OR a
+/* Conservative deletion of a cancelled calendar observation (mirrors the
+ * calendar-intake rule): a cancelled observation may be a deletion OR a
  * cross-calendar move, so the only safe default is to stop projecting this
  * pair — clear rec.rem.e / eFp (and rem itself when it becomes empty), touch
  * nothing else, and let the caller return with ZERO Calendar writes and no
@@ -742,7 +742,7 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
   var fingerprintSlot = rec.rem && rec.rem.eFp;
 
   // A fingerprint hit is a pure in-memory comparison: zero Calendar.Events
-  // calls, so it must not consume the per-round ops budget (BUG-V1-04).
+  // calls, so it must not consume the per-round ops budget.
   if (rec.rem && rec.rem.e === deterministicId && fingerprintSlot === targetFp) return false;
 
   // Charge exactly once here — after the miss and BEFORE the first network
@@ -755,11 +755,9 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
     summary: title || 'Task',
     start: { dateTime: startIso, timeZone: syncTimeZone },
     end: { dateTime: endIso, timeZone: syncTimeZone },
-    // D2 ownership marker (frozen report §D2): stamped on EVERY write (insert
-    // and patch share this resource) so a future 409/foreign disambiguation
-    // has an ownership marker.  This is the event-ownership marker of the
-    // frozen D2 spec, NOT the superseded Option-A ttsOwner-as-owner task
-    // mapping mechanism (2026-11-17 ruling); nothing reads it in this task.
+    // Ownership marker stamped on EVERY write (insert and patch share this
+    // resource) so a future 409/foreign disambiguation has evidence.
+    // Nothing reads it in this task.
     extendedProperties: { private: { ttsOwner: '1' } },
     reminders: {
       useDefault: false,
@@ -776,7 +774,7 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
   try {
     var existing = Calendar.Events.get(calendarId, deterministicId);
     if (existing && existing.status === 'cancelled') {
-      // D2 conservative deletion: STOP projecting this pair.  Zero Calendar
+      // Conservative deletion: STOP projecting this pair.  Zero Calendar
       // writes, no same-round rebuild, td.time and the MS reminder untouched.
       timeBridgeStopProjectionForCancelled_(rec);
       return false;
@@ -795,7 +793,7 @@ function timeBridgeProjectCalendarEvent_(calendarId, pairId, title, startIso, en
         return true;
       } catch (insertErr) {
         if (timeBridgeCalendarHttpStatus_(insertErr) === 409) {
-          // D2 foreign-collision quarantine (frozen report §D2): something
+          // Foreign-collision quarantine: something
           // already occupies our deterministic id.  Blindly patching it
           // confirmed would clobber a possibly foreign event (zero-data-loss
           // violation), so: ZERO writes, quarantine the pair, and return.
@@ -854,9 +852,9 @@ function timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, s
     if (opsCount >= TIME_BRIDGE_OPS_MAX_PER_ROUND) return;
     var rec = state.g2m[gId];
     if (!rec || !rec.msId) return;
-    // P2-D2: a quarantined pair's Calendar projection is halted entirely —
-    // the engine must neither repaint nor delete the event it stopped owning
-    // (C8/C9); resumption is a deliberate operator decision, not automatic.
+    // A quarantined pair's Calendar projection is halted entirely —
+    // the engine must neither repaint nor delete the event it stopped owning;
+    // resumption is a deliberate operator decision, not automatic.
     if (rec.rem && rec.rem.collisionQuarantined === true) return;
     var gTask = snap.gTasksById[gId];
     if (!gTask) return;
@@ -888,7 +886,7 @@ function timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, s
       var endIso = new Date(startMs + TIME_BRIDGE_EVENT_DURATION_MINUTES * 60 * 1000).toISOString();
       // The ops budget counts attempted Calendar.Events work only, never
       // in-memory fingerprint examinations — otherwise already-projected
-      // pairs would starve the pairs late in the key order (BUG-V1-04).
+      // pairs would starve the pairs late in the key order.
       // The projection function charges once itself, right after a miss.
       if (timeBridgeProjectCalendarEvent_(calendarId, gId, gTask.title, startIso, endIso,
         syncTimeZone, rec, reminderMode, function() { opsCount += 1; })) {
@@ -990,7 +988,7 @@ function timeBridgeNotifyQuarantine_(entries) {
 
 /* §3.8 Orchestrator. */
 
-/* v1.2.0 P1-3: notes-tail time micro-badge renderer.  Invoked from
+/* Notes-tail time micro-badge renderer.  Invoked from
  * timeBridgeRun_ ONLY when the SYNC_TIME_BADGE knob is on (and the bridge is
  * on), for pairs carrying rec.td.time.  It rewrites BOTH provider sides so the
  * exact badge "🕒 HH:mm" sits at the END of the user notes and BEFORE the
@@ -1089,24 +1087,13 @@ function timeBridgeRun_(state, snap, startedAt, roundId) {
   var authoredTimeZone = timeBridgeAuthoredTimeZone_(syncTimeZone);
   var summary = { migrated: null, intaken: 0, spliced: 0, msPatched: 0, quarantined: [] };
 
-  if (!safety.enableTimeBridge) {
-    // Knob OFF: no intake, no renderers, and no legacy-record migration.  A
-    // disabled feature must not rewrite state either — the migration used to
-    // run before this check, rebuilding rec.td and deleting legacy rem keys
-    // on deployments that had turned the bridge off (advisory review
-    // 2026-10-13, §3.15).  It waits here until the knob is on.  `due` stays
-    // fully owned by the merge and the time component is ignored there, so
-    // nothing has to be released here.
-    return summary;
-  }
-
   summary.migrated = timeBridgeMigrateLegacyRem_(state, snap, syncTimeZone, authoredTimeZone);
 
   summary.intaken = timeBridgeIntake_(state, snap, syncTimeZone, nowMs, authoredTimeZone);
   if (!remainingTimeOk_(startedAt, 30000)) return summary;
   summary.spliced = timeBridgeSpliceRenderer_(state, snap, syncTimeZone, nowMs);
   if (!remainingTimeOk_(startedAt, 30000)) return summary;
-  // v1.2.0 P1-3: opt-in, OFF by default.  Stripping in the fingerprint
+  // Opt-in, OFF by default.  Stripping in the fingerprint
   // projection is knob-independent, but rendering/rewriting notes and storing
   // lastRenderedBadge only happen here, when the knob is explicitly on.
   if (safety.enableTimeBadge) {
@@ -1123,7 +1110,6 @@ function timeBridgeRunRenderersAfterMerge_(state, snap, startedAt, roundId) {
   var syncTimeZone = syncTimeZone_();
   var nowMs = Date.now();
   var summary = { calendarProjected: 0, calendarDeleted: 0, quarantined: [] };
-  if (!safety.enableTimeBridge) return summary;
 
   var calResult = timeBridgeCalendarRenderer_(state, snap, syncTimeZone, nowMs, safety, startedAt);
   summary.calendarProjected = calResult.projected;

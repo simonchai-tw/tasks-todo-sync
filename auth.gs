@@ -398,8 +398,7 @@ function pollPersonalMicrosoftAuth_() {
   let mode;
   try {
     // Inside the try: a throw here must still run the finally that releases
-    // the user lock, or every later poll deadlocks on the orphaned lock
-    // (0.9.9 review P2).
+    // the user lock, or every later poll deadlocks on the orphaned lock.
     mode = resolveMicrosoftAuthMode_();
     properties = PropertiesService.getUserProperties();
     const raw = properties.getProperty(MS_PERSONAL_DEVICE_SESSION_KEY_);

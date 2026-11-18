@@ -115,8 +115,8 @@ function smallUnmappedHarness(direction) {
   return h;
 }
 
-test('VM dense 1x600 pagination and steady no-op mapping', () => { const h = harness({ listCount: 1, tasksPerList: 600 }); h.context.syncAll(); assert.equal(h.provider.gPages, 6); assert.equal(h.provider.msPages, 6); assert.equal(h.provider.gWrites + h.provider.msWrites, 0); assertIntegrity(h); });
-test('VM sparse 60x10 pagination and inventory', () => { const h = harness({ listCount: 60, tasksPerList: 10 }); h.context.syncAll(); assert.equal(h.provider.gPages, 60); assert.equal(h.provider.msPages, 60); assert.equal(h.provider.gListPages, 1); assert.equal(h.provider.msListPages, 1); assertIntegrity(h); });
+test('VM dense 1x600 pagination and steady no-op mapping', () => { const h = harness({ listCount: 1, tasksPerList: 600 }); h.context.syncAll(); assert.equal(h.provider.gPages, 6); assert.equal(h.provider.msPages, 12); /* +6: a second paginated $expand=checklistItems inventory pass for this list */ assert.equal(h.provider.gWrites + h.provider.msWrites, 0); assertIntegrity(h); });
+test('VM sparse 60x10 pagination and inventory', () => { const h = harness({ listCount: 60, tasksPerList: 10 }); h.context.syncAll(); assert.equal(h.provider.gPages, 60); assert.equal(h.provider.msPages, 120); /* +60: checklist expansion read per list */ assert.equal(h.provider.gListPages, 1); assert.equal(h.provider.msListPages, 1); assertIntegrity(h); });
 test('VM 600-pair field merge writes one-side titles and freezes both-sides conflicts', () => {
   const h = harness({ listCount: 1, tasksPerList: 600 });
   h.context.syncAll();
