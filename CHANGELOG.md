@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 Historical entries below describe each release at the time it shipped, including defaults that later changed. For current installation behavior, use the [README](README.md), [Quick start](docs/quick-start.md), [Deployment guide](docs/deployment.md), and [current audit](docs/audit.md). Fresh `v0.8.0` projects use automatic list discovery with task deletion, list deletion, and cross-list task moves enabled; subtask synchronization (`SYNC_ENABLE_SUBTASKS`) and Google Calendar projection (`SYNC_CALENDAR_PROJECTION`) are opt-in; Time Bridge (due time and reminder synchronization) is enabled.
 
+## 1.5.0-rc.2 — 2026-11-19
+
+The second release candidate for 1.5.0. It fixes a false "incomplete clasp credentials" warning shown by the desktop Dashboard on machines where the sync engine is already correctly authenticated, and refreshes two server dependencies. No new OAuth scope and no re-authorization are required.
+
+### Dashboard credential detection fix
+
+The Dashboard's `status` view could report "The clasp credentials are incomplete" even when `clasp login` had succeeded. The credential reader now accepts all current clasp credential layouts — the modern multi-account store, the legacy per-project fields, and the legacy global token — and still fails closed without any network access when a store is genuinely incomplete. Genuinely incomplete setups continue to show setup guidance instead of a silent failure.
+
+### Dependency refresh
+
+Two local-server dependencies were refreshed: `hono` to 4.13.18 and `@hono/node-server` to 2.1.8. No behavior change is expected; the full test suite passes unchanged.
+
+### Verification
+
+- `npm test`: 732/732 passing (the Dashboard credential reader adds 5 tests: modern store, legacy local, legacy global, precedence, and fail-closed behavior).
+- `npm run check` (static validation + package dry-run), `npm run docs:check` (732/732, v1.5.0-rc.2) and `git diff --check`: clean.
+- Version `1.5.0-rc.2` is consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge, this changelog and the companion project (`Version`, `FileVersion`, `AssemblyVersion`).
+
 ## 1.5.0-rc.1 — 2026-11-18
 
 The first release candidate for 1.5.0. It promotes verified scheduling and collaboration features to core engine behavior, fixes due-date fingerprinting for tasks that start without a due date, and removes four developmental feature switches. No new OAuth scope and no re-authorization are required.
