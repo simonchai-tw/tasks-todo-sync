@@ -26,9 +26,8 @@ Fresh-project values are:
 | `SYNC_ALLOW_DELETIONS` | `true` |
 | `SYNC_ALLOW_LIST_DELETIONS` | `true` |
 | `SYNC_ALLOW_TASK_MOVES` | `true` |
-| `SYNC_ENABLE_SUBTASKS` | `true` |
 
-Subtask and checklist synchronization is enabled by default for fresh wizard installs since v0.8.1 (the runtime fallback when the property is absent remains off). Set it to `false` before the first run to keep task hierarchies untouched.
+Subtask and checklist synchronization is a core engine capability; it cannot be disabled. The former `SYNC_ENABLE_SUBTASKS` property is ignored if it remains from an older installation.
 
 `initializeSafeDefaults()` fills missing values and preserves explicit existing values. If the published package cannot be resolved, use the [manual Apps Script fallback](#manual-apps-script-fallback).
 
@@ -144,9 +143,11 @@ Time Bridge includes three fail-closed configuration properties in **Project Set
 
 | Key | Default | Description |
 | --- | :---: | --- |
-| `SYNC_TIME_BRIDGE` | `true` | Master switch for Time Bridge processing. Set to `false` to disable all time and reminder synchronization; `due` then syncs as a date only and nothing is frozen. |
+| `SYNC_CALENDAR_INTAKE` | `true` | When `true` (default), a time edit made on the engine's projected Google Calendar event is read back into the task and its Microsoft counterpart. Set to `false` to keep Calendar projection strictly one-way. |
 | `SYNC_CALENDAR_PROJECTION` | `true` | When `true` (default), timed tasks are projected to the secondary `Tasks-ToDo-Sync` Google Calendar. When `false`, Microsoft To Do due times and reminders still synchronize; no calendar events are written, and existing events are left alone. |
 | `SYNC_CALENDAR_PROJECTION_REMINDER` | `false` | When `true`, projected events also carry a popup reminder, so a task can ring from both Microsoft To Do and Google Calendar. The default (`false`) keeps the projected event visible but silent — the Microsoft-side alarm is the only one. Changing it re-converges existing events one by one. |
+
+Time Bridge itself is a core engine capability; the former `SYNC_TIME_BRIDGE` master switch is gone and a stale property is ignored if present.
 
 ### iPhone / Apple Reminders users
 

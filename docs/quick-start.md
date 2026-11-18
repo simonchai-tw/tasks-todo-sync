@@ -25,7 +25,7 @@ SYNC_ALLOW_LIST_DELETIONS=true
 SYNC_ALLOW_TASK_MOVES=true
 ```
 
-Existing explicit Script Properties are preserved. Subtask and checklist synchronization is enabled by default (set `SYNC_ENABLE_SUBTASKS=false` to opt out). With Time Bridge enabled (default), task due times and Microsoft To Do reminders synchronize bidirectionally; the dedicated Google Calendar projection is opt-in via `SYNC_CALENDAR_PROJECTION=true`. See the [deployment guide](deployment.md#time-bridge-due-times-reminders-and-calendar-projection).
+Existing explicit Script Properties are preserved. Subtask and checklist synchronization, Time Bridge due-time/reminder synchronization, recurrence advancement, and notes merge are core capabilities and are always on. Calendar-backed due intake is on by default (set `SYNC_CALENDAR_INTAKE=false` to keep projection one-way). The dedicated Google Calendar projection is on by default (set `SYNC_CALENDAR_PROJECTION=false` to disable it). See the [deployment guide](deployment.md#time-bridge-due-times-reminders-and-calendar-projection).
 
 Upgrading an existing installation? Complete one fresh Microsoft authorization after updating (the scope set gains `MailboxSettings.Read`); see [Reauthorize Personal mode](deployment.md#reauthorize-personal-mode).
 
