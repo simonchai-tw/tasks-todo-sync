@@ -21,6 +21,7 @@ Two local-server dependencies were refreshed: `hono` to 4.13.18 and `@hono/node-
 - `npm test`: 732/732 passing (the Dashboard credential reader adds 5 tests: modern store, legacy local, legacy global, precedence, and fail-closed behavior).
 - `npm run check` (static validation + package dry-run), `npm run docs:check` (732/732, v1.5.0-rc.2) and `git diff --check`: clean.
 - Version `1.5.0-rc.2` is consistent across `package.json`, `package-lock.json`, `docs/reliability.json`, the website badge, this changelog and the companion project (`Version`, `FileVersion`, `AssemblyVersion`).
+- Windows installer: `Tasks-ToDo-Sync-Setup.exe` (58.4 MB, `ProductVersion 1.5.0-rc.2`, SHA-256 `2bb02836bef295335af915d48a4a0a4717be1fa66edf83e485396f977ae5763c`). The `v1.5.0-rc.2` release carries exactly four assets — the installer, `RELEASES-win-x64`, `releases.win-x64.json` and `TasksToDoSync-1.5.0-rc.2-win-x64-full.nupkg` — and both indexes reference only that full package.
 
 ## 1.5.0-rc.1 — 2026-11-18
 
