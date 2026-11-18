@@ -1059,6 +1059,20 @@ function syncAll() {
       // task.  Running before reconcileMapped_ also means a rotation is never
       // observed as a user deletion.  The step is memory-only and fail-closed.
       rotationRebind_(state, snap);
+      // Recurrence advancement sweep (opt-in, default off): advances the
+      // Google copy of a Microsoft-native recurring series after a completion
+      // is observed.  Must run AFTER rotationRebind_ (re-keyed records are
+      // seen under their new Google id) and BEFORE the create batch below so
+      // the per-round create-hold set is armed before candidates are
+      // computed.  Inert unless SYNC_RECURRENCE_ADVANCE is enabled.
+      if (typeof recurrenceAdvanceSweep_ === 'function') {
+        recurrenceAdvanceSweep_(state, snap, {
+          advanceEnabled: safetyAtStart.syncRecurrenceAdvance === true,
+          nowMs: Date.now(),
+          syncTimeZone: syncTimeZone_(),
+          roundId: roundId
+        });
+      }
       if (safetyAtStart.enableSubtasks && typeof discoverSubtaskRelationships_ === 'function') {
         discoverSubtaskRelationships_(state, snap, startedAt, roundId, Date.now());
         // SYNC_ALLOW_DELETIONS is the operator-wide delete switch and subtask

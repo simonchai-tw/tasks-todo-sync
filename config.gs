@@ -88,6 +88,21 @@ function getSafetyConfig_() {
   const enableCategoryImportance = enableCategoryImportanceRaw === ''
     ? DEFAULT_SYNC_ENABLE_CATEGORY_IMPORTANCE : enableCategoryImportanceRaw === 'true';
 
+  // Both P3 knobs are opt-in and default OFF.  Same fail-closed parsing as the
+  // other boolean knobs: an invalid value aborts round start with a bounded
+  // error code instead of silently enabling new write paths.
+  const recurrenceAdvanceRaw = String(p.getProperty('SYNC_RECURRENCE_ADVANCE') || '').trim().toLowerCase();
+  if (recurrenceAdvanceRaw && recurrenceAdvanceRaw !== 'true' && recurrenceAdvanceRaw !== 'false') {
+    throw new Error('SYNC_RECURRENCE_ADVANCE_FLAG_INVALID: SYNC_RECURRENCE_ADVANCE must be true or false.');
+  }
+  const syncRecurrenceAdvance = recurrenceAdvanceRaw === 'true';
+
+  const notesDiff3Raw = String(p.getProperty('SYNC_NOTES_DIFF3') || '').trim().toLowerCase();
+  if (notesDiff3Raw && notesDiff3Raw !== 'true' && notesDiff3Raw !== 'false') {
+    throw new Error('SYNC_NOTES_DIFF3_FLAG_INVALID: SYNC_NOTES_DIFF3 must be true or false.');
+  }
+  const notesDiff3 = notesDiff3Raw === 'true';
+
   const discoveryMode = String(
     p.getProperty('SYNC_LIST_DISCOVERY_MODE') || DEFAULT_LIST_DISCOVERY_MODE
   ).trim().toLowerCase();
@@ -132,6 +147,8 @@ function getSafetyConfig_() {
     enableCalendarProjectionReminder: enableCalendarProjectionReminder,
     enableTimeBadge: enableTimeBadge,
     enableCategoryImportance: enableCategoryImportance,
+    syncRecurrenceAdvance: syncRecurrenceAdvance,
+    notesDiff3: notesDiff3,
     listDiscoveryMode: discoveryMode,
     excludedListNames: Array.from(new Set(excludedNames))
   };
@@ -139,7 +156,7 @@ function getSafetyConfig_() {
 
 function boundedSafetyConfigIssue_(error) {
   const code = String(error && error.message || error || '').match(
-    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID|SYNC_TIME_BRIDGE_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID|SYNC_TIME_BADGE_FLAG_INVALID|SYNC_CATEGORY_IMPORTANCE_FLAG_INVALID)\b/
+    /\b(SYNC_DISCOVERY_MODE_INVALID|SYNC_SAFETY_CONFIG_INVALID|SYNC_SUBTASKS_FLAG_INVALID|SYNC_NATIVE_LINKED_RESOURCES_FLAG_INVALID|SYNC_ABSENCE_TERMINAL_FLAG_INVALID|SYNC_TIME_BRIDGE_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_FLAG_INVALID|SYNC_CALENDAR_PROJECTION_REMINDER_FLAG_INVALID|SYNC_TIME_BADGE_FLAG_INVALID|SYNC_CATEGORY_IMPORTANCE_FLAG_INVALID|SYNC_RECURRENCE_ADVANCE_FLAG_INVALID|SYNC_NOTES_DIFF3_FLAG_INVALID)\b/
   );
   return 'SAFETY_CONFIGURATION_INVALID:' + (code ? code[1] : 'UNCLASSIFIED');
 }

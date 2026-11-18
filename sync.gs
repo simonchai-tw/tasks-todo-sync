@@ -1,3 +1,29 @@
+/* Notes Diff3 baseline cache adapter (opt-in, default off).  Wraps
+ * CacheService.getUserCache() in the { get, put } shape the merge gate
+ * expects.  Outside the GAS runtime (node --test) CacheService is undefined:
+ * a no-op adapter keeps the merge on its permanent-miss fail-closed path
+ * without crashing the test harness. */
+function notesUserCacheAdapter_() {
+  if (typeof CacheService === 'undefined' ||
+      !CacheService || typeof CacheService.getUserCache !== 'function') {
+    return { get: function() { return null; }, put: function() {} };
+  }
+  try {
+    const cache = CacheService.getUserCache();
+    return {
+      get: function(key) {
+        const v = cache.get(String(key));
+        return v === undefined ? null : v;
+      },
+      put: function(key, value, ttlSeconds) {
+        cache.put(String(key), String(value), Number(ttlSeconds) || 21600);
+      }
+    };
+  } catch (e) {
+    return { get: function() { return null; }, put: function() {} };
+  }
+}
+
 /* A provider rejection of one pair's write must not abort the rest of the
  * round, and it must never be read as evidence: no fingerprint advance, no
  * deletion candidate, no counterpart creation, no compensating delete, no
@@ -281,7 +307,11 @@ function reconcileMapped_(state, snap, startedAt, roundId, progress) {
       clearTaskDeletionConflict_(state, gId);
     }
     try {
-      ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, snap.safety);
+      ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, snap.safety, {
+        diff3Enabled: snap.safety && snap.safety.notesDiff3 === true,
+        nowMs: startedAt,
+        cache: notesUserCacheAdapter_()
+      });
     } catch (e) {
       // A pair-scoped provider rejection is contained here; every other failure
       // keeps aborting the round so the existing fail-closed paths stay intact.
@@ -425,6 +455,7 @@ function taskCreateBatchCandidates_(state, snap) {
     }
   });
   Object.keys(snap.msTasksById || {}).sort().forEach(function(msId) {
+    if (RECURRENCE_ADVANCE_CREATE_HOLDS_ && RECURRENCE_ADVANCE_CREATE_HOLDS_[msId]) return;
     if (state.m2g[msId] || state.tombstones.m[msId] || hasDeletionJournalForMsTask_(state, msId) || hasMoveJournalForMsTask_(state, msId) || subtaskReservations.reservedMicrosoftIds[msId]) return;
     const msListId = snap.msListByTask[msId];
     const gListId = Object.keys(state.listMap).find(function(id) {
@@ -766,6 +797,14 @@ var RESOURCE_OBSERVATION_RESERVE_MS_ = 30000;
 /* Per-round observation snapshot: msId -> observation object (see
  * currentResourceObservation_).  Null between rounds / outside reconcile. */
 var _resourceObservationSnapshot_ = null;
+
+/* Per-round create-batch hold set for recurrence advancement: msId -> true.
+ * Armed by recurrenceAdvanceSweep_ (lifecycle.gs) when the feature knob is on,
+ * holding completed history instances of mapped recurring series out of the
+ * create batch so a finished occurrence never becomes a duplicate Google task.
+ * Always null when the knob is off, which leaves the filter below inert and
+ * ordinary create behavior byte-identical. */
+var RECURRENCE_ADVANCE_CREATE_HOLDS_ = null;
 
 /* Return this round's observation for the given mapping record, or undefined
  * when the pair was not observed this round (no msTask, budget exhausted, time

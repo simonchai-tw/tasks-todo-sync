@@ -2047,9 +2047,17 @@ function assertOrdinaryMappingExtras_(state) {
   Object.keys((state && state.g2m) || {}).forEach(function(gId) {
     const rec = state.g2m[gId];
     if (!rec || typeof rec !== 'object') return;
-    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem', 'td', 'recCode', 'rst'],
+    assertKnownObjectKeys_(rec, ['msId', 'gListId', 'msListId', 'gUpdated', 'msUpdated', 'fp', 'res', 'fc', 'rem', 'td', 'recCode', 'rst', 'nfp'],
       'g2m[' + gId + ']', 'STATE_MALFORMED');
     assertOrdinaryFingerprint_(rec.fp, 'g2m[' + gId + ']');
+    if (rec.nfp !== undefined) {
+      // Notes Diff3 baseline fingerprint (32-hex, same digest domain as the
+      // field fingerprints).  Absent = no mergeable baseline recorded; the
+      // merge gate falls back to the whole-column conflict path.
+      if (typeof rec.nfp !== 'string' || !/^[0-9a-f]{32}$/.test(rec.nfp)) {
+        throw new Error('STATE_MALFORMED: g2m[' + gId + '].nfp is invalid; overwrite refused.');
+      }
+    }
     if (rec.rst !== undefined) {
       // Rec-stamp backfill window: remaining rounds, positive integer only.
       // Null is refused (unlike recCode): the engine never writes null and
@@ -2120,6 +2128,67 @@ function assertBootstrapState_(bootstrap) {
   }
 }
 
+function assertRecurrenceAdvancementState_(table) {
+  if (!isStateObject_(table)) throw new Error('STATE_MALFORMED: recurrenceAdvancement must be an object; overwrite refused.');
+  assertKnownObjectKeys_(table, ['waits', 'conflicts'], 'recurrenceAdvancement', 'STATE_MALFORMED');
+  const isoOrNull = function(v, label) {
+    if (v === null) return;
+    if (typeof v !== 'string' || isNaN(Date.parse(v))) {
+      throw new Error('STATE_MALFORMED: ' + label + ' must be an ISO string or null; overwrite refused.');
+    }
+  };
+  Object.keys(table.waits || {}).forEach(function(gId) {
+    const w = table.waits[gId];
+    if (!isStateObject_(w)) throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(w, ['phase', 'reason', 'openedAt', 'lastRoundId', 'roundsWaited', 'expectedDue', 'pendingBind', 'closedAt'],
+      'recurrenceAdvancement.waits[' + gId + ']', 'STATE_MALFORMED');
+    if (['WAIT_EVIDENCE', 'WAIT_PERSIST_CONFIRM', 'CLOSED'].indexOf(w.phase) < 0) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].phase is invalid; overwrite refused.');
+    }
+    if (typeof w.reason !== 'string' || !w.reason) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].reason is invalid; overwrite refused.');
+    }
+    isoOrNull(w.openedAt, 'recurrenceAdvancement.waits[' + gId + '].openedAt');
+    if (w.lastRoundId !== null && typeof w.lastRoundId !== 'string') {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].lastRoundId must be a string or null; overwrite refused.');
+    }
+    if (!Number.isInteger(w.roundsWaited) || w.roundsWaited < 0) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].roundsWaited must be a non-negative integer; overwrite refused.');
+    }
+    if (w.expectedDue !== null && (typeof w.expectedDue !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(w.expectedDue))) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].expectedDue must be YYYY-MM-DD or null; overwrite refused.');
+    }
+    if (w.pendingBind !== null && (!isStateObject_(w.pendingBind) || typeof w.pendingBind.msId !== 'string' || !w.pendingBind.msId)) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.waits[' + gId + '].pendingBind must be {msId} or null; overwrite refused.');
+    }
+    isoOrNull(w.closedAt, 'recurrenceAdvancement.waits[' + gId + '].closedAt');
+  });
+  Object.keys(table.conflicts || {}).forEach(function(gId) {
+    const c = table.conflicts[gId];
+    if (!isStateObject_(c)) throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '] must be an object; overwrite refused.');
+    assertKnownObjectKeys_(c, ['at', 'kind', 'reason', 'roundsWaited', 'candidateCount', 'msId', 'gListId', 'msListId'],
+      'recurrenceAdvancement.conflicts[' + gId + ']', 'STATE_MALFORMED');
+    if (['RECURRENCE_ADVANCE_TIMEOUT', 'RECURRENCE_ADVANCE_AMBIGUOUS'].indexOf(c.kind) < 0) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].kind is invalid; overwrite refused.');
+    }
+    isoOrNull(c.at, 'recurrenceAdvancement.conflicts[' + gId + '].at');
+    if (typeof c.reason !== 'string' || !c.reason) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].reason is invalid; overwrite refused.');
+    }
+    if (c.roundsWaited !== undefined && (!Number.isInteger(c.roundsWaited) || c.roundsWaited < 0)) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].roundsWaited must be a non-negative integer; overwrite refused.');
+    }
+    if (c.candidateCount !== undefined && (!Number.isInteger(c.candidateCount) || c.candidateCount < 0)) {
+      throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].candidateCount must be a non-negative integer; overwrite refused.');
+    }
+    ['msId', 'gListId', 'msListId'].forEach(function(k) {
+      if (typeof c[k] !== 'string' || !c[k]) {
+        throw new Error('STATE_MALFORMED: recurrenceAdvancement.conflicts[' + gId + '].' + k + ' is invalid; overwrite refused.');
+      }
+    });
+  });
+}
+
 function assertStrictSchema4StateShape_(state) {
   if (!state || state.schema !== 4) return;
   const allowedTopLevel = [
@@ -2133,7 +2202,7 @@ function assertStrictSchema4StateShape_(state) {
     'retiredPairs', 'absenceHolds', 'listCreateGuards', 'mutationJournal', 'resourceObservationCursor',
     'resourceJournalConvergedRounds',
     'timeBridgeJournal', 'deadLetterJournal', 'pendingEventDeletions', 'deadLetterEventDeletions',
-    'calendarProjection', 'bootstrap'
+    'calendarProjection', 'bootstrap', 'recurrenceAdvancement'
   ];
   assertKnownObjectKeys_(state, allowedTopLevel.concat(schema4OptionalTopLevel), 'schema=4 state', 'STATE_MALFORMED');
   allowedTopLevel.forEach(function(field) {
@@ -2159,6 +2228,7 @@ function assertStrictSchema4StateShape_(state) {
   if (state.deadLetterEventDeletions) assertDeadLetterEventDeletionsTable_(state.deadLetterEventDeletions);
   if (state.calendarProjection) assertCalendarProjection_(state.calendarProjection);
   if (state.bootstrap) assertBootstrapState_(state.bootstrap);
+  if (state.recurrenceAdvancement) assertRecurrenceAdvancementState_(state.recurrenceAdvancement);
   const legacy = cloneStateForValidation_(state);
   delete legacy.subtasks;
   delete legacy.timeBridgeJournal;
@@ -2167,6 +2237,7 @@ function assertStrictSchema4StateShape_(state) {
   delete legacy.deadLetterEventDeletions;
   delete legacy.calendarProjection;
   delete legacy.bootstrap;
+  delete legacy.recurrenceAdvancement;
   legacy.schema = 3;
   Object.keys(legacy.g2m || {}).forEach(function(gId) {
     const rec = legacy.g2m[gId];
@@ -2178,6 +2249,7 @@ function assertStrictSchema4StateShape_(state) {
     delete rec.td;
     delete rec.recCode;
     delete rec.rst;
+    delete rec.nfp;
   });
   assertStrictSchema3StateShape_(legacy, 'STATE_MALFORMED');
   assertOrdinaryMappingExtras_(state);
@@ -2331,6 +2403,7 @@ function normalizeState_(state) {
       if (rec.td) extra.td = rec.td;
       if (rec.recCode) extra.recCode = rec.recCode;
       if (rec.rst !== undefined) extra.rst = rec.rst;
+      if (rec.nfp) extra.nfp = rec.nfp;
       if (Object.keys(extra).length) mappingExtras[gId] = extra;
     });
     const legacy = cloneStateForValidation_(source);
@@ -2343,6 +2416,7 @@ function normalizeState_(state) {
     delete legacy.deadLetterEventDeletions;
     delete legacy.calendarProjection;
     delete legacy.bootstrap;
+    delete legacy.recurrenceAdvancement;
     legacy.schema = 3;
     Object.keys(legacy.g2m || {}).forEach(function(gId) {
       const rec = legacy.g2m[gId];
@@ -2354,6 +2428,7 @@ function normalizeState_(state) {
       delete rec.td;
       delete rec.recCode;
       delete rec.rst;
+      delete rec.nfp;
     });
     const normalizedLegacy = normalizeStateV3_(legacy);
     canonical = source;
@@ -2369,6 +2444,7 @@ function normalizeState_(state) {
       if (mappingExtras[gId].td) canonical.g2m[gId].td = mappingExtras[gId].td;
       if (mappingExtras[gId].recCode) canonical.g2m[gId].recCode = mappingExtras[gId].recCode;
       if (mappingExtras[gId].rst !== undefined) canonical.g2m[gId].rst = mappingExtras[gId].rst;
+      if (mappingExtras[gId].nfp) canonical.g2m[gId].nfp = mappingExtras[gId].nfp;
     });
   } else {
     // bootstrap is a v4-only table.  Strip it before the strict legacy

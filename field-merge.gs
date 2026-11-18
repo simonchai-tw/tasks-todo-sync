@@ -191,16 +191,23 @@ function ordinaryDueUnitFromGoogle_(gTask, rec, safety) {
 }
 
 function ordinaryDueUnitFromMicrosoft_(msTask, rec, safety) {
-  if (!msTask || !Object.prototype.hasOwnProperty.call(msTask, 'dueDateTime')) return null;
-  if (msTask.dueDateTime === null || msTask.dueDateTime === undefined || msTask.dueDateTime === '') return null;
-  var wall = timeBridgeMsDueWallClock_(msTask.dueDateTime, timeBridgeAuthoredTimeZone_(syncTimeZone_()));
-  if (!wall) return undefined;
   // The time component belongs to rec.td (the Microsoft renderer adopts a
   // hand-set Microsoft time into it), never to the merge.  If the merge read the
   // provider's own time here, a newly created pair — Google carrying the time,
   // Microsoft still date-only — would look like a bootstrap conflict and the
   // time would never reach Microsoft at all.
   var time = (ordinaryTimeBridgeOn_(safety) && rec && rec.td && rec.td.time) ? rec.td.time : null;
+  // 2026-11-18 due bootstrap fix: "no due" must fingerprint identically on both
+  // sides.  ordinaryFieldFp_ hashes Google's always-an-object unit as
+  // String(value.date || '') = '' while a null here hashed as the literal
+  // "null" (the v0.5.0 split inside ordinaryFingerprintHex_), so rec.fp.due
+  // could never seed and a due added later on either side never synced —
+  // silently, every round.  The unit shape is now symmetric with
+  // ordinaryDueUnitFromGoogle_: { date: null, time }.
+  if (!msTask || !Object.prototype.hasOwnProperty.call(msTask, 'dueDateTime')) return { date: null, time: time };
+  if (msTask.dueDateTime === null || msTask.dueDateTime === undefined || msTask.dueDateTime === '') return { date: null, time: time };
+  var wall = timeBridgeMsDueWallClock_(msTask.dueDateTime, timeBridgeAuthoredTimeZone_(syncTimeZone_()));
+  if (!wall) return undefined;
   return { date: wall.date, time: time };
 }
 
@@ -286,7 +293,307 @@ function ordinaryFieldFp_(proj, field) {
   return ordinaryFingerprintHex_(value == null ? '' : value);
 }
 
-function ordinaryMergeMappedFields_(baselineFp, googleProjection, microsoftProjection, rec) {
+/* -------------------------------------------------------------------------
+ * Line-level three-way merge for the user-notes column.
+ *
+ * Gate: the merge runs only inside the existing whole-column notes gate —
+ * both projections must have parsed cleanly (notesWriteAllowed_(status) and a
+ * non-null canonicalUserNotes on both sides) AND both sides must have diverged
+ * from the known baseline. Every other state stays on the legacy whole-column
+ * skip (NOTES_UNMERGEABLE) or conflict path. Falling back to the raw
+ * userNotes full text is forbidden.
+ *
+ * Baseline storage: the normalized baseline text is NEVER persisted in the
+ * sync state. The mapping carries only a 32-hex fingerprint of the normalized
+ * baseline (rec.nfp); the <=1,000-char text itself lives in the user cache
+ * through the cache adapter injected with the round options. A missing
+ * adapter, a cache miss, a fingerprint mismatch, or an overlong baseline all
+ * degrade to the legacy whole-column conflict path (fail-closed).
+ *
+ * Round options (passed by the sync round caller; see ordinaryReconcileMappedPair_):
+ *   {
+ *     diff3Enabled: <SYNC_NOTES_DIFF3>,   // config knob, default false
+ *     nowMs: <Date.now()>,
+ *     cache: { get(key) -> string|null, put(key, value, ttlSeconds) }
+ *   }
+ * With diff3Enabled !== true (or no options at all) every path below is dead
+ * code and the merge behaves byte-for-byte like the legacy field merge.
+ * ---------------------------------------------------------------------- */
+var NOTES_DIFF3_CACHE_KEY_PREFIX_ = 'tts-notes-base-v1:';
+var NOTES_DIFF3_CACHE_TTL_SECONDS_ = 21600;
+var NOTES_DIFF3_MAX_BASE_CHARS_ = 1000;
+var NOTES_DIFF3_MAX_LINES_ = 600;
+
+function notesDiff3RoundOptions_(options, gTask) {
+  if (!options || options.diff3Enabled !== true) return null;
+  return {
+    diff3Enabled: true,
+    nowMs: typeof options.nowMs === 'number' ? options.nowMs : Date.now(),
+    cache: options.cache || null,
+    cacheKey: NOTES_DIFF3_CACHE_KEY_PREFIX_ + String((gTask && gTask.id) || ''),
+    ttlSeconds: NOTES_DIFF3_CACHE_TTL_SECONDS_,
+    outcome: { merged: false }
+  };
+}
+
+/* Cache adapter failures must never break a round: any throw degrades to a
+ * cache miss, which degrades to the legacy whole-column conflict path. */
+function notesDiff3CacheGet_(options) {
+  if (!options || !options.cache || typeof options.cache.get !== 'function') return null;
+  try {
+    var value = options.cache.get(options.cacheKey);
+    return typeof value === 'string' ? value : null;
+  } catch (ignored) {
+    return null;
+  }
+}
+
+function notesDiff3CachePut_(options, text) {
+  if (!options || !options.cache || typeof options.cache.put !== 'function') return false;
+  try {
+    options.cache.put(options.cacheKey, text, options.ttlSeconds);
+    return true;
+  } catch (ignored) {
+    return false;
+  }
+}
+
+function notesDiff3Fingerprint_(text) {
+  try {
+    return ordinaryFingerprintHex_(String(text == null ? '' : text));
+  } catch (ignored) {
+    return null;
+  }
+}
+
+/* Idempotent re-normalization of cached baseline text: the baseline was born
+ * normalized (managed block, recurrence marker and time badge stripped, plain
+ * text projection), so this is a defensive no-op for honest cache content and
+ * a guard against drifted content. */
+function notesDiff3Normalize_(text) {
+  return googleNotesPlainTextProjection_(text);
+}
+
+/* Resolve the three-way merge for one notes conflict. Returns
+ * { ok: true, merged } on a clean merge or { ok: false } to fall back to the
+ * legacy whole-column conflict. */
+function notesDiff3Resolve_(rec, googleNotes, microsoftNotes, options) {
+  var out = { ok: false, merged: null };
+  if (!options || options.diff3Enabled !== true) return out;
+  var nfp = rec && rec.nfp;
+  if (typeof nfp !== 'string' || !/^[0-9a-f]{32}$/.test(nfp)) return out;
+  var base = rec && rec.fp && typeof rec.fp.notes === 'string' ? rec.fp.notes : null;
+  // The merge baseline must agree with the cached text: the fingerprint in the
+  // mapping is the fingerprint of the cached baseline, nothing else.
+  if (base !== nfp) return out;
+  var cached = notesDiff3CacheGet_(options);
+  if (cached === null) return out;
+  var baseline = notesDiff3Normalize_(cached);
+  var fp = notesDiff3Fingerprint_(baseline);
+  if (fp === null || fp !== nfp) return out;
+  if (baseline.length > NOTES_DIFF3_MAX_BASE_CHARS_) return out;
+  var merged = notesDiff3MergeText_(baseline, googleNotes, microsoftNotes);
+  if (merged === null) return out;
+  out.ok = true;
+  out.merged = merged;
+  return out;
+}
+
+/* Defense-in-depth before any notes write: re-parse the FINAL composed text
+ * and refuse anything the managed-block parser cannot own — a duplicate block
+ * separator or a malformed/ambiguous block layout means the write would stack
+ * separators, so the notes write is blocked for that side. */
+function notesDiff3WriteSafe_(composedText) {
+  var lf = resourceToLf_(composedText);
+  var lines = lf.split('\n');
+  var begins = 0;
+  var i;
+  for (i = 0; i < lines.length; i += 1) {
+    if (lines[i] === RESOURCE_BLOCK_BEGIN_) begins += 1;
+  }
+  if (begins > 1) return false;
+  var parsed = parseManagedResourceBlock_(lf, null, null);
+  if (parsed.status === RESOURCE_BLOCK_STATUS_.MALFORMED ||
+      parsed.status === RESOURCE_BLOCK_STATUS_.AMBIGUOUS) return false;
+  return true;
+}
+
+/* Refresh the baseline after a round the pair converged on: fingerprint into
+ * the mapping, text into the user cache. An overlong normalized baseline (or a
+ * failing cache write) clears the fingerprint so later rounds fail closed. */
+function notesDiff3RefreshBaseline_(rec, gNow, mNow, options) {
+  if (!options || options.diff3Enabled !== true) return;
+  if (!gNow.notesOk || !mNow.notesOk || gNow.notes === null || mNow.notes === null ||
+      gNow.notes !== mNow.notes) return;
+  var text = notesDiff3Normalize_(gNow.notes);
+  var fp = (typeof text === 'string' && text.length <= NOTES_DIFF3_MAX_BASE_CHARS_)
+    ? notesDiff3Fingerprint_(text) : null;
+  if (fp === null || !notesDiff3CachePut_(options, text)) {
+    delete rec.nfp;
+    return;
+  }
+  rec.nfp = fp;
+}
+
+/* --- line diff core ------------------------------------------------------ */
+
+/* matches[i] = index in `b` matched to a[i] by the LCS, or -1. Greedy forward
+ * walk over the classic DP table; matching equal heads is always optimal. */
+function notesDiff3LcsMatches_(a, b) {
+  var n = a.length;
+  var mLen = b.length;
+  var stride = mLen + 1;
+  var dp = new Array((n + 1) * stride);
+  dp.fill(0);
+  var i, j;
+  for (i = n - 1; i >= 0; i -= 1) {
+    for (j = mLen - 1; j >= 0; j -= 1) {
+      dp[i * stride + j] = a[i] === b[j]
+        ? dp[(i + 1) * stride + j + 1] + 1
+        : Math.max(dp[(i + 1) * stride + j], dp[i * stride + j + 1]);
+    }
+  }
+  var matches = new Array(n);
+  for (i = 0; i < n; i += 1) matches[i] = -1;
+  i = 0;
+  j = 0;
+  while (i < n && j < mLen) {
+    if (a[i] === b[j]) {
+      matches[i] = j;
+      i += 1;
+      j += 1;
+    } else if (dp[(i + 1) * stride + j] >= dp[i * stride + j + 1]) {
+      i += 1;
+    } else {
+      j += 1;
+    }
+  }
+  return matches;
+}
+
+/* Changed hunks between consecutive LCS matches. An insertion has
+ * bStart === bEnd, a deletion has oStart === oEnd. Hunks from one side are
+ * non-overlapping and non-touching by construction. */
+function notesDiff3Hunks_(base, side, matches) {
+  var pairs = [];
+  var i;
+  for (i = 0; i < base.length; i += 1) {
+    if (matches[i] !== -1) pairs.push([i, matches[i]]);
+  }
+  var hunks = [];
+  var bi = 0;
+  var sj = 0;
+  for (var k = 0; k <= pairs.length; k += 1) {
+    var pi = k < pairs.length ? pairs[k][0] : base.length;
+    var pj = k < pairs.length ? pairs[k][1] : side.length;
+    if (bi !== pi || sj !== pj) hunks.push({ bStart: bi, bEnd: pi, oStart: sj, oEnd: pj });
+    if (k < pairs.length) {
+      bi = pi + 1;
+      sj = pj + 1;
+    }
+  }
+  return hunks;
+}
+
+/* Union both sides' hunks into unstable regions. Properly overlapping hunks
+ * merge into one region (their combination is compared atomically); hunks that
+ * merely touch, and zero-width insertions at a region boundary, stay separate
+ * so different-line edits keep merging cleanly. The rule is order-independent. */
+function notesDiff3Regions_(gHunks, mHunks) {
+  var all = [];
+  var i;
+  for (i = 0; i < gHunks.length; i += 1) all.push({ side: 'g', hunk: gHunks[i] });
+  for (i = 0; i < mHunks.length; i += 1) all.push({ side: 'm', hunk: mHunks[i] });
+  all.sort(function(x, y) {
+    if (x.hunk.bStart !== y.hunk.bStart) return x.hunk.bStart - y.hunk.bStart;
+    return x.hunk.bEnd - y.hunk.bEnd;
+  });
+  var regions = [];
+  for (i = 0; i < all.length; i += 1) {
+    var h = all[i].hunk;
+    var last = regions.length ? regions[regions.length - 1] : null;
+    var overlaps = !!last && h.bStart < last.bEnd && last.bStart < h.bEnd;
+    var sameSpotInsertions = !!last && h.bStart === last.bEnd &&
+      last.bStart === last.bEnd && h.bStart === h.bEnd;
+    if (overlaps || sameSpotInsertions) {
+      if (h.bEnd > last.bEnd) last.bEnd = h.bEnd;
+      last.parts.push(all[i]);
+    } else {
+      regions.push({ bStart: h.bStart, bEnd: h.bEnd, parts: [all[i]] });
+    }
+  }
+  return regions;
+}
+
+/* The lines a side holds for base range [bStart, bEnd): its own hunks'
+ * replacement text, base lines everywhere else. Hunks outside the region are
+ * ignored — each belongs to exactly one region. */
+function notesDiff3RegionSideLines_(region, sideName, base, side) {
+  var lines = [];
+  var i = region.bStart;
+  for (var k = 0; k < region.parts.length; k += 1) {
+    var part = region.parts[k];
+    if (part.side !== sideName) continue;
+    var h = part.hunk;
+    if (h.bStart > i) lines.push.apply(lines, base.slice(i, h.bStart));
+    if (h.oEnd > h.oStart) lines.push.apply(lines, side.slice(h.oStart, h.oEnd));
+    if (h.bEnd > i) i = h.bEnd;
+  }
+  if (i < region.bEnd) lines.push.apply(lines, base.slice(i, region.bEnd));
+  return lines;
+}
+
+function notesDiff3LinesEqual_(a, b) {
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/* Classic diff3 resolution on line arrays: stable stretches of the base pass
+ * through; each unstable region resolves to the changed side, or to the shared
+ * value when both sides agree. Any region where both sides changed differently
+ * is a conflict and the WHOLE merge falls back (never a partial write). */
+function notesDiff3MergeLines_(base, g, m) {
+  if (base.length > NOTES_DIFF3_MAX_LINES_ ||
+      g.length > NOTES_DIFF3_MAX_LINES_ || m.length > NOTES_DIFF3_MAX_LINES_) return null;
+  var gHunks = notesDiff3Hunks_(base, g, notesDiff3LcsMatches_(base, g));
+  var mHunks = notesDiff3Hunks_(base, m, notesDiff3LcsMatches_(base, m));
+  var regions = notesDiff3Regions_(gHunks, mHunks);
+  var out = [];
+  var bi = 0;
+  for (var k = 0; k < regions.length; k += 1) {
+    var region = regions[k];
+    if (region.bStart > bi) out.push.apply(out, base.slice(bi, region.bStart));
+    var bLines = base.slice(region.bStart, region.bEnd);
+    var gLines = notesDiff3RegionSideLines_(region, 'g', base, g);
+    var mLines = notesDiff3RegionSideLines_(region, 'm', base, m);
+    if (notesDiff3LinesEqual_(gLines, mLines)) out.push.apply(out, gLines);
+    else if (notesDiff3LinesEqual_(mLines, bLines)) out.push.apply(out, gLines);
+    else if (notesDiff3LinesEqual_(gLines, bLines)) out.push.apply(out, mLines);
+    else return null;
+    bi = region.bEnd;
+  }
+  if (bi < base.length) out.push.apply(out, base.slice(bi));
+  return out.join('\n');
+}
+
+function notesDiff3MergeText_(baseText, gText, mText) {
+  // The provider can hand back CRLF line endings even when every stored byte
+  // was LF (measured live 2026-11-18: a text body came back with \r\n while
+  // the Google copy and the cached baseline were LF).  Un-normalized, every
+  // shared line counts as edited and the whole column collapses into one
+  // false conflict, so all three sides are reduced to LF before the line
+  // diff.  The merged output stays LF, matching the Google side and the
+  // baseline refresh below.
+  return notesDiff3MergeLines_(
+    resourceToLf_(String(baseText)).split('\n'),
+    resourceToLf_(String(gText == null ? '' : gText)).split('\n'),
+    resourceToLf_(String(mText == null ? '' : mText)).split('\n'));
+}
+
+function ordinaryMergeMappedFields_(baselineFp, googleProjection, microsoftProjection, rec, diff3Options) {
   var toGoogle = {};
   var toMicrosoft = {};
   var convergedFields = [];
@@ -336,6 +643,21 @@ function ordinaryMergeMappedFields_(baselineFp, googleProjection, microsoftProje
       convergedFields.push(field);
       continue;
     }
+    // Line-level three-way merge for the notes column: both sides diverged
+    // from a verified cached baseline, so try to combine the edits. A
+    // same-region conflict (or any failed baseline check above) keeps the
+    // legacy whole-column conflict — never a partial write, never a raw-text
+    // fallback.
+    if (field === 'notes' && diff3Options) {
+      var diff3 = notesDiff3Resolve_(rec, googleProjection.notes, microsoftProjection.notes, diff3Options);
+      if (diff3.ok) {
+        if (diff3.merged !== googleProjection.notes) toGoogle[field] = diff3.merged;
+        if (diff3.merged !== microsoftProjection.notes) toMicrosoft[field] = diff3.merged;
+        convergedFields.push(field);
+        diff3Options.outcome.merged = true;
+        continue;
+      }
+    }
     conflicts.push({ field: field, kind: 'TRUE_FIELD_CONFLICT' });
   }
   return {
@@ -357,7 +679,12 @@ function ordinaryGooglePatchFromPlan_(plan) {
     payload.status = plan.toGoogle.completed ? 'completed' : 'needsAction';
   }
   if (Object.prototype.hasOwnProperty.call(plan.toGoogle, 'due')) {
-    payload.due = plan.toGoogle.due ? plan.toGoogle.due.date + 'T00:00:00.000Z' : null;
+    // Symmetric with the Microsoft writer below: a winner unit whose date is
+    // null is a CLEARED date and travels as payload.due = null — never the
+    // stringified "nullT00:00:00.000Z" (2026-11-18 due bootstrap fix).
+    payload.due = plan.toGoogle.due && plan.toGoogle.due.date
+      ? plan.toGoogle.due.date + 'T00:00:00.000Z'
+      : null;
   }
   return payload;
 }
@@ -442,10 +769,13 @@ function step2bRecurrenceClassification_() {
   };
 }
 
-function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, safety) {
+function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId, safety, options) {
   var gProj = ordinaryProjectGoogle_(gTask, rec, safety);
   var mProj = ordinaryProjectMicrosoft_(msTask, rec, safety);
-  var plan = ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec);
+  // Line-level notes merge round options: null unless the caller passed
+  // diff3Enabled === true, in which case every path is byte-identical legacy.
+  var diff3Round = notesDiff3RoundOptions_(options, gTask);
+  var plan = ordinaryMergeMappedFields_(rec.fp, gProj, mProj, rec, diff3Round);
   // 2026-10-11 recurrence storm: a Microsoft-native recurring task is owned by
   // Microsoft's recurrence engine. Writing completed or due into it re-anchors
   // the series and makes Microsoft spawn the next occurrence, which the engine
@@ -503,6 +833,28 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
         ? textToHtml_(composeManagedNotes_(userNotesM, resources.microsoftBlock, badge))
         : composeManagedNotes_(userNotesM, resources.microsoftBlock, badge)
     };
+  }
+  // Zero separator stacking: a merged notes value is re-parsed as composed,
+  // before any provider call. A composed output the block parser cannot own —
+  // a duplicate separator, or a malformed/ambiguous block layout — blocks the
+  // notes write on that side (whole-column skip; the provider's current value
+  // stays untouched, no data loss).
+  if (diff3Round && diff3Round.outcome.merged) {
+    var diff3Blocked = false;
+    if (Object.prototype.hasOwnProperty.call(gPayload, 'notes') &&
+        !notesDiff3WriteSafe_(gPayload.notes)) {
+      delete gPayload.notes;
+      diff3Blocked = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(msPayload, 'body') && msPayload.body &&
+        typeof msPayload.body.content === 'string' &&
+        !notesDiff3WriteSafe_(msPayload.body.content)) {
+      delete msPayload.body;
+      diff3Blocked = true;
+    }
+    if (diff3Blocked) {
+      plan.skipped.push({ field: 'notes', reason: 'NOTES_UNMERGEABLE' });
+    }
   }
   if (resources.nativeCreate) {
     throw new Error('NATIVE_LINKED_RESOURCE_CREATE_FORBIDDEN');
@@ -716,10 +1068,18 @@ function ordinaryReconcileMappedPair_(state, rec, gTask, msTask, currentGListId,
     }
   }
 
+  // Refresh the notes baseline each round the pair converged on: fingerprint
+  // into the mapping, normalized text into the user cache (never into the
+  // sync state). A non-converged or unparseable notes round leaves any prior
+  // baseline untouched so the next round can still merge against it.
+  notesDiff3RefreshBaseline_(rec, gNow, mNow, diff3Round);
+
   putMapping_(state, gAfter, currentGListId || rec.gListId, msAfter, rec.msListId);
   var saved = state.g2m[gAfter.id];
   if (saved) {
     if (rec.fp) saved.fp = rec.fp;
+    if (rec.nfp) saved.nfp = rec.nfp;
+    else delete saved.nfp;
     if (rec.res) saved.res = rec.res;
     else delete saved.res;
     if (rec.fc) saved.fc = rec.fc;
